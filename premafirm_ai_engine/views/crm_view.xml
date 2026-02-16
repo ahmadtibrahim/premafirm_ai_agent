@@ -1,0 +1,24 @@
+<odoo>
+    <record id="view_crm_lead_form_premafirm" model="ir.ui.view">
+        <field name="name">crm.lead.form.premafirm</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+        <field name="arch" type="xml">
+
+            <xpath expr="//sheet/notebook" position="inside">
+                <page string="Multi Stops">
+                    <field name="load_stop_ids">
+                        <tree editable="bottom">
+                            <field name="sequence"/>
+                            <field name="stop_type"/>
+                            <field name="address"/>
+                            <field name="pallets"/>
+                            <field name="weight_lbs"/>
+                        </tree>
+                    </field>
+                </page>
+            </xpath>
+
+        </field>
+    </record>
+</odoo>

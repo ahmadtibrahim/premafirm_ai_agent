@@ -1,8 +1,8 @@
 import requests
 import json
-import re
 from odoo import models, fields
 from odoo.exceptions import UserError
+from odoo.tools import html2plaintext
 
 
 class CrmLead(models.Model):
@@ -29,15 +29,17 @@ class CrmLead(models.Model):
         # 1️⃣ Get latest email body
         # -----------------------------
         email_body = ""
-        messages = self.message_ids.sorted("date", reverse=True)
+        inbound = self.message_ids.filtered(
+            lambda m: m.message_type == "email" and m.email_from
+        ).sorted("date", reverse=True)
 
-        for msg in messages:
+        for msg in inbound:
             if msg.body:
-                email_body = re.sub("<.*?>", "", msg.body)
+                email_body = html2plaintext(msg.body)
                 break
 
         if not email_body:
-            raise UserError("No email content found.")
+            raise UserError("No inbound email content found.")
 
         # -----------------------------
         # 2️⃣ Ask OpenAI for structured stops
@@ -52,20 +54,27 @@ class CrmLead(models.Model):
                 {
                     "role": "user",
                     "content": f"""
-Extract pickup and delivery stops.
-
-Return format:
+Extract stops list with optional multi loads using this JSON format ONLY:
 
 {{
   "stops": [
     {{
       "type": "pickup",
-      "address": "City, Province",
-      "pallets": 0,
-      "weight_lbs": 0
+      "address": "123 Industrial Rd, Barrie, ON",
+      "pallets": 6,
+      "weight_lbs": 9115
+    }},
+    {{
+      "type": "delivery",
+      "address": "3475 Fountain Park Ave, Mississauga, ON",
+      "pallets": 6,
+      "weight_lbs": 9115
     }}
   ]
 }}
+
+Use the explicit labels "pickup" and "delivery" for each stop type.
+Return only valid JSON with a top-level "stops" array.
 
 Email:
 {email_body}
@@ -96,7 +105,13 @@ Email:
         try:
             structured = json.loads(content)
         except Exception:
-            raise UserError("AI returned invalid JSON.")
+            clean = content
+            if clean.strip() and not clean.strip().startswith("{"):
+                clean = "{" + clean.split("{", 1)[-1]
+            try:
+                structured = json.loads(clean)
+            except Exception:
+                raise UserError("AI returned invalid JSON.")
 
         stops = structured.get("stops", [])
 

@@ -1,6 +1,6 @@
 {
     "name": "PremaFirm AI Engine",
-    "version": "1.1",
+    "version": "1.2",
     "summary": "AI Pricing + Routing Engine for PremaFirm Logistics",
     "author": "PremaFirm",
     "depends": ["crm", "sale_management", "mail", "fleet"],

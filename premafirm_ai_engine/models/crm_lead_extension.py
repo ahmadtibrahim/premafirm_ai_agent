@@ -39,6 +39,10 @@ class CrmLead(models.Model):
 
     ai_recommendation = fields.Text()
 
+    inside_delivery = fields.Boolean()
+    liftgate = fields.Boolean()
+    detention_requested = fields.Boolean()
+
     assigned_vehicle_id = fields.Many2one(
         "fleet.vehicle",
     )

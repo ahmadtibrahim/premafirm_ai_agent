@@ -20,9 +20,9 @@ class _StopList(list):
 
 def test_compute_lead_totals_basic():
     vehicle = SimpleNamespace(
-        x_studio_location="5585 McAdam Rd, Mississauga, ON",
-        x_studio_service_type="dry",
-        x_studio_load_type="FTL",
+        home_location="5585 McAdam Rd, Mississauga, ON",
+        service_type="dry",
+        load_type="FTL",
     )
     stops = _StopList(
         [
@@ -31,8 +31,8 @@ def test_compute_lead_totals_basic():
                 address="Toronto, ON",
                 stop_pickup_dt=False,
                 stop_delivery_dt=False,
-                pallet_count=10,
-                load_weight_lbs=12000,
+                pallets=10,
+                weight_lbs=12000,
                 service_type=False,
                 load_type=False,
             ),
@@ -41,15 +41,15 @@ def test_compute_lead_totals_basic():
                 address="Ottawa, ON",
                 stop_pickup_dt=False,
                 stop_delivery_dt=False,
-                pallet_count=5,
-                load_weight_lbs=5000,
+                pallets=5,
+                weight_lbs=5000,
                 service_type=False,
                 load_type=False,
             ),
         ]
     )
 
-    lead = SimpleNamespace(stop_ids=stops, x_studio_assigned_vehicle=vehicle)
+    lead = SimpleNamespace(dispatch_stop_ids=stops, assigned_vehicle_id=vehicle)
     service = DispatchService(env=None)
 
     result = service.compute_lead_totals(lead)

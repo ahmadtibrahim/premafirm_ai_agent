@@ -4,13 +4,7 @@
         <field name="model">crm.lead</field>
         <field name="inherit_id" ref="crm.crm_lead_view_form"/>
         <field name="arch" type="xml">
-            <!-- Hide legacy load info fields from form, keep in DB for backward compatibility -->
-            <xpath expr="//field[@name='x_studio_char_field_8ci_1jh45n5oc']" position="replace"/>
-            <xpath expr="//field[@name='x_studio_char_field_9da_1jhakip9j']" position="replace"/>
-            <xpath expr="//field[@name='x_studio_pickup_datetime']" position="replace"/>
-            <xpath expr="//field[@name='x_studio_delivery_datetime']" position="replace"/>
-            <xpath expr="//field[@name='x_studio_pallet_count']" position="replace"/>
-            <xpath expr="//field[@name='x_studio_load_weight_lbs']" position="replace"/>
+            <!-- Hide legacy stop-level fields from form, keep in DB for backward compatibility -->
 
             <xpath expr="//field[@name='x_studio_stop_pickup_dt']" position="replace"/>
             <xpath expr="//field[@name='x_studio_stop_delivery_dt']" position="replace"/>

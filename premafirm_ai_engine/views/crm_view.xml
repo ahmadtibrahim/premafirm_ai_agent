@@ -4,30 +4,70 @@
         <field name="model">crm.lead</field>
         <field name="inherit_id" ref="crm.crm_lead_view_form"/>
         <field name="arch" type="xml">
+            <!-- Hide legacy load info fields from form, keep in DB for backward compatibility -->
+            <xpath expr="//field[@name='x_studio_char_field_8ci_1jh45n5oc']" position="replace"/>
+            <xpath expr="//field[@name='x_studio_char_field_9da_1jhakip9j']" position="replace"/>
+            <xpath expr="//field[@name='x_studio_pickup_datetime']" position="replace"/>
+            <xpath expr="//field[@name='x_studio_delivery_datetime']" position="replace"/>
+            <xpath expr="//field[@name='x_studio_pallet_count']" position="replace"/>
+            <xpath expr="//field[@name='x_studio_load_weight_lbs']" position="replace"/>
 
-            <!-- Add AI Button next to Send Message -->
-            <xpath expr="//button[@name='action_set_won_rainbowman']" position="after">
-                <button name="action_premafirm_ai_price"
-                        string="AI Price"
-                        type="object"
-                        class="btn btn-primary"/>
+            <xpath expr="//field[@name='x_studio_stop_pickup_dt']" position="replace"/>
+            <xpath expr="//field[@name='x_studio_stop_delivery_dt']" position="replace"/>
+            <xpath expr="//field[@name='x_studio_stop_window_start']" position="replace"/>
+            <xpath expr="//field[@name='x_studio_stop_window_end']" position="replace"/>
+
+            <!-- Ensure AI computed outputs remain visible and readonly -->
+            <xpath expr="//field[@name='x_studio_distance_km']" position="attributes">
+                <attribute name="readonly">1</attribute>
+            </xpath>
+            <xpath expr="//field[@name='x_studio_drive_hours']" position="attributes">
+                <attribute name="readonly">1</attribute>
+            </xpath>
+            <xpath expr="//field[@name='x_studio_estimated_cost']" position="attributes">
+                <attribute name="readonly">1</attribute>
+            </xpath>
+            <xpath expr="//field[@name='x_studio_target_profit']" position="attributes">
+                <attribute name="readonly">1</attribute>
+            </xpath>
+            <xpath expr="//field[@name='x_studio_suggested_rate']" position="attributes">
+                <attribute name="readonly">1</attribute>
+            </xpath>
+            <xpath expr="//field[@name='x_studio_ai_recommendation']" position="attributes">
+                <attribute name="readonly">1</attribute>
+            </xpath>
+            <xpath expr="//field[@name='x_studio_service_type']" position="attributes">
+                <attribute name="readonly">1</attribute>
+            </xpath>
+            <xpath expr="//field[@name='x_studio_load_type']" position="attributes">
+                <attribute name="readonly">1</attribute>
+            </xpath>
+            <xpath expr="//field[@name='x_studio_assigned_vehicle']" position="attributes">
+                <attribute name="readonly">1</attribute>
             </xpath>
 
-            <!-- Multi Stops Tab -->
             <xpath expr="//sheet/notebook" position="inside">
-                <page string="Multi Stops">
-                    <field name="stop_ids">
-                        <list editable="bottom">
-                            <field name="sequence"/>
-                            <field name="stop_type"/>
-                            <field name="address"/>
-                            <field name="pallets"/>
-                            <field name="weight_lbs"/>
-                        </list>
-                    </field>
+                <page string="Dispatch Summary">
+                    <group>
+                        <group>
+                            <field name="x_studio_distance_km"/>
+                            <field name="x_studio_drive_hours"/>
+                            <field name="x_studio_estimated_cost"/>
+                            <field name="x_studio_target_profit"/>
+                            <field name="x_studio_suggested_rate"/>
+                        </group>
+                        <group>
+                            <field name="x_studio_service_type"/>
+                            <field name="x_studio_load_type"/>
+                            <field name="x_studio_total_pickup_dt"/>
+                            <field name="x_studio_total_delivery_dt"/>
+                            <field name="x_studio_aggregated_pallet_count"/>
+                            <field name="x_studio_aggregated_load_weight_lbs"/>
+                        </group>
+                        <field name="x_studio_ai_recommendation"/>
+                    </group>
                 </page>
             </xpath>
-
         </field>
     </record>
 </odoo>

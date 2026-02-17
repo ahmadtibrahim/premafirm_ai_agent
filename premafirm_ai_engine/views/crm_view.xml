@@ -1,38 +1,50 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-
-    <record id="view_crm_lead_form_premafirm" model="ir.ui.view">
-        <field name="name">crm.lead.form.premafirm</field>
+    <record id="view_crm_lead_form_premafirm_ai" model="ir.ui.view">
+        <field name="name">crm.lead.form.premafirm.ai</field>
         <field name="model">crm.lead</field>
         <field name="inherit_id" ref="crm.crm_lead_view_form"/>
         <field name="arch" type="xml">
-
-            <!-- AI Price Button -->
-            <xpath expr="//button[@name='action_set_won_rainbowman']" position="after">
-                <button name="action_premafirm_ai_price"
-                        string="AI Price"
+            <xpath expr="//header" position="inside">
+                <button name="action_ai_calculate"
                         type="object"
-                        class="btn btn-primary"/>
+                        string="AI Calculate"
+                        class="btn-primary"/>
             </xpath>
 
-            <!-- Multi Stops Tab -->
             <xpath expr="//sheet/notebook" position="inside">
-                <page string="Multi Stops">
-                    <field name="stop_ids">
+                <page string="Load Info">
+                    <field name="dispatch_stop_ids">
                         <tree editable="bottom">
                             <field name="sequence"/>
                             <field name="stop_type"/>
                             <field name="address"/>
                             <field name="pallets"/>
                             <field name="weight_lbs"/>
-                            <field name="x_studio_pickup_dt"/>
-                            <field name="x_studio_delivery_dt"/>
+                            <field name="service_type"/>
+                            <field name="pickup_datetime_est"/>
+                            <field name="delivery_datetime_est"/>
+                            <field name="distance_km"/>
+                            <field name="drive_hours"/>
                         </tree>
                     </field>
+
+                    <group>
+                        <group>
+                            <field name="total_pallets" readonly="1"/>
+                            <field name="total_weight_lbs" readonly="1"/>
+                            <field name="total_distance_km" readonly="1"/>
+                            <field name="total_drive_hours" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="estimated_cost"/>
+                            <field name="suggested_rate"/>
+                        </group>
+                    </group>
+
+                    <field name="ai_recommendation" nolabel="1" placeholder="AI recommendation..."/>
                 </page>
             </xpath>
-
         </field>
     </record>
-
 </odoo>

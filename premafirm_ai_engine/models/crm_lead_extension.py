@@ -1,3 +1,5 @@
+# sftp://root@72.60.115.139/opt/odoo/custom-addons/premafirm_ai_engine/models/crm_lead_extension.py
+
 from odoo import api, fields, models
 
 

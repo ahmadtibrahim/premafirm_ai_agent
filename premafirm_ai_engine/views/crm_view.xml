@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+
     <record id="view_crm_lead_form_premafirm_ai" model="ir.ui.view">
         <field name="name">crm.lead.form.premafirm.ai</field>
         <field name="model">crm.lead</field>
         <field name="inherit_id" ref="crm.crm_lead_view_form"/>
         <field name="arch" type="xml">
+
+            <!-- Add AI button safely -->
             <xpath expr="//header" position="inside">
                 <button name="action_ai_calculate"
                         type="object"
@@ -12,11 +15,12 @@
                         class="btn-primary"/>
             </xpath>
 
-            <xpath expr="//sheet/notebook" position="inside">
+            <!-- Inject page safely AFTER existing pages -->
+            <xpath expr="//notebook/page[last()]" position="after">
                 <page string="Load Info">
+
                     <field name="dispatch_stop_ids">
                         <tree editable="bottom">
-                            <!-- sequence belongs to premafirm.dispatch.stop (dispatch_stop_ids comodel) -->
                             <field name="sequence"/>
                             <field name="stop_type"/>
                             <field name="address"/>
@@ -36,24 +40,16 @@
                     </field>
 
                     <group>
-                        <group>
-                            <field name="total_pallets" readonly="1"/>
-                            <field name="total_weight_lbs" readonly="1"/>
-                            <field name="total_distance_km" readonly="1"/>
-                            <field name="total_drive_hours" readonly="1"/>
-                        </group>
-                        <group>
-                            <field name="inside_delivery"/>
-                            <field name="liftgate"/>
-                            <field name="detention_requested"/>
-                            <field name="estimated_cost"/>
-                            <field name="suggested_rate"/>
-                        </group>
+                        <field name="total_pallets" readonly="1"/>
+                        <field name="total_weight_lbs" readonly="1"/>
+                        <field name="total_distance_km" readonly="1"/>
+                        <field name="total_drive_hours" readonly="1"/>
                     </group>
 
-                    <field name="ai_recommendation" nolabel="1" placeholder="AI recommendation..."/>
                 </page>
             </xpath>
+
         </field>
     </record>
+
 </odoo>

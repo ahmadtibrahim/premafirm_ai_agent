@@ -29,6 +29,8 @@ class PremafirmDispatchStop(models.Model):
         [("dry", "Dry"), ("reefer", "Reefer")]
     )
 
+    requested_datetime = fields.Datetime()
+
     pickup_datetime_est = fields.Datetime()
 
     delivery_datetime_est = fields.Datetime()

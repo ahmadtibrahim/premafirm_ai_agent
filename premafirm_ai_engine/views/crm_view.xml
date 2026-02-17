@@ -22,6 +22,11 @@
                             <field name="pallets"/>
                             <field name="weight_lbs"/>
                             <field name="service_type"/>
+                            <field name="requested_datetime"/>
+                            <field name="pickup_window_start"/>
+                            <field name="pickup_window_end"/>
+                            <field name="delivery_window_start"/>
+                            <field name="delivery_window_end"/>
                             <field name="pickup_datetime_est"/>
                             <field name="delivery_datetime_est"/>
                             <field name="distance_km"/>
@@ -37,6 +42,9 @@
                             <field name="total_drive_hours" readonly="1"/>
                         </group>
                         <group>
+                            <field name="inside_delivery"/>
+                            <field name="liftgate"/>
+                            <field name="detention_requested"/>
                             <field name="estimated_cost"/>
                             <field name="suggested_rate"/>
                         </group>

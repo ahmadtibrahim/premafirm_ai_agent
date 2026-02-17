@@ -28,8 +28,11 @@ class DispatchService:
         aggregated_pallet_count = sum(stop.pallets for stop in lead.dispatch_stop_ids)
         aggregated_load_weight_lbs = sum(stop.weight_lbs for stop in lead.dispatch_stop_ids)
 
-        service_type = lead.assigned_vehicle_id.service_type if lead.assigned_vehicle_id else "dry"
-        load_type = lead.assigned_vehicle_id.load_type if lead.assigned_vehicle_id else "FTL"
+
+        assigned_vehicle = getattr(lead, "assigned_vehicle_id", None)
+        service_type = getattr(assigned_vehicle, "x_studio_service_type", "dry") or "dry"
+        load_type = getattr(assigned_vehicle, "x_studio_load_type", "FTL") or "FTL"
+
 
         dispatch_stops = []
         for stop in lead.dispatch_stop_ids:

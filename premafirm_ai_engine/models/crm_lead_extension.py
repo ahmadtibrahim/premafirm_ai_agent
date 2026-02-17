@@ -29,13 +29,9 @@ class CrmLead(models.Model):
         store=True,
     )
 
-    estimated_cost = fields.Monetary(
-        currency_field="company_currency",
-    )
+    estimated_cost = fields.Float()
 
-    suggested_rate = fields.Monetary(
-        currency_field="company_currency",
-    )
+    suggested_rate = fields.Float()
 
     ai_recommendation = fields.Text()
 

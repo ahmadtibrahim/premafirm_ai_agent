@@ -14,10 +14,7 @@ class PremafirmLoadStop(models.Model):
 
     sequence = fields.Integer(default=1)
 
-    stop_type = fields.Selection([
-        ("pickup", "Pickup"),
-        ("delivery", "Delivery"),
-    ], required=True)
+    stop_type = fields.Selection([("pickup", "Pickup"), ("delivery", "Delivery")])
 
     address = fields.Char(required=True)
     pallets = fields.Integer()

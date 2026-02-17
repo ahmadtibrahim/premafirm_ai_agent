@@ -19,20 +19,21 @@ class DispatchService:
         self.pricing_engine = PricingEngine(env)
 
     def _estimate_distance_km(self, lead):
-        if len(lead.stop_ids) >= 2:
+        if len(lead.dispatch_stop_ids) >= 2:
             return 250.0
         return 0.0
 
     def compute_lead_totals(self, lead):
         distance_km = self._estimate_distance_km(lead)
-        aggregated_pallet_count = sum(stop.pallet_count for stop in lead.stop_ids)
-        aggregated_load_weight_lbs = sum(stop.load_weight_lbs for stop in lead.stop_ids)
+        aggregated_pallet_count = sum(stop.pallets for stop in lead.dispatch_stop_ids)
+        aggregated_load_weight_lbs = sum(stop.weight_lbs for stop in lead.dispatch_stop_ids)
 
-        service_type = getattr(lead.x_studio_assigned_vehicle, "x_studio_service_type", "dry") or "dry"
-        load_type = getattr(lead.x_studio_assigned_vehicle, "x_studio_load_type", "FTL") or "FTL"
+        assigned_vehicle = getattr(lead, "assigned_vehicle_id", None)
+        service_type = getattr(assigned_vehicle, "x_studio_service_type", "dry") or "dry"
+        load_type = getattr(assigned_vehicle, "x_studio_load_type", "FTL") or "FTL"
 
         dispatch_stops = []
-        for stop in lead.stop_ids:
+        for stop in lead.dispatch_stop_ids:
             dispatch_stops.append(type("Stop", (), {
                 "stop_type": "delivery" if stop.sequence > 1 else "pickup",
                 "service_type": stop.service_type or service_type,

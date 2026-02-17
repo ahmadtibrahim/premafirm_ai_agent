@@ -4,30 +4,30 @@
         <field name="model">crm.lead</field>
         <field name="inherit_id" ref="crm.crm_lead_view_form"/>
         <field name="arch" type="xml">
-
-            <!-- Add AI Button next to Send Message -->
-            <xpath expr="//button[@name='action_set_won_rainbowman']" position="after">
-                <button name="action_premafirm_ai_price"
-                        string="AI Price"
-                        type="object"
-                        class="btn btn-primary"/>
-            </xpath>
-
-            <!-- Multi Stops Tab -->
+            <!-- Keep inheritance resilient: only anchor to stable notebook node in base CRM form. -->
             <xpath expr="//sheet/notebook" position="inside">
-                <page string="Multi Stops">
-                    <field name="stop_ids">
-                        <list editable="bottom">
-                            <field name="sequence"/>
-                            <field name="stop_type"/>
-                            <field name="address"/>
-                            <field name="pallets"/>
-                            <field name="weight_lbs"/>
-                        </list>
-                    </field>
+                <page string="Dispatch Summary">
+                    <group>
+                        <group>
+                            <field name="x_studio_assigned_vehicle" readonly="1"/>
+                            <field name="x_studio_distance_km" readonly="1"/>
+                            <field name="x_studio_drive_hours" readonly="1"/>
+                            <field name="x_studio_estimated_cost" readonly="1"/>
+                            <field name="x_studio_target_profit" readonly="1"/>
+                            <field name="x_studio_suggested_rate" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="x_studio_service_type" readonly="1"/>
+                            <field name="x_studio_load_type" readonly="1"/>
+                            <field name="x_studio_total_pickup_dt" readonly="1"/>
+                            <field name="x_studio_total_delivery_dt" readonly="1"/>
+                            <field name="x_studio_aggregated_pallet_count" readonly="1"/>
+                            <field name="x_studio_aggregated_load_weight_lbs" readonly="1"/>
+                        </group>
+                        <field name="x_studio_ai_recommendation" readonly="1"/>
+                    </group>
                 </page>
             </xpath>
-
         </field>
     </record>
 </odoo>

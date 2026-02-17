@@ -5,16 +5,27 @@
         <field name="inherit_id" ref="crm.crm_lead_view_form"/>
         <field name="arch" type="xml">
 
+
+            <!-- ✅ ADD AI BUTTON IN HEADER -->
+            <xpath expr="//form/header" position="inside">
+                <button
+                    name="action_premafirm_ai_price"
+                    type="object"
+                    string="AI Price &amp; Draft"
+                    class="btn-primary"
+                />
+            </xpath>
+
             <xpath expr="//sheet/notebook" position="inside">
                 <page string="Multi Stops">
                     <field name="stop_ids">
-                        <list editable="bottom">
+                        <tree editable="bottom">
                             <field name="sequence"/>
                             <field name="stop_type"/>
                             <field name="address"/>
                             <field name="pallets"/>
                             <field name="weight_lbs"/>
-                        </list>
+                        </tree>
                     </field>
                 </page>
             </xpath>

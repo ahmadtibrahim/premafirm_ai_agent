@@ -1,0 +1,57 @@
+from odoo import api, fields, models
+
+
+class CrmLead(models.Model):
+    _inherit = "crm.lead"
+
+    dispatch_stop_ids = fields.One2many(
+        "premafirm.dispatch.stop",
+        "lead_id",
+    )
+
+    total_pallets = fields.Integer(
+        compute="_compute_dispatch_totals",
+        store=True,
+    )
+
+    total_weight_lbs = fields.Float(
+        compute="_compute_dispatch_totals",
+        store=True,
+    )
+
+    total_distance_km = fields.Float(
+        compute="_compute_dispatch_totals",
+        store=True,
+    )
+
+    total_drive_hours = fields.Float(
+        compute="_compute_dispatch_totals",
+        store=True,
+    )
+
+    estimated_cost = fields.Monetary(
+        currency_field="company_currency",
+    )
+
+    suggested_rate = fields.Monetary(
+        currency_field="company_currency",
+    )
+
+    ai_recommendation = fields.Text()
+
+    assigned_vehicle_id = fields.Many2one(
+        "fleet.vehicle",
+    )
+
+    @api.depends(
+        "dispatch_stop_ids.pallets",
+        "dispatch_stop_ids.weight_lbs",
+        "dispatch_stop_ids.distance_km",
+        "dispatch_stop_ids.drive_hours",
+    )
+    def _compute_dispatch_totals(self):
+        for lead in self:
+            lead.total_pallets = sum(lead.dispatch_stop_ids.mapped("pallets"))
+            lead.total_weight_lbs = sum(lead.dispatch_stop_ids.mapped("weight_lbs"))
+            lead.total_distance_km = sum(lead.dispatch_stop_ids.mapped("distance_km"))
+            lead.total_drive_hours = sum(lead.dispatch_stop_ids.mapped("drive_hours"))

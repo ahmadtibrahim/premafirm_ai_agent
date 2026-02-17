@@ -7,8 +7,6 @@
     "data": [
         "security/ir.model.access.csv",
         "views/crm_view.xml",
-        "views/multi_stop_views.xml",
-        "views/fleet_vehicle_views.xml",
     ],
     "installable": True,
     "application": False,

@@ -1,331 +1,368 @@
-# PREMAFIRM AI ENGINE
-Odoo 18 – Integrated AI Pricing, Routing & Scheduling System
-FTL / LTL – 26ft Straight Truck – $400 Net/Day Target
-
-============================================================
-OVERVIEW
-============================================================
-
-PremaFirm AI Engine is a fully embedded Odoo 18 module for
-PremaFirm Logistics.
-
-It eliminates manual quoting and load structuring by:
+# PREMAFIRM AI DISPATCH ENGINE
+**Odoo 18 Enterprise – CRM + Fleet + Accounting + AI Dispatch Automation**
 
-• Reading broker emails from CRM
-• Extracting structured multi-stop freight data via AI
-• Calculating truck-safe routing via Mapbox
-• Running cost + profit logic (≥ $40/hour target)
-• Drafting professional quote replies
-• Preparing Sales Orders from PO
-• Performing schedule + HOS checks
-• Enforcing profit floor rules
+This module extends Odoo 18 Enterprise to automate freight-intake, dispatch planning, routing, and quote recommendations for Ontario-focused LTL/FTL operations.
 
-No external app required.
-Everything runs inside Odoo.
+---
 
+## System Overview
 
-============================================================
-CORE ARCHITECTURE
-============================================================
+PremaFirm AI Dispatch Engine provides:
 
-MODULE NAME:
-premafirm_ai_engine
+- AI email extraction (email body + PDF attachments)
+- Multi-stop dispatch table and route sequencing
+- Mapbox geocoding + distance/ETA calculation
+- Ontario LTL/FTL pricing engine
+- HOS-compliant scheduling checks
+- Automatic suggested-rate calculation
+- CRM quote/reply generation support
 
-EXTENDS:
-crm.lead
-sale.order
+---
 
-CUSTOM MODEL:
-premafirm.load.stop
+## Current Verified Models & Fields
 
-------------------------------------------------------------
-LOAD STOP MODEL
-------------------------------------------------------------
+### `crm.lead`
+Core fields available:
 
-Fields:
+- `name`, `description`, `email_from`, `phone`, `mobile`
+- `partner_id`, `contact_name`, `partner_name`
+- `street`, `city`, `state_id`, `country_id`, `zip`
+- `probability`, `stage_id`, `user_id`, `team_id`, `company_id`
+- `message_ids`, `message_attachment_count`, `message_has_error`, `message_needaction`, `has_message`
+- `rating_ids`, `website_message_ids`
+- `create_uid`, `create_date`, `write_uid`, `write_date`
+- `expected_revenue` (monetary)
+- `days_exceeding_closing` (float)
 
-- sequence (Integer)
-- stop_type (Selection: pickup / delivery)
-- address (Char)
-- pallet_count (Integer)
-- weight_lbs (Float)
-- lead_id (Many2one → crm.lead)
+### `fleet.vehicle`
+Core fields:
 
-Supports unlimited LTL patterns:
+- `name`, `license_plate`, `location`, `driver_id`, `driver_employee_id`
+- `company_id`, `odometer`, `fuel_type`, `vehicle_type`, `model_id`, `vin_sn`
 
-Pickup A – 4 pallets
-Pickup B – 2 pallets
-Deliver B
-Pickup C – 4 pallets
-Deliver A
+Custom Studio fields:
 
+- `x_studio_front_axle_rating_lbs`
+- `x_studio_rear_axle_rating_lbs`
+- `x_studio_gvwr_lbs`
+- `x_studio_payload_limit_lbs`
+- `x_studio_max_pallets_1`
+- `x_studio_fuel_tank_capacity_gal`
+- `x_studio_unit_number`
 
-============================================================
-PHASE 1 – STRUCTURED CRM DATA
-============================================================
+### `mail.message`
 
-Extended Fields on CRM Lead:
+- `subject`, `body` (HTML), `email_from`
+- `attachment_ids`, `model`, `res_id`, `message_type`, `date`
 
-Pickup Address (char)
-Delivery Address (char)
-Pickup Datetime (datetime)
-Delivery Datetime (datetime)
-Number of Pallets (int)
-Weight (lbs) (float)
-Service Scope (selection: Local, Regional, Interstate, Crossborder)
-Equipment Type (selection: Dry, Reefer)
-Strict Appointment (boolean)
-Distance KM (float)
-Drive Hours (float)
-Estimated Fuel Cost (float)
-Estimated Total Cost (float)
-Target Profit (float)
-Suggested Rate (float)
-AI Recommendation (text)
+### `ir.attachment`
 
-Multi-stop field:
-load_stop_ids (One2many → premafirm.load.stop)
+- `name`, `datas` (Base64), `mimetype`, `file_size`, `res_model`, `res_id`
 
+---
 
-============================================================
-PHASE 2 – MAPBOX ROUTING ENGINE
-============================================================
+## New Model to Create
 
-When AI button is clicked:
+### `premafirm.dispatch.stop`
 
-1) AI extracts all pickup & delivery stops
-2) Addresses are geocoded
-3) Mapbox Directions API called with:
+Required structure:
 
-   Profile: driving-traffic
-   Avoid: toll
-   Height: 4.11m (13'6")
-   Weight: 14969kg (~33,000 lbs GVWR truck legal)
+- `lead_id` (many2one → `crm.lead`, required, `ondelete="cascade"`)
+- `sequence` (integer)
+- `stop_type` (selection: `pickup`, `delivery`)
+- `address` (char, required)
+- `latitude` (float)
+- `longitude` (float)
+- `pallets` (integer)
+- `weight_lbs` (float)
+- `service_type` (selection: `dry`, `reefer`)
+- `pickup_datetime_est` (datetime)
+- `delivery_datetime_est` (datetime)
+- `time_window_start` (datetime)
+- `time_window_end` (datetime)
+- `distance_km_from_prev` (float)
+- `drive_hours_from_prev` (float)
+- `notes` (text)
 
-Returns:
-- Distance (meters)
-- Duration (seconds)
+### Totals to store on `crm.lead`
 
-Converted:
-distance_km = meters / 1000
-drive_hours = seconds / 3600
+- `x_total_distance_km` (float)
+- `x_total_drive_hours` (float)
+- `x_total_pallets` (integer)
+- `x_total_weight_lbs` (float)
+- `x_estimated_operating_cost` (float)
+- `x_suggested_rate` (float)
+- `x_ai_recommendation` (text)
 
-Stored on CRM.
+---
 
+## Products (from attachment)
 
-============================================================
-PHASE 3 – COST & PROFIT ENGINE
-============================================================
+Existing service products:
 
-Base Assumptions (configurable later):
+- Inside Delivery
+- LTL - Freight Service - USA
+- FTL - Freight Service - USA
+- LTL Freight Service - Canada
+- FTL Freight Service - Canada
+- Freight Service
+- Detention - CAN
+- Liftgate
+- Commercial Auto Insurance
+- Service on Timesheets
+- Daily Backup
+- MV Core Smart Chair
 
-Fuel economy: 3 km per liter
-Fuel price: 1.60 CAD/L
-Maintenance reserve: 0.25 CAD per km
-Insurance allocation:
-  - 50 CAD if drive > 4h
-  - 25 CAD if local short
-Factoring: 3%
+Taxes:
 
-CALCULATIONS:
+- `13% HST`
+- `0% Int` (international zero rated)
 
-fuel_cost = (distance_km / 3) * 1.60
-maintenance_cost = distance_km * 0.25
-insurance_daily = 50 if drive_hours > 4 else 25
+Usage guidance:
 
-base_cost = fuel_cost + maintenance_cost + insurance_daily
+- LTL Canada → default for Ontario
+- FTL Canada → full truck
+- USA services → cross-border loads
+- Inside Delivery / Liftgate / Detention → surcharge lines
 
-target_profit = drive_hours * 40
+---
 
-suggested_rate = base_cost + target_profit
+## Chart of Accounts Mapping
 
-All written to CRM automatically.
+Expected revenue accounts:
 
+- Freight Revenue - Canada
+- Freight Revenue - USA
+- Service Revenue
+- Other Income
 
-============================================================
-PHASE 4 – AI EMAIL RESPONSE ENGINE
-============================================================
+Common expense accounts:
 
-Button:
-"AI Price & Draft Reply"
+- Fuel Expense
+- Insurance Expense
+- Maintenance
+- Office Expense
+- Bank Fees
+- Software Expense
+- Depreciation
+- COGS (if used)
 
-Workflow:
+Liabilities:
 
-1) Extract structured load data from email
-2) Run route + cost engine
-3) Send structured JSON to OpenAI:
+- HST Payable
+- Loans Payable
+- Accounts Payable
 
-{
-  pickup: "",
-  delivery: "",
-  pallets: ,
-  weight_lbs: ,
-  distance_km: ,
-  drive_hours: ,
-  calculated_cost: ,
-  target_profit: ,
-  suggested_rate:
-}
+Assets:
 
-AI must:
-- Confirm pricing logic
-- Keep tone competitive
-- Highlight same-day capability
-- Avoid sounding greedy
-- Return final recommended rate
-- Generate professional email draft
+- Truck Asset
+- Accumulated Depreciation
+- Bank
+- Accounts Receivable
 
-System:
-• Posts draft in chatter
-• Does NOT auto-send
+Posting rule:
 
+- Main freight pricing should post to **Freight Revenue - Canada** or **Freight Revenue - USA**
+- Surcharges default to same revenue bucket unless a dedicated mapping is added
 
-============================================================
-PHASE 5 – PO RECEIVED WORKFLOW
-============================================================
+---
 
-When PO received:
+## Dispatch Rules File
 
-1) CRM stage → "Booked"
-2) Click "Create Sales Order"
-3) Sales Order auto-filled from CRM
-4) Suggested Rate inserted
-5) Load stops copied
-6) PO number stored
+File: `premafirm_ai_engine/data/dispatch_rules.json`
 
-Sales Order acts as Load Confirmation.
+Contains configuration for:
 
+- `base_rate_per_km`
+- `fuel_cost_per_km`
+- `daily_fixed_cost`
+- `target_net_profit`
+- surcharge rules
+- congestion multiplier
+- HOS limits
+- minimum load price
 
-============================================================
-PHASE 6 – SCHEDULING & HOS CHECK
-============================================================
+Used by:
 
-Before confirming Sales Order:
+- AI pricing engine
+- ETA/scheduling engine
 
-System checks:
+---
 
-• Existing confirmed loads
-• Travel time between last drop & new pickup
-• 13-hour Canada HOS rule
-• 30-min break after 8h driving
-• Delivery window strictness
+## Integrations
 
-If risk detected:
+### Mapbox
+System parameter:
 
-Popup:
-"Schedule Risk – Delivery window tight"
+- `mapbox_api_key`
 
-AI suggests:
-• Adjust pickup time
-• Add buffer
-• Increase rate due to risk
+Used for:
 
+- Address geocoding (address → lat/lon)
+- Route calculation
+- Distance (km)
+- Drive duration (hours)
 
-============================================================
-PHASE 7 – DELIVERY & INVOICE FLOW
-============================================================
+### OpenAI
+System parameter:
 
-After delivery:
+- `openai_api_key`
 
-1) Upload POD
-2) Move stage → Delivered
-3) Click Create Invoice
-4) Attach POD automatically
-5) Factoring workflow begins
+Used for:
 
+- Email body parsing
+- PDF extraction
+- Multi-load detection
+- Service type detection
+- Pallet/weight extraction
+- Suggested reply generation
 
-============================================================
-PHASE 8 – AI DECISION MODES
-============================================================
+---
 
-MODE 1 – Advisory
-AI suggests rate + draft only.
+## How It Works (AI Workflow)
 
-MODE 2 – Assisted Auto-Fill
-AI fills Suggested Rate but requires approval.
+1. Customer/broker email is received.
+2. Odoo creates or updates CRM lead.
+3. User clicks AI action button on lead.
+4. System reads:
+   - `mail.message.body`
+   - `ir.attachment.datas` (if present)
+5. System sends normalized text to OpenAI extraction prompt.
+6. AI returns structured JSON load data.
+7. System then:
+   - creates `premafirm.dispatch.stop` records
+   - calls Mapbox for route + ETA
+   - applies HOS logic
+   - applies pricing rules from `dispatch_rules.json`
+   - writes totals/recommendation back to `crm.lead`
+8. User reviews recommendation and suggested rate.
+9. User sends response/quote.
 
-MODE 3 – Strict Profit Guard
-If profit < $400 per 10h equivalent,
-System blocks confirmation unless overridden.
+---
 
+## HOS Logic
 
-============================================================
-SYSTEM PARAMETERS REQUIRED
-============================================================
+Current operational rules:
 
-Odoo → Settings → Technical → System Parameters
+- 13h max driving per day
+- 15min break after 4h
+- 30min break after 8h
+- Traffic multiplier: 1.18
+- Overnight split if limits exceeded
+- Respect customer time windows
 
-openai.api_key = YOUR_OPENAI_KEY
-mapbox.api.key = YOUR_MAPBOX_TOKEN
+---
 
+## Ontario LTL Pricing Engine (Baseline)
 
-============================================================
-TARGET OPERATION PROFILE
-============================================================
+- Dry base rate: **2.25/km**
+- Reefer base rate: **2.55/km**
+- Fuel cost: **0.75/km**
+- Daily overhead: **155**
+- Target net: **400/day**
+- Minimum load floor: **450**
+
+Surcharges:
+
+- Extra stops: **+75 each**
+- Liftgate: **+85**
+- Inside delivery: **+125**
+- Detention: **+75/hour**
+
+---
+
+## UI Design Target
+
+CRM → **Load Info** tab
+
+Stops table:
+
+- Sequence | Type | Address | Pallets | Weight | ETA | Distance
+
+Summary fields below table:
+
+- Total KM
+- Total Drive Hours
+- Total Pallets
+- Total Weight
+- Estimated Cost
+- Suggested Rate
+- AI Recommendation
+
+---
+
+## TODO (Implementation Roadmap)
+
+### Phase A — Data Model
+
+- [ ] Create `premafirm.dispatch.stop` model and security access.
+- [ ] Add one2many relation from `crm.lead` to stops.
+- [ ] Add total fields to `crm.lead` (`x_total_*`, `x_suggested_rate`, recommendation).
+
+### Phase B — AI Intake
+
+- [ ] Read latest lead email message body reliably.
+- [ ] Extract and decode supported attachments (PDF/text).
+- [ ] Implement OpenAI prompt + schema validation for structured output.
+
+### Phase C — Routing + ETA
+
+- [ ] Geocode each stop via Mapbox.
+- [ ] Build route legs and compute per-leg distance/hours.
+- [ ] Save totals and per-stop travel metrics.
+
+### Phase D — Pricing + HOS
+
+- [ ] Load and validate `dispatch_rules.json`.
+- [ ] Apply Ontario LTL/FTL pricing rules + surcharges.
+- [ ] Enforce HOS/break constraints and overnight logic.
+
+### Phase E — CRM UX
+
+- [ ] Add “Load Info” tab in CRM lead form.
+- [ ] Add editable stops grid and totals cards.
+- [ ] Add “AI Parse & Price” action and status/error messages.
+
+### Phase F — Commercial Flow
+
+- [ ] Map products/taxes to quote lines.
+- [ ] Set revenue account mapping (Canada/USA).
+- [ ] Generate draft response using suggested rate.
+
+### Phase G — QA / Hardening
+
+- [ ] Unit tests: parser, pricing, HOS edge cases.
+- [ ] Integration tests: lead → stop creation → totals.
+- [ ] Logging and retry behavior for external APIs.
+
+---
+
+## Future Expansion
+
+- Fuel index integration
+- Toronto congestion dynamic pricing
+- Customer tier pricing
+- Backhaul discount logic
+- Automated invoice creation
+- Fleet capacity optimization
+
+---
+
+## Compatibility
 
 Designed for:
 
-• 26ft Straight Truck
-• LTL / Multi-stop freight
-• Ontario regional lanes
-• Cross-border expansion ready
-• Owner-operator profit protection
-• Fully integrated inside Odoo
+- Odoo 18 Enterprise
+- CRM
+- Fleet
+- Accounting
+- Mail
+- Product
+- Odoo Studio compatibility
 
+---
 
-============================================================
-FINAL WORKFLOW
-============================================================
+## Notes
 
-EMAIL RECEIVED
-↓
-CRM LEAD CREATED
-↓
-AI PRICE BUTTON CLICKED
-↓
-Stops Extracted
-↓
-Route Calculated (Truck-Safe)
-↓
-Cost + Profit Engine
-↓
-AI Draft Generated
-↓
-You Send Email
-↓
-PO Received
-↓
-Sales Order Created
-↓
-Schedule + HOS Check
-↓
-Dispatch
-↓
-Delivered
-↓
-Invoice + POD
-↓
-Factoring
-
-
-============================================================
-DESIGN PRINCIPLES
-============================================================
-
-• AI assists — does not control
-• Profit floor enforced
-• Truck-legal routing only
-• Multi-stop native support
-• No external automation tools
-• Clean CRM → SO → Invoice pipeline
-
-
-============================================================
-RECOMMENDED BUTTON STRATEGY
-============================================================
-
-Start with ONE universal smart button:
-"AI Price & Analyze"
-
-Add separate specialized buttons later if needed.
-
+- This README is the functional blueprint for the current module direction.
+- Keep business rules in `dispatch_rules.json` wherever possible to avoid hardcoding.

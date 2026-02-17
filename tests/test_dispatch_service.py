@@ -20,9 +20,9 @@ class _StopList(list):
 
 def test_compute_lead_totals_basic():
     vehicle = SimpleNamespace(
-        x_studio_location="5585 McAdam Rd, Mississauga, ON",
-        x_studio_service_type="dry",
-        x_studio_load_type="FTL",
+        home_location="5585 McAdam Rd, Mississauga, ON",
+        service_type="dry",
+        load_type="FTL",
     )
     stops = _StopList(
         [

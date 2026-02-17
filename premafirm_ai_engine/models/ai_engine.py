@@ -156,7 +156,7 @@ class CrmLeadAiEngine(models.Model):
                     sequence += 1
 
             sorted_stops = created_stops.sorted("sequence")
-            vehicle_start = lead.assigned_vehicle_id.x_studio_location if lead.assigned_vehicle_id else None
+            vehicle_start = lead.assigned_vehicle_id.home_location if lead.assigned_vehicle_id else None
             work_start_hour = lead.assigned_vehicle_id.vehicle_work_start_time if lead.assigned_vehicle_id else 8.0
             now = datetime.now().replace(second=0, microsecond=0)
             start_hour = int(work_start_hour)

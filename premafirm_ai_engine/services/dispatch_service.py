@@ -28,8 +28,9 @@ class DispatchService:
         aggregated_pallet_count = sum(stop.pallets for stop in lead.dispatch_stop_ids)
         aggregated_load_weight_lbs = sum(stop.weight_lbs for stop in lead.dispatch_stop_ids)
 
-        service_type = lead.assigned_vehicle_id.service_type if lead.assigned_vehicle_id else "dry"
-        load_type = lead.assigned_vehicle_id.load_type if lead.assigned_vehicle_id else "FTL"
+        assigned_vehicle = lead.assigned_vehicle_id
+        service_type = assigned_vehicle.service_type if assigned_vehicle else "dry"
+        load_type = assigned_vehicle.load_type if assigned_vehicle else "FTL"
 
         dispatch_stops = []
         for stop in lead.dispatch_stop_ids:

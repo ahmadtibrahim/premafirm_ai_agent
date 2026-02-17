@@ -16,6 +16,7 @@
                 <page string="Load Info">
                     <field name="dispatch_stop_ids">
                         <tree editable="bottom">
+                            <!-- sequence belongs to premafirm.dispatch.stop (dispatch_stop_ids comodel) -->
                             <field name="sequence"/>
                             <field name="stop_type"/>
                             <field name="address"/>

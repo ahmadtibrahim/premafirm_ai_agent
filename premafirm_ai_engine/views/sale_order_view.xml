@@ -36,7 +36,7 @@
                 <field name="stop_distance_km" optional="show"/>
                 <field name="stop_drive_hours" optional="show"/>
             </xpath>
-            <xpath expr="//field[@name='order_line']/list/field[@name='packaging_id']" position="attributes">
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_packaging_id']" position="attributes">
                 <attribute name="invisible">1</attribute>
                 <attribute name="optional">hide</attribute>
             </xpath>
@@ -44,7 +44,7 @@
                 <attribute name="invisible">1</attribute>
                 <attribute name="optional">hide</attribute>
             </xpath>
-            <xpath expr="//field[@name='order_line']/form//field[@name='packaging_id']" position="attributes">
+            <xpath expr="//field[@name='order_line']/form//field[@name='product_packaging_id']" position="attributes">
                 <attribute name="invisible">1</attribute>
             </xpath>
             <xpath expr="//field[@name='order_line']/form//field[@name='product_packaging_qty']" position="attributes">

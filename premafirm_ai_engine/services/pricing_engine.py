@@ -45,11 +45,33 @@ class PricingEngine:
             _logger.exception("Failed to read dispatch rules JSON; using safe defaults")
             return default_rules
 
-    def _resolve_service_type(self, lead):
-        for stop in lead.dispatch_stop_ids:
-            if stop.service_type == "reefer":
-                return "reefer"
-        return "dry"
+    @staticmethod
+    def _resolve_product_category_key(lead):
+        product = getattr(lead, "product_id", None)
+        category = (product.categ_id.name if product and getattr(product, "categ_id", None) else "").strip().lower()
+        if category in {"ftl dry", "dry"}:
+            return "ftl_dry"
+        if category in {"ftl reefer", "reefer"}:
+            return "ftl_reefer"
+        if category == "ltl dry":
+            return "ltl_dry"
+        if category == "ltl reefer":
+            return "ltl_reefer"
+        if category == "express":
+            return "express"
+        return "ftl_dry"
+
+    @staticmethod
+    def _resolve_base_rate(pricing_rules, category_key):
+        base = float(pricing_rules.get("dry_rate_per_km", 2.25))
+        multipliers = {
+            "ftl_dry": 1.0,
+            "ftl_reefer": 1.15,
+            "ltl_dry": 0.9,
+            "ltl_reefer": 1.0,
+            "express": 1.35,
+        }
+        return base * multipliers.get(category_key, 1.0)
 
 
     @staticmethod
@@ -100,8 +122,8 @@ class PricingEngine:
         costing_rules = self.rules["costing"]
         traffic_buffer_percent = float(self.rules.get("traffic_rules", {}).get("traffic_buffer_percent", 0.0))
 
-        service_type = self._resolve_service_type(lead)
-        base_rate = pricing_rules["reefer_rate_per_km"] if service_type == "reefer" else pricing_rules["dry_rate_per_km"]
+        product_category = self._resolve_product_category_key(lead)
+        base_rate = self._resolve_base_rate(pricing_rules, product_category)
 
         buffered_distance = float(lead.total_distance_km or 0.0) * (1.0 + traffic_buffer_percent)
         base_price = buffered_distance * base_rate
@@ -163,5 +185,5 @@ class PricingEngine:
             "suggested_rate": suggested_rate,
             "recommendation": recommendation,
             "warnings": warnings,
-            "service_type": service_type,
+            "service_type": product_category,
         }

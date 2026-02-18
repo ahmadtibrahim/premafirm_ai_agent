@@ -1,5 +1,8 @@
 import logging
 import math
+from datetime import datetime, time, timedelta
+
+from odoo import fields
 
 from .ai_extraction_service import AIExtractionService
 from .mapbox_service import MapboxService
@@ -24,6 +27,9 @@ class CRMDispatchService:
             address = (stop.get("address") or "").strip()
             if not stop_type or not address:
                 continue
+            scheduled_datetime = stop.get("scheduled_datetime")
+            if stop_type == "pickup" and not stop.get("window_start"):
+                scheduled_datetime = datetime.combine(fields.Date.today(), time(9, 0))
             stops.append(
                 {
                     "sequence": seq,
@@ -36,6 +42,7 @@ class CRMDispatchService:
                     "pickup_window_end": stop.get("window_end") if stop_type == "pickup" else None,
                     "delivery_window_start": stop.get("window_start") if stop_type == "delivery" else None,
                     "delivery_window_end": stop.get("window_end") if stop_type == "delivery" else None,
+                    "scheduled_datetime": scheduled_datetime,
                     "special_instructions": stop.get("special_instructions"),
                 }
             )
@@ -69,6 +76,23 @@ class CRMDispatchService:
         ordered_stops = lead.dispatch_stop_ids.sorted("sequence")
         total_distance = 0.0
         total_hours = 0.0
+        if not ordered_stops:
+            return warnings
+
+        vehicle = lead.assigned_vehicle_id
+        depot = (vehicle.home_location if vehicle and vehicle.home_location else "5585 McAdam Rd, Mississauga, ON L4Z 1P1")
+
+        first_route = self.mapbox_service.get_route(depot, ordered_stops[0].address)
+        ordered_stops[0].write(
+            {
+                "distance_km": first_route.get("distance_km", 0.0),
+                "drive_hours": first_route.get("drive_hours", 0.0),
+            }
+        )
+        total_distance += float(first_route.get("distance_km", 0.0))
+        total_hours += float(first_route.get("drive_hours", 0.0))
+        if first_route.get("warning"):
+            warnings.append(first_route["warning"])
 
         for i in range(len(ordered_stops) - 1):
             route = self.mapbox_service.get_route(ordered_stops[i].address, ordered_stops[i + 1].address)
@@ -83,7 +107,24 @@ class CRMDispatchService:
             if route.get("warning"):
                 warnings.append(route["warning"])
 
+        final_route = self.mapbox_service.get_route(ordered_stops[-1].address, depot)
+        total_distance += float(final_route.get("distance_km", 0.0))
+        total_hours += float(final_route.get("drive_hours", 0.0))
+        if final_route.get("warning"):
+            warnings.append(final_route["warning"])
+
         lead.write({"total_distance_km": total_distance, "total_drive_hours": total_hours})
+
+        pickups = lead.dispatch_stop_ids.filtered(lambda s: s.stop_type == "pickup")
+        if pickups:
+            first = pickups[0]
+            if first.scheduled_datetime and first.drive_hours:
+                lead.departure_time = first.scheduled_datetime - timedelta(hours=first.drive_hours)
+
+        for stop in lead.dispatch_stop_ids:
+            if stop.scheduled_datetime and stop.drive_hours:
+                stop.estimated_arrival = stop.scheduled_datetime + timedelta(hours=stop.drive_hours)
+
         return warnings
 
     def _build_quote_email(self, lead, pricing_result, extraction):
@@ -105,12 +146,11 @@ class CRMDispatchService:
 
     def process_lead(self, lead, email_text):
         extraction = self.ai_service.extract_load(email_text)
-        service_type = extraction.get("service_type") or "dry"
         stop_vals = self._normalize_stop_values(
             extraction.get("stops", []),
             total_weight_lbs=extraction.get("total_weight_lbs"),
             total_pallets=extraction.get("total_pallets"),
-            default_service_type=service_type,
+            default_service_type="dry",
         )
 
         warnings = list(extraction.get("warnings") or [])

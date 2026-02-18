@@ -31,7 +31,7 @@
             <xpath expr="//field[@name='order_line']/list/field[@name='name']" position="after">
                 <field name="stop_type" optional="show"/>
                 <field name="stop_address" optional="show"/>
-                <field name="scheduled_time" optional="show"/>
+                <field name="scheduled_date" optional="show"/>
                 <field name="eta_datetime" optional="show"/>
                 <field name="stop_distance_km" optional="show"/>
                 <field name="stop_drive_hours" optional="show"/>

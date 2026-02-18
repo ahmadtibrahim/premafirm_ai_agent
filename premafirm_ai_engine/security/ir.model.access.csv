@@ -1,2 +1,3 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_premafirm_dispatch_stop_user,access_premafirm_dispatch_stop_user,model_premafirm_dispatch_stop,base.group_user,1,1,1,1
+access_premafirm_pricing_history_user,access_premafirm_pricing_history_user,model_premafirm_pricing_history,base.group_user,1,1,1,1

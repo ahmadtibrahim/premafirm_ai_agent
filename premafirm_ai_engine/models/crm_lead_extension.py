@@ -144,7 +144,8 @@ class CrmLead(models.Model):
 
     def _assign_stop_products(self):
         for lead in self:
-            capacity = float(lead.assigned_vehicle_id.payload_capacity_lbs or 40000.0)
+            vehicle_capacity = getattr(lead.assigned_vehicle_id, "payload_capacity_lbs", 0.0) if lead.assigned_vehicle_id else 0.0
+            capacity = float(vehicle_capacity or 40000.0)
             inferred_capacity_pallets = max(1.0, capacity / 1800.0)
             delivery_count = len(lead.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery"))
             for stop in lead.dispatch_stop_ids:

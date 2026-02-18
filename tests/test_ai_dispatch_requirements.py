@@ -160,3 +160,4 @@ def test_run_insertion_reduces_empty_km():
     base = planner.simulate_run(run, [Stop(address="Barrie PU", stop_service_mins=60, cargo_delta=1), Stop(address="Mississauga DEL", stop_service_mins=45, cargo_delta=-1)])
     best = planner.simulate_run(run, [Stop(address="Toronto PU", stop_service_mins=60, cargo_delta=1), Stop(address="Barrie DEL", stop_service_mins=45, cargo_delta=-1), Stop(address="Barrie PU", stop_service_mins=60, cargo_delta=1), Stop(address="Mississauga DEL", stop_service_mins=45, cargo_delta=-1)])
     assert best["empty_distance_km"] < base["empty_distance_km"]
+

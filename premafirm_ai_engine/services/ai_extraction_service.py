@@ -18,6 +18,11 @@ class AIExtractionService:
     def __init__(self, env):
         self.env = env
 
+    def _record_runtime_warning(self, warning):
+        if not hasattr(self, "_runtime_warnings"):
+            self._runtime_warnings = []
+        self._runtime_warnings.append(warning)
+
     def _get_openai_key(self):
         return self.env["ir.config_parameter"].sudo().get_param("openai.api_key")
 
@@ -160,10 +165,18 @@ class AIExtractionService:
 
         if name.endswith(".pdf"):
             try:
-                import pypdf
+                try:
+                    from pypdf import PdfReader
+                except ModuleNotFoundError:
+                    from PyPDF2 import PdfReader
 
-                reader = pypdf.PdfReader(io.BytesIO(payload))
+                reader = PdfReader(io.BytesIO(payload))
                 return "\n".join((page.extract_text() or "") for page in reader.pages)
+            except ModuleNotFoundError:
+                warning = "PDF parser dependency missing. Install 'pypdf' in the Odoo venv to enable attachment parsing."
+                self._record_runtime_warning(warning)
+                _logger.error(warning)
+                return ""
             except Exception:
                 _logger.exception("PDF parsing failed for attachment %s", attachment.name)
                 return ""
@@ -259,15 +272,20 @@ CONTENT:
             return {}
 
     def extract_load(self, email_text, attachments=None):
+
+
         attachments = attachments or self.env["ir.attachment"]
         parsable = attachments.filtered(lambda a: (a.name or "").lower().endswith((".pdf", ".xlsx", ".xls")))
         if parsable:
             raw_text = "\n".join(filter(None, [self._extract_attachment_text(att) for att in parsable]))
             parsed = self._parse_load_sections(raw_text)
+
+
             if not parsed.get("stops") and raw_text.strip():
                 structured = self._openai_extract(raw_text, "attachment text")
                 if structured.get("stops"):
                     structured.setdefault("warnings", [])
+
                     structured["warnings"].append("Attachment data used as primary source; email body ignored.")
                     structured.update(
                         {
@@ -297,11 +315,13 @@ CONTENT:
                 return parsed
 
         structured_email = self._openai_extract(email_text, "email")
+
         if structured_email.get("stops"):
             structured_email["source"] = "email"
             return structured_email
 
         parsed = self._fallback_parse(email_text)
+
         parsed["source"] = "email"
         if parsable:
             parsed.setdefault("warnings", []).append("Attachment parsing and AI attachment extraction failed; used email fallback.")

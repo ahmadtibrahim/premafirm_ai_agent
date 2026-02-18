@@ -19,17 +19,35 @@ class CrmLeadAI(models.Model):
     _inherit = "crm.lead"
 
     def _clean_body(self):
-        """Return latest customer email text, preferring body_plaintext over HTML body."""
+        """Return latest inbound message content as plain text (Odoo 18 safe)."""
         messages = self.message_ids.sorted("date", reverse=True)
+
+        # Pass 1: incoming emails only, to avoid parsing our own chatter replies.
         for msg in messages:
             if msg.model != "crm.lead" or msg.res_id != self.id:
                 continue
 
-            # Prioritize true incoming emails from customers.
-            if msg.message_type not in ("email", "comment"):
+            if msg.message_type != "email":
                 continue
 
-            plain = (msg.body_plaintext or "").strip()
+            plain = (getattr(msg, "body_plaintext", "") or "").strip()
+            if plain:
+                return plain
+
+            if msg.body:
+                cleaned_html = (html2plaintext(msg.body) or "").strip()
+                if cleaned_html:
+                    return cleaned_html
+
+        # Pass 2: fallback to chatter comments only if no inbound email matched.
+        for msg in messages:
+            if msg.model != "crm.lead" or msg.res_id != self.id:
+                continue
+
+            if msg.message_type != "comment":
+                continue
+
+            plain = (getattr(msg, "body_plaintext", "") or "").strip()
             if plain:
                 return plain
 

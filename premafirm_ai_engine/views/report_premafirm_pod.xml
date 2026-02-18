@@ -33,7 +33,14 @@
                     <tbody>
                         <tr t-foreach="o.order_line" t-as="l">
                             <td><span t-field="l.stop_type"/></td>
-                            <td><span t-field="l.stop_address"/></td>
+                            <td>
+                                <t t-if="l.stop_map_url">
+                                    <a t-att-href="l.stop_map_url"><span t-field="l.stop_address"/></a>
+                                </t>
+                                <t t-else="">
+                                    <span t-field="l.stop_address"/>
+                                </t>
+                            </td>
                             <td><span t-field="l.scheduled_date"/></td>
                             <td><span t-field="l.eta_datetime"/></td>
                         </tr>

@@ -76,6 +76,7 @@ class SaleOrderLine(models.Model):
 
     stop_type = fields.Selection([("pickup", "Pickup"), ("delivery", "Delivery")])
     stop_address = fields.Char()
+    stop_map_url = fields.Char()
     scheduled_time = fields.Datetime(related="scheduled_date", store=True, readonly=False)
     eta_datetime = fields.Datetime()
     stop_distance_km = fields.Float()

@@ -1,4 +1,6 @@
-from datetime import timedelta
+
+from datetime import datetime, timedelta
+
 
 from odoo import fields
 
@@ -152,7 +154,9 @@ class RunPlannerService:
         }
         run.write(run_vals)
 
-        driver_partner = run.vehicle_id.driver_id
+
+        driver_partner = run.vehicle_id.driver_id.partner_id
+
         if not driver_partner:
             return
         vals = {

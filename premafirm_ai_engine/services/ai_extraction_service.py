@@ -272,20 +272,20 @@ CONTENT:
             return {}
 
     def extract_load(self, email_text, attachments=None):
-        self._runtime_warnings = []
+
+
         attachments = attachments or self.env["ir.attachment"]
         parsable = attachments.filtered(lambda a: (a.name or "").lower().endswith((".pdf", ".xlsx", ".xls")))
         if parsable:
             raw_text = "\n".join(filter(None, [self._extract_attachment_text(att) for att in parsable]))
             parsed = self._parse_load_sections(raw_text)
-            if self._runtime_warnings:
-                parsed.setdefault("warnings", []).extend(self._runtime_warnings)
+
+
             if not parsed.get("stops") and raw_text.strip():
                 structured = self._openai_extract(raw_text, "attachment text")
                 if structured.get("stops"):
                     structured.setdefault("warnings", [])
-                    if self._runtime_warnings:
-                        structured["warnings"].extend(self._runtime_warnings)
+
                     structured["warnings"].append("Attachment data used as primary source; email body ignored.")
                     structured.update(
                         {
@@ -315,15 +315,13 @@ CONTENT:
                 return parsed
 
         structured_email = self._openai_extract(email_text, "email")
-        if self._runtime_warnings and not structured_email.get("warnings"):
-            structured_email["warnings"] = list(self._runtime_warnings)
+
         if structured_email.get("stops"):
             structured_email["source"] = "email"
             return structured_email
 
         parsed = self._fallback_parse(email_text)
-        if self._runtime_warnings:
-            parsed.setdefault("warnings", []).extend(self._runtime_warnings)
+
         parsed["source"] = "email"
         if parsable:
             parsed.setdefault("warnings", []).append("Attachment parsing and AI attachment extraction failed; used email fallback.")

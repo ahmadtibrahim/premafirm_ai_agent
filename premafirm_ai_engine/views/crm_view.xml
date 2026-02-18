@@ -8,6 +8,7 @@
             <xpath expr="//header" position="inside">
                 <button name="action_ai_calculate" type="object" string="AI Calculate" class="btn-primary"/>
                 <button name="action_create_sales_order" type="object" string="Create Sales Order" class="btn-success"/>
+                <button name="action_ai_optimize_schedule" type="object" string="AI Optimize Schedule" class="btn-secondary"/>
             </xpath>
 
             <xpath expr="//sheet/notebook" position="inside">
@@ -34,6 +35,9 @@
                             <field name="reefer_required"/>
                             <field name="pump_truck_required"/>
                             <field name="assigned_vehicle_id"/>
+                            <field name="dispatch_run_id" readonly="1"/>
+                            <field name="schedule_locked"/>
+                            <field name="schedule_conflict" readonly="1"/>
                         </group>
                     </group>
 
@@ -42,7 +46,7 @@
                             <field name="sequence"/>
                             <field name="stop_type"/>
                             <field name="product_id" string="Service"/>
-                            <field name="address"/>
+                            <field name="address_link_html" widget="html" string="Address"/>
                             <field name="full_address" optional="hide"/>
                             <field name="postal_code" optional="hide"/>
                             <field name="latitude" optional="hide"/>
@@ -68,6 +72,7 @@
                         <field name="estimated_cost" readonly="1"/>
                         <field name="suggested_rate" readonly="1"/>
                         <field name="ai_recommendation" readonly="1" nolabel="1"/>
+                        <field name="ai_optimization_suggestion" readonly="1" nolabel="1"/>
                     </group>
                 </page>
             </xpath>

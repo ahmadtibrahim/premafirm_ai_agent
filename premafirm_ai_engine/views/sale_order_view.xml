@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_order_form_premafirm_ai" model="ir.ui.view">
+        <field name="name">sale.order.form.premafirm.ai</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/group" position="after">
+                <group string="PremaFirm Load Details">
+                    <group>
+                        <field name="premafirm_po"/>
+                        <field name="premafirm_bol"/>
+                        <field name="premafirm_pod"/>
+                    </group>
+                    <group>
+                        <field name="pickup_city"/>
+                        <field name="delivery_city"/>
+                        <field name="total_pallets"/>
+                        <field name="total_weight_lbs"/>
+                        <field name="total_distance_km"/>
+                    </group>
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>

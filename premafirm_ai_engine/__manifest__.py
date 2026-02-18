@@ -8,12 +8,15 @@
     "depends": [
         "crm",
         "sale_management",
+        "account",
         "mail",
         "fleet",
     ],
     "data": [
         "security/ir.model.access.csv",
         "views/crm_view.xml",
+        "views/sale_order_view.xml",
+        "views/account_move_view.xml",
     ],
     "installable": True,
     "application": False,

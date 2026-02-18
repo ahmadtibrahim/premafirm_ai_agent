@@ -18,6 +18,8 @@ class PremafirmDispatchStop(models.Model):
     service_type = fields.Selection([("dry", "Dry"), ("reefer", "Reefer")], default="dry")
 
     requested_datetime = fields.Datetime()
+    scheduled_datetime = fields.Datetime("Scheduled Time")
+    estimated_arrival = fields.Datetime("ETA")
     pickup_datetime_est = fields.Datetime()
     delivery_datetime_est = fields.Datetime()
 
@@ -27,6 +29,16 @@ class PremafirmDispatchStop(models.Model):
     delivery_window_end = fields.Datetime()
 
     special_instructions = fields.Char()
+    equipment_required = fields.Selection(
+        [
+            ("dock", "Loading Dock"),
+            ("liftgate", "Liftgate Required"),
+            ("pallet_jack", "Pallet Jack"),
+            ("inside", "Inside Delivery"),
+            ("hand", "Hand Unload"),
+        ],
+        string="Equipment Required",
+    )
     cross_dock = fields.Boolean(default=False)
 
     distance_km = fields.Float()

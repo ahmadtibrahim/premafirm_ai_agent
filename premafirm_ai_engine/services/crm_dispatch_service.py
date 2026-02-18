@@ -4,11 +4,11 @@ from datetime import datetime, time, timedelta
 
 import pytz
 from odoo import fields
-from odoo.exceptions import UserError
 
 from .ai_extraction_service import AIExtractionService
 from .mapbox_service import MapboxService
 from .pricing_engine import PricingEngine
+from .run_planner_service import RunPlannerService
 
 _logger = logging.getLogger(__name__)
 
@@ -94,13 +94,20 @@ class CRMDispatchService:
             state["since_major"] = 0.0
         return break_hours
 
-    def _infer_liftgate(self, categories):
-        cats = {c.lower() for c in (categories or [])}
-        if cats.intersection({"restaurant", "cafe", "convenience_store", "residential"}):
-            return True
-        if cats.intersection({"supermarket", "distribution_center", "warehouse", "big_box_store"}):
-            return False
-        return False
+    def _infer_liftgate(self, stop):
+        categories = [c.strip().lower() for c in ((stop.get("place_categories") or "").split(",")) if c.strip()]
+        if categories:
+            if any(cat in {"restaurant", "cafe", "bistro", "store", "shopping_mall"} for cat in categories):
+                return True, False
+            if any(cat in {"warehouse", "distribution_center", "storage", "point_of_interest"} for cat in categories):
+                return False, False
+
+        full_address = (stop.get("full_address") or stop.get("address") or "").lower()
+        if any(k in full_address for k in ("restaurant", "cafe", "bistro", "plaza", "shop", "store")):
+            return True, False
+        if any(k in full_address for k in ("walmart", "costco", "loblaws", "distribution", " dc", "warehouse")):
+            return False, False
+        return False, True
 
     def _enrich_stop_geodata(self, stop_vals):
         warnings = []
@@ -116,8 +123,11 @@ class CRMDispatchService:
             stop["postal_code"] = geo.get("postal_code")
             stop["latitude"] = geo.get("latitude")
             stop["longitude"] = geo.get("longitude")
+            stop["country"] = geo.get("country") or stop.get("country")
             stop["place_categories"] = ",".join(geo.get("place_categories") or [])
-            stop["liftgate_needed"] = self._infer_liftgate(geo.get("place_categories"))
+            liftgate, uncertain = self._infer_liftgate(stop)
+            stop["liftgate_needed"] = liftgate
+            stop["needs_manual_review"] = uncertain
         return warnings
 
     def _compute_stop_schedule(self, ordered_stops, segments):
@@ -160,32 +170,17 @@ class CRMDispatchService:
     def _create_calendar_booking(self, lead):
         if not (lead.assigned_vehicle_id and lead.departure_time and lead.total_distance_km):
             return
-        driver_partner = lead.assigned_vehicle_id.driver_id.partner_id
-        if not driver_partner:
-            return
+        planner = RunPlannerService(self.env)
+        run_date = fields.Date.to_date((lead.departure_time or fields.Datetime.now()).date())
+        run = planner.get_or_create_run(lead.assigned_vehicle_id, run_date)
+        lead.dispatch_run_id = run.id
+        if not lead.dispatch_stop_ids.filtered(lambda s: s.run_id.id == run.id):
+            planner.append_lead_to_run(run, lead)
+        sim = planner.simulate_run(run, run.stop_ids.sorted("run_sequence"))
+        planner._update_run(run, sim)
+
         last_eta = max(lead.dispatch_stop_ids.mapped("estimated_arrival") or [lead.departure_time])
-        overlap = self.env["calendar.event"].search(
-            [("partner_ids", "in", driver_partner.id), ("start", "<", last_eta), ("stop", ">", lead.departure_time)],
-            limit=1,
-        )
-        if overlap:
-            raise UserError("Driver already has an overlapping booking in Calendar.")
-        existing = self.env["calendar.event"].search(
-            [("res_model", "=", "crm.lead"), ("res_id", "=", lead.id), ("name", "=", f"Load #{lead.id}")],
-            limit=1,
-        )
-        vals = {
-            "name": f"Load #{lead.id}",
-            "start": lead.departure_time,
-            "stop": last_eta,
-            "partner_ids": [(6, 0, [driver_partner.id])],
-            "res_model": "crm.lead",
-            "res_id": lead.id,
-        }
-        if existing:
-            existing.write(vals)
-        else:
-            self.env["calendar.event"].create(vals)
+        lead.schedule_conflict = bool(run.calendar_event_id and run.calendar_event_id.start and run.calendar_event_id.stop and (run.calendar_event_id.start < last_eta and run.calendar_event_id.stop > lead.departure_time))
 
     def _apply_routes(self, lead):
         warnings = []
@@ -210,21 +205,38 @@ class CRMDispatchService:
     def _determine_freight_service(self, lead, extraction):
         pickups = lead.dispatch_stop_ids.filtered(lambda s: s.stop_type == "pickup")
         deliveries = lead.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery")
-        is_ltl = len(pickups) > 1 or len(deliveries) > 1 or len(lead.dispatch_stop_ids) > 2
-        country_us = any("US" in (s.country or "").upper() or "USA" in (s.country or "").upper() for s in lead.dispatch_stop_ids)
-        xmlid = "premafirm_ai_engine.product_ltl_usa" if country_us and is_ltl else (
-            "premafirm_ai_engine.product_ftl_usa" if country_us else (
-                "premafirm_ai_engine.product_ltl_can" if is_ltl else "premafirm_ai_engine.product_ftl_can"
-            )
+        is_ftl = len(pickups) == 1 and len(deliveries) == 1 and len(lead.dispatch_stop_ids) == 2
+        is_ltl = not is_ftl
+
+        def _is_us(stop):
+            country = (stop.country or "").upper()
+            if country in ("US", "USA", "UNITED STATES"):
+                return True
+            addr = ((stop.full_address or "") + " " + (stop.address or "")).upper()
+            return "USA" in addr or "UNITED STATES" in addr
+
+        is_us = any(_is_us(stop) for stop in lead.dispatch_stop_ids)
+        template_name = (
+            "FTL - Freight Service - USA" if is_us and is_ftl else
+            "LTL - Freight Service - USA" if is_us and is_ltl else
+            "FTL Freight Service - Canada" if is_ftl else
+            "LTL Freight Service - Canada"
         )
-        product_tmpl = self.env.ref(xmlid, raise_if_not_found=False)
-        product = product_tmpl.product_variant_id if product_tmpl else False
+        tmpl = self.env["product.template"].search([("name", "=", template_name)], limit=1)
         reefer_required = bool(extraction.get("reefer_required"))
         lead.write({"detention_requested": bool(extraction.get("detention_requested")), "reefer_required": reefer_required})
+
+        chosen_product = tmpl.product_variant_id if tmpl else False
         for stop in lead.dispatch_stop_ids:
-            stop.is_ftl = not is_ltl
-            if product:
-                stop.product_id = product.id
+            stop.is_ftl = is_ftl
+            if tmpl and len(tmpl.product_variant_ids) > 1:
+                variant = tmpl.product_variant_ids.filtered(lambda p: (stop.service_type or "dry") in (p.display_name or "").lower())[:1]
+                if variant:
+                    chosen_product = variant
+            if chosen_product:
+                stop.product_id = chosen_product.id
+        if chosen_product:
+            lead.product_id = chosen_product.id
         return reefer_required
 
     def process_lead(self, lead, email_text, attachments=None):
@@ -268,6 +280,8 @@ class CRMDispatchService:
         reefer_required = self._determine_freight_service(lead, extraction)
         if reefer_required:
             lead.message_post(body="Reefer indicators found; reefer_required flagged for confirmation.")
+        if lead.dispatch_stop_ids.filtered(lambda s: s.liftgate_needed):
+            lead.message_post(body="Liftgate may be required based on address type; please confirm with broker.")
 
         warnings.extend(self._apply_routes(lead))
 
@@ -277,7 +291,7 @@ class CRMDispatchService:
             pricing_result = self.pricing_engine.calculate_pricing(lead)
             warnings.extend(pricing_result.get("warnings", []))
 
-        recommendation = pricing_result.get("recommendation", "Dispatch processed.") + " Confirm with broker whether pump truck/dock-level equipment is required."
+        recommendation = pricing_result.get("recommendation", "Dispatch processed.") + " Please confirm: dock-level available (Y/N), liftgate required (Y/N), pump truck / pallet jack required (Y/N), and appointment times for pickup and delivery."
         if warnings:
             recommendation = f"{recommendation} Warnings: {' | '.join(dict.fromkeys(warnings))}"
         lead.write(

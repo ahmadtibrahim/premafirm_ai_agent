@@ -46,24 +46,41 @@ class MapboxService:
         city = None
         region = None
         postal = None
+        country = None
+        city_priority = ["locality", "postal_town", "sublocality", "administrative_area_level_2", "neighborhood"]
+        city_rank = {name: idx for idx, name in enumerate(city_priority)}
+        best_rank = 999
         for comp in comps:
             types = comp.get("types", [])
-            if "locality" in types or "postal_town" in types:
-                city = comp.get("long_name")
+            for ctype in types:
+                if ctype in city_rank and city_rank[ctype] < best_rank:
+                    best_rank = city_rank[ctype]
+                    city = comp.get("long_name")
             if "administrative_area_level_1" in types:
                 region = comp.get("short_name")
             if "postal_code" in types:
                 postal = comp.get("long_name")
+            if "country" in types:
+                country = comp.get("short_name")
+
+        formatted = first.get("formatted_address") or normalized
+        if not city:
+            city = (formatted.split(",", 1)[0] or "").strip()
+
+        short_address = ", ".join([x for x in [city, region] if x]).strip()
+        if not short_address:
+            short_address = normalized
 
         types = first.get("types", [])
         return {
             "latitude": location.get("lat"),
             "longitude": location.get("lng"),
-            "full_address": first.get("formatted_address") or normalized,
+            "full_address": formatted,
             "postal_code": postal,
+            "country": country,
             "city": city,
             "region": region,
-            "short_address": ", ".join([x for x in [city, region] if x]) or normalized,
+            "short_address": short_address,
             "place_categories": types,
         }
 
@@ -107,7 +124,14 @@ class MapboxService:
 
     def calculate_trip_segments(self, stops, origin_address=None):
         origin = self._normalize_address(origin_address) or self.ORIGIN_YARD
-        stop_addresses = [self._normalize_address(stop.address if hasattr(stop, "address") else stop) for stop in (stops or [])]
+        stop_addresses = []
+        for stop in (stops or []):
+            if hasattr(stop, "full_address") and stop.full_address:
+                stop_addresses.append(self._normalize_address(stop.full_address))
+            elif hasattr(stop, "address"):
+                stop_addresses.append(self._normalize_address(stop.address))
+            else:
+                stop_addresses.append(self._normalize_address(stop))
         stop_addresses = [address for address in stop_addresses if address]
 
         segments = []

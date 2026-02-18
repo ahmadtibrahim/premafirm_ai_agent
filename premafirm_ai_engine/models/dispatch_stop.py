@@ -19,7 +19,8 @@ class PremafirmDispatchStop(models.Model):
 
     requested_datetime = fields.Datetime()
     scheduled_datetime = fields.Datetime("Scheduled Time")
-    estimated_arrival = fields.Datetime("ETA")
+    eta_datetime = fields.Datetime("ETA")
+    estimated_arrival = fields.Datetime(related="eta_datetime", store=True, readonly=False)
     pickup_datetime_est = fields.Datetime()
     delivery_datetime_est = fields.Datetime()
 
@@ -44,3 +45,6 @@ class PremafirmDispatchStop(models.Model):
     distance_km = fields.Float()
     drive_hours = fields.Float()
     map_url = fields.Char()
+
+    is_ftl = fields.Boolean("FTL Stop", default=False)
+    freight_product_id = fields.Many2one("product.product", string="Freight Product")

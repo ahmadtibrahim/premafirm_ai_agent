@@ -52,12 +52,14 @@ class AIExtractionService:
             stops.append({"stop_type": "pickup", "address": pickup})
         if delivery:
             stops.append({"stop_type": "delivery", "address": delivery})
+        po_match = re.search(r"(?:PO|Purchase\s*Order)\s*[:#-]?\s*([A-Z0-9-]+)", email_text or "", re.I)
         return {
             "stops": stops,
             "inside_delivery": "inside delivery" in (email_text or "").lower(),
             "liftgate": "liftgate" in (email_text or "").lower(),
             "detention_requested": "detention" in (email_text or "").lower(),
             "service_type": "reefer" if re.search(r"reefer|frozen|temperature|temp controlled", email_text or "", re.I) else "dry",
+            "premafirm_po": po_match.group(1) if po_match else None,
             "warnings": ["AI extraction unavailable, used fallback parser."],
         }
 

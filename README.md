@@ -1,66 +1,122 @@
 # PremaFirm AI Engine (Odoo 18)
 
-PremaFirm AI Engine is an Odoo 18 custom module that adds:
-- AI-based extraction of dispatch stops (pickup/delivery) from broker/customer emails on CRM leads
-- Mapbox routing per leg (distance + drive time)
-- Rule-based pricing with accessorials (liftgate, inside delivery, detention requested)
-- Draft quote generation for the "Send message" composer (manual review/edit required)
-- Pricing history learning: capture final manually edited quote rates at send-time for future suggestions
+## Dispatch + CRM → Sales → Invoice Intelligence Upgrade
 
-This module is designed for a HUMAN-IN-THE-LOOP workflow:
-- AI generates suggestions
-- Dispatcher edits the final quote price manually
-- Dispatcher clicks Send (no auto-send by the AI)
+This module upgrades lead dispatch planning, routing, product assignment, sales-order creation, and invoice propagation for PremaFirm workflows.
 
-## Odoo Version Support
-- Target: Odoo 18.x (Community/Enterprise)
-- View XML: uses `<list>` for list views (Odoo 18 list view root element is `<list>`).
-- Conditional UI logic (if used later) should follow Odoo 18 style (e.g., `invisible="python_expression"`).
+## 1) Mapbox Integration Details
+- Service: `premafirm_ai_engine/services/mapbox_service.py`
+- Uses Mapbox Geocoding + Directions APIs.
+- Yard origin defaults to: `5585 McAdam Rd, Mississauga ON L4Z 1P1`.
+- Computes segment-by-segment travel from yard to first stop, then stop-to-stop.
+- Persists segment values into stop-level distance/hours and lead totals.
 
-## Features Overview
+## 2) Speed Calculation Logic
+For each route segment:
+- If highway ratio is > 60% (derived from maxspeed annotations): average speed = **95 km/h**.
+- Else: average speed = **55 km/h**.
+- `drive_time_hours = distance_km / avg_speed`.
 
-### CRM Lead Enhancements
-Adds to `crm.lead`:
-- Stops: `dispatch_stop_ids` (one2many of `premafirm.dispatch.stop`)
-- Totals: `total_distance_km`, `total_drive_hours`, `total_pallets`, `total_weight_lbs`
-- Accessorial flags: `inside_delivery`, `liftgate`, `detention_requested`
-- Vehicle: `assigned_vehicle_id`
-- Pricing outputs: `estimated_cost`, `suggested_rate`, `ai_recommendation`
+Buffers:
+- +15 minutes truck warm-up before first movement.
+- +10 minutes traffic buffer applied in ETA sequencing.
 
-### Stop Model
-Model: `premafirm.dispatch.stop`
-Stores each pickup/delivery address plus pallets, weight, and routed distance/time.
+## 3) Break Scheduling Rules
+- First pickup without customer time window defaults to **9:00 AM local**.
+- Explicit customer times (for example 8:00 AM) are respected.
+- Break rules:
+  - After 4 hours drive: 10 minutes
+  - After 8 hours drive: 30 minutes
+  - After major break: additional 10-minute micro-break in subsequent long segments
+- `Leave Yard At` is computed from first pickup time minus first segment travel and startup/buffer offsets.
 
-### Pricing History Learning
-Model: `premafirm.pricing.history`
-Captures:
-- `customer_id`
-- `pickup_city` / `delivery_city`
-- `distance_km`, `pallets`, `weight`
-- `final_price` (taken from the final edited compose body at send-time)
+## 4) Freight Product Selection Matrix
+Stop-level field:
+- `premafirm.dispatch.stop.freight_product_id`
 
-## Configuration (System Parameters)
-Set these parameters in **Settings → Technical → Parameters → System Parameters**:
-- `openai.api_key`
-- `mapbox_api_key`
+Selection rules:
+- Pickup stop:
+  - If total pallets >= inferred truck pallet capacity ⇒ FTL
+  - Else ⇒ LTL
+- Multi-delivery loads force delivery stops to LTL.
+- Country split:
+  - US delivery: `FTL USA` / `LTL USA`
+  - Non-US delivery: `FTL Canada` / `LTL Canada`
 
-## Usage
-1) Open CRM → Leads
-2) Open a lead created from an inbound email (or containing message content)
-3) Click **AI Calculate**
-4) Click **Send message**
-5) Edit price manually and click **Send**
+## 5) CRM → SO → Invoice Mapping Table
+### CRM Lead → Sale Order
+- `partner_id` → `partner_id`
+- pickup city (first pickup address city) → `pickup_city`
+- delivery city (first delivery address city) → `delivery_city`
+- `total_pallets` → `total_pallets`
+- `total_weight_lbs` → `total_weight_lbs`
+- `total_distance_km` → `total_distance_km`
+- `premafirm_po` → `client_order_ref`
+- `premafirm_bol` → `premafirm_bol`
+- `premafirm_pod` → `premafirm_pod`
+- `payment_terms` → `payment_term_id`
 
-When sent, the final edited `$` price is captured into `premafirm.pricing.history`.
+### Sale Order → Invoice (`account.move`)
+- `premafirm_po` → `ref`
+- `premafirm_bol` → `premafirm_bol`
+- `premafirm_pod` → `premafirm_pod`
+- `load_reference` → `load_reference`
+- `client_order_ref` → `payment_reference`
 
-## Troubleshooting
-- Error: `OpenAI API key missing.` → set `openai.api_key`
-- Error: `Mapbox API key missing.` → set `mapbox_api_key`
-- Error: `AttributeError` on `mail.message.body_plaintext`
-  - This environment does not expose `body_plaintext`.
-  - Use HTML-to-text conversion from `mail.message.body`.
+## 6) PO Auto-Detection Logic
+PO detection in parsing layer includes:
+- `PO`
+- `Purchase Order`
+- pattern capture for PO number tokens
 
-## Developer Notes (Odoo 18 specifics)
-- `mail.message` stores HTML in `body`; do not assume a full plaintext field exists.
-- `mail.compose.message` targets records via `model + res_ids`; avoid `default_res_id`.
-- Skip pricing history logging on internal notes (`wizard.subtype_is_log`).
+Detected PO is saved on lead as `premafirm_po` and mapped to SO `client_order_ref`.
+
+## 7) USA/Canada Accounting Auto-Switch
+On SO creation:
+- US customer country:
+  - attempts US fiscal position
+  - attempts US sales journal
+  - sets currency to USD
+- Otherwise:
+  - sets currency to CAD
+
+Invoice creation defaults `currency_id` to company currency when absent to avoid secondary currency forcing.
+
+## 8) POD Generation Flow
+- QWeb report file: `views/report_premafirm_pod.xml`
+- SO button: **Generate POD**
+- Report includes:
+  - Sales Order number
+  - Pickup
+  - Delivery
+  - Driver
+  - Signature placeholder
+
+## 9) Packaging Fields Removed Intentionally
+From Sale Order lines (form + list):
+- `packaging_id`
+- `product_packaging_qty`
+
+These are hidden to keep freight quoting UI focused on dispatch details.
+
+## 10) Known Dependencies
+- `sale_management`
+- `account`
+- `fleet`
+- `hr`
+- `calendar`
+- `mail`
+
+## Testing Checklist
+- Multi stop FTL Canada
+- Multi stop LTL Canada
+- USA FTL
+- USA LTL
+- PO via PDF
+- PO via email body
+- No time window → default 9AM
+- Custom time window 8AM
+- Overlapping schedule detection
+- Invoice creation with attachments
+- Currency switching
+- Secondary currency error resolved

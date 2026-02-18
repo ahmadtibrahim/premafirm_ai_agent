@@ -1,7 +1,6 @@
-# sftp://root@72.60.115.139/opt/odoo/custom-addons/premafirm_ai_engine/__manifest__.py
 {
     "name": "PremaFirm AI Engine",
-    "version": "1.3",
+    "version": "1.4",
     "summary": "AI Pricing + Routing Engine for PremaFirm Logistics",
     "author": "PremaFirm",
     "license": "LGPL-3",
@@ -11,12 +10,15 @@
         "account",
         "mail",
         "fleet",
+        "hr",
+        "calendar",
     ],
     "data": [
         "security/ir.model.access.csv",
         "views/crm_view.xml",
         "views/sale_order_view.xml",
         "views/account_move_view.xml",
+        "views/report_premafirm_pod.xml",
     ],
     "installable": True,
     "application": False,

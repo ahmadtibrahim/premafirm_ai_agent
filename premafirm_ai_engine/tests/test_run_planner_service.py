@@ -39,3 +39,18 @@ class TestRunPlannerService(TransactionCase):
         planner._update_run(self.run, simulation)
         self.assertTrue(self.run.calendar_event_id)
         self.assertEqual(self.run.calendar_event_id.partner_ids, self.partner)
+
+    def test_update_run_without_driver_partner_still_creates_calendar_event(self):
+        planner = RunPlannerService(self.env)
+        self.vehicle.driver_id = False
+        simulation = {
+            "total_drive_hours": 0.75,
+            "total_distance_km": 42.0,
+            "empty_distance_km": 10.0,
+            "loaded_distance_km": 32.0,
+        }
+
+        planner._update_run(self.run, simulation)
+
+        self.assertTrue(self.run.calendar_event_id)
+        self.assertFalse(self.run.calendar_event_id.partner_ids)

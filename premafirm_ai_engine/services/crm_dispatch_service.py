@@ -4,6 +4,7 @@ import re
 from datetime import datetime, time, timedelta
 
 from odoo import fields
+from odoo.exceptions import UserError
 
 from .ai_extraction_service import AIExtractionService
 from .mapbox_service import MapboxService
@@ -33,11 +34,17 @@ class CRMDispatchService:
             if stop_type == "pickup" and not requested:
                 requested = datetime.combine(fields.Date.today(), time(9, 0))
 
+            stop_country = (stop.get("country") or "").strip()
+            if not stop_country:
+                up = address.upper()
+                stop_country = "USA" if ("UNITED STATES" in up or ", US" in up or " USA" in up) else "Canada"
+
             stops.append(
                 {
                     "sequence": seq,
                     "stop_type": stop_type,
                     "address": address,
+                    "country": stop_country,
                     "pallets": stop.get("pallets"),
                     "weight_lbs": stop.get("weight_lbs"),
                     "service_type": stop.get("service_type") or default_service_type,
@@ -74,12 +81,114 @@ class CRMDispatchService:
             stop["weight_lbs"] = float(stop.get("weight_lbs") or 0.0)
         return stops
 
-    def _break_minutes(self, cumulative_drive_hours):
-        if cumulative_drive_hours >= 8:
-            return 30
-        if cumulative_drive_hours >= 4:
-            return 10
-        return 0
+    def _compute_break_hours(self, segment_drive_hours, state):
+        break_hours = 0.0
+        before = state.get("since_major", 0.0)
+        after = before + segment_drive_hours
+
+        if before < 4 <= after:
+            break_hours += 0.25  # 15 min
+        if before < 8 <= after:
+            break_hours += 0.75  # 45 min
+            state["since_major"] = max(after - 8, 0.0)
+        else:
+            state["since_major"] = after
+
+        if state["since_major"] >= 3.0:
+            break_hours += 0.1667  # 10 min
+            state["since_major"] = 0.0
+
+        return break_hours
+
+    def _compute_stop_schedule(self, ordered_stops, segments):
+        first_pickup = ordered_stops.filtered(lambda s: s.stop_type == "pickup")[:1]
+        if first_pickup:
+            if first_pickup.pickup_window_start:
+                first_pickup.scheduled_datetime = first_pickup.pickup_window_start
+            elif not first_pickup.scheduled_datetime:
+                first_pickup.scheduled_datetime = datetime.combine(fields.Date.today(), time(9, 0))
+
+        if first_pickup and first_pickup.scheduled_datetime:
+            first_leg_hours = float(segments[0].get("drive_hours") or 0.0) if segments else 0.0
+            leave_yard_at = first_pickup.scheduled_datetime - timedelta(hours=first_leg_hours, minutes=25)
+        else:
+            leave_yard_at = fields.Datetime.now()
+
+        running_dt = leave_yard_at
+        break_state = {"since_major": 0.0}
+        total_distance = 0.0
+        total_hours = 0.0
+
+        for idx, stop in enumerate(ordered_stops):
+            segment = segments[idx] if idx < len(segments) else {}
+            base_drive_hours = float(segment.get("drive_hours") or 0.0)
+            break_hours = self._compute_break_hours(base_drive_hours, break_state)
+            effective_drive_hours = base_drive_hours + break_hours
+            total_distance += float(segment.get("distance_km") or 0.0)
+            total_hours += effective_drive_hours
+
+            if not stop.scheduled_datetime:
+                if stop.stop_type == "pickup" and stop.pickup_window_start:
+                    stop.scheduled_datetime = stop.pickup_window_start
+                elif stop.stop_type == "delivery" and stop.delivery_window_start:
+                    stop.scheduled_datetime = stop.delivery_window_start
+                else:
+                    stop.scheduled_datetime = running_dt + timedelta(hours=effective_drive_hours)
+
+            estimated_arrival = running_dt + timedelta(hours=effective_drive_hours)
+            if stop.stop_type == "delivery" and stop.delivery_window_start and estimated_arrival < stop.delivery_window_start:
+                estimated_arrival = stop.delivery_window_start
+            stop.write(
+                {
+                    "distance_km": float(segment.get("distance_km") or 0.0),
+                    "drive_hours": effective_drive_hours,
+                    "scheduled_datetime": stop.scheduled_datetime,
+                    "estimated_arrival": estimated_arrival,
+                    "map_url": segment.get("map_url"),
+                }
+            )
+            running_dt = estimated_arrival
+
+        return leave_yard_at, total_distance, total_hours
+
+    def _create_calendar_booking(self, lead):
+        if not (lead.assigned_vehicle_id and lead.departure_time and lead.total_distance_km):
+            return
+
+        driver_partner = lead.assigned_vehicle_id.driver_id.partner_id
+        if not driver_partner:
+            return
+
+        last_eta = max(lead.dispatch_stop_ids.mapped("estimated_arrival") or [lead.departure_time])
+        overlap_domain = [
+            ("partner_ids", "in", driver_partner.id),
+            ("start", "<", last_eta),
+            ("stop", ">", lead.departure_time),
+        ]
+        overlap = self.env["calendar.event"].search(overlap_domain, limit=1)
+        if overlap:
+            raise UserError("Driver already has an overlapping booking in Calendar.")
+
+        existing = self.env["calendar.event"].search(
+            [
+                ("res_model", "=", "crm.lead"),
+                ("res_id", "=", lead.id),
+                ("name", "=", f"Load #{lead.id}"),
+            ],
+            limit=1,
+        )
+        vals = {
+            "name": f"Load #{lead.id}",
+            "start": lead.departure_time,
+            "stop": last_eta,
+            "partner_ids": [(6, 0, [driver_partner.id])],
+            "res_model": "crm.lead",
+            "res_id": lead.id,
+        }
+        if existing:
+            existing.write(vals)
+        else:
+            self.env["calendar.event"].create(vals)
 
     def _apply_routes(self, lead):
         warnings = []
@@ -87,56 +196,17 @@ class CRMDispatchService:
         if not ordered_stops:
             return warnings
 
-        segments = self.mapbox_service.calculate_trip_segments(ordered_stops.mapped("address"))
-        total_distance = 0.0
-        total_hours = 0.0
-        cumulative_drive = 0.0
-        running_dt = None
+        origin = lead.assigned_vehicle_id.home_location if lead.assigned_vehicle_id else None
+        segments = self.mapbox_service.calculate_trip_segments(ordered_stops, origin_address=origin)
 
-        first_pickup = ordered_stops.filtered(lambda s: s.stop_type == "pickup")[:1]
-        if first_pickup and first_pickup.scheduled_datetime:
-            first_segment = segments[0] if segments else {"drive_hours": 0.0}
-            lead.leave_yard_at = first_pickup.scheduled_datetime - timedelta(
-                hours=float(first_segment.get("drive_hours") or 0.0),
-                minutes=25,
-            )
-            running_dt = lead.leave_yard_at + timedelta(minutes=15)
+        leave_yard_at, total_distance, total_hours = self._compute_stop_schedule(ordered_stops, segments)
 
-        for index, stop in enumerate(ordered_stops):
-            segment = segments[index] if index < len(segments) else {}
-            distance_km = float(segment.get("distance_km") or 0.0)
-            drive_hours = float(segment.get("drive_hours") or 0.0)
-            total_distance += distance_km
-            total_hours += drive_hours
+        lead.write({"departure_time": leave_yard_at, "total_distance_km": total_distance, "total_drive_hours": total_hours})
+        self._create_calendar_booking(lead)
 
-            cumulative_drive += drive_hours
-            break_minutes = self._break_minutes(cumulative_drive)
-            if break_minutes and cumulative_drive > 8:
-                break_minutes += 10
-
-            if not stop.scheduled_datetime:
-                if stop.stop_type == "pickup" and not running_dt:
-                    stop.scheduled_datetime = datetime.combine(fields.Date.today(), time(9, 0))
-                elif running_dt:
-                    stop.scheduled_datetime = running_dt + timedelta(hours=drive_hours)
-
-            eta_dt = (stop.scheduled_datetime or running_dt or fields.Datetime.now()) + timedelta(hours=drive_hours)
-            eta_dt += timedelta(minutes=10 + break_minutes)
-
-            stop.write(
-                {
-                    "distance_km": distance_km,
-                    "drive_hours": drive_hours,
-                    "eta_datetime": eta_dt,
-                    "scheduled_datetime": stop.scheduled_datetime,
-                }
-            )
-            running_dt = eta_dt
-
+        for segment in segments:
             if segment.get("warning"):
                 warnings.append(segment["warning"])
-
-        lead.write({"total_distance_km": total_distance, "total_drive_hours": total_hours})
         return warnings
 
     def _build_quote_email(self, lead, pricing_result, extraction):
@@ -161,7 +231,7 @@ class CRMDispatchService:
         po_match = re.search(r"(?:PO|Purchase\s*Order)\s*[:#-]?\s*([A-Z0-9-]+)", text, re.I)
         terms_match = re.search(r"(?:payment\s*terms?)\s*[:#-]?\s*([A-Za-z0-9\s-]+)", text, re.I)
         return {
-            "premafirm_po": po_match.group(1) if po_match else None,
+            "po_number": po_match.group(1) if po_match else None,
             "payment_terms_text": terms_match.group(1).strip() if terms_match else None,
         }
 
@@ -191,8 +261,8 @@ class CRMDispatchService:
             "liftgate": bool(extraction.get("liftgate")),
             "detention_requested": bool(extraction.get("detention_requested")),
         }
-        if po_data.get("premafirm_po"):
-            updates["premafirm_po"] = po_data["premafirm_po"]
+        if po_data.get("po_number"):
+            updates["po_number"] = po_data["po_number"]
         lead.write(updates)
 
         warnings.extend(self._apply_routes(lead))

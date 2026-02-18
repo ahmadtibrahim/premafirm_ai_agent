@@ -14,10 +14,33 @@
             <div class="page" t-foreach="docs" t-as="o">
                 <h2>Proof of Delivery</h2>
                 <p><strong>Sales Order:</strong> <span t-field="o.name"/></p>
-                <p><strong>Pickup:</strong> <span t-field="o.pickup_city"/></p>
-                <p><strong>Delivery:</strong> <span t-field="o.delivery_city"/></p>
-                <p><strong>Driver:</strong> <span t-esc="o.user_id.name or ''"/></p>
-                <p style="margin-top: 40px;"><strong>Signature:</strong> ____________________________</p>
+                <p><strong>PO:</strong> <span t-field="o.premafirm_po"/></p>
+                <p><strong>BOL:</strong> <span t-field="o.premafirm_bol"/></p>
+                <p><strong>POD Ref:</strong> <span t-field="o.premafirm_pod"/></p>
+                <p><strong>Driver:</strong> <span t-esc="o.opportunity_id.assigned_vehicle_id.driver_id.name or ''"/></p>
+                <p><strong>Vehicle:</strong> <span t-esc="o.opportunity_id.assigned_vehicle_id.name or ''"/></p>
+
+                <h3 style="margin-top: 16px;">Stops</h3>
+                <table class="table table-sm table-bordered">
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            <th>Address</th>
+                            <th>Scheduled</th>
+                            <th>ETA</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="o.order_line" t-as="l">
+                            <td><span t-field="l.stop_type"/></td>
+                            <td><span t-field="l.stop_address"/></td>
+                            <td><span t-field="l.scheduled_date"/></td>
+                            <td><span t-field="l.eta_datetime"/></td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <p style="margin-top: 36px;"><strong>Receiver Signature:</strong> ____________________________</p>
             </div>
         </t>
     </template>

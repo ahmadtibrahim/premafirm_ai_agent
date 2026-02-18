@@ -7,7 +7,7 @@
         <field name="arch" type="xml">
             <xpath expr="//header" position="inside">
                 <button name="action_ai_calculate" type="object" string="AI Calculate" class="btn-primary"/>
-                <button name="action_create_quotation" type="object" string="Create Quotation" class="btn-success"/>
+                <button name="action_create_sales_order" type="object" string="Create Sales Order" class="btn-success"/>
             </xpath>
 
             <xpath expr="//sheet/notebook" position="inside">
@@ -20,14 +20,14 @@
                             <field name="total_weight_lbs" readonly="1"/>
                         </group>
                         <group>
-                            <field name="premafirm_po"/>
-                            <field name="premafirm_bol"/>
-                            <field name="premafirm_pod"/>
+                            <field name="po_number"/>
+                            <field name="bol_number"/>
+                            <field name="pod_reference"/>
                             <field name="payment_terms"/>
                             <field name="discount_percent"/>
                             <field name="discount_amount"/>
-                            <field name="final_rate" readonly="1"/>
-                            <field name="leave_yard_at" readonly="1"/>
+                            <field name="final_rate"/>
+                            <field name="departure_time" readonly="1"/>
                             <field name="inside_delivery"/>
                             <field name="liftgate"/>
                             <field name="detention_requested"/>
@@ -39,13 +39,13 @@
                         <list editable="bottom">
                             <field name="sequence"/>
                             <field name="stop_type"/>
+                            <field name="product_id" string="Service"/>
                             <field name="address"/>
-                            <field name="freight_product_id"/>
                             <field name="service_type"/>
                             <field name="pallets"/>
                             <field name="weight_lbs"/>
                             <field name="scheduled_datetime"/>
-                            <field name="eta_datetime" readonly="1"/>
+                            <field name="estimated_arrival" readonly="1"/>
                             <field name="distance_km"/>
                             <field name="drive_hours"/>
                             <field name="equipment_required" optional="hide"/>

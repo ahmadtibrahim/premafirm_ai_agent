@@ -2,121 +2,112 @@
 
 ## Dispatch + CRM → Sales → Invoice Intelligence Upgrade
 
-This module upgrades lead dispatch planning, routing, product assignment, sales-order creation, and invoice propagation for PremaFirm workflows.
+This module extends dispatch planning and downstream sales/accounting automation for PremaFirm.
 
-## 1) Mapbox Integration Details
-- Service: `premafirm_ai_engine/services/mapbox_service.py`
-- Uses Mapbox Geocoding + Directions APIs.
-- Yard origin defaults to: `5585 McAdam Rd, Mississauga ON L4Z 1P1`.
-- Computes segment-by-segment travel from yard to first stop, then stop-to-stop.
-- Persists segment values into stop-level distance/hours and lead totals.
+## 1) Mapbox integration (driving-traffic)
+- Service: `premafirm_ai_engine/services/mapbox_service.py`.
+- Uses Mapbox Geocoding + Directions API with `driving-traffic` profile.
+- Route chain is computed as:
+  - `fleet.vehicle.home_location` → stop 1 → stop 2 → ... → last stop → `home_location`.
+- Supports geocoding from full addresses and city/province strings.
+- For each leg, stop records get:
+  - `distance_km`
+  - `drive_hours`
+  - `map_url`
 
-## 2) Speed Calculation Logic
-For each route segment:
-- If highway ratio is > 60% (derived from maxspeed annotations): average speed = **95 km/h**.
-- Else: average speed = **55 km/h**.
-- `drive_time_hours = distance_km / avg_speed`.
+## 2) HOS and ETA logic
+- Implemented in `premafirm_ai_engine/services/crm_dispatch_service.py`.
+- Speed rule:
+  - >60% highway: 90 km/h
+  - otherwise: 45 km/h
+- Breaks included directly into `drive_hours`:
+  - 10–15 min after ~4h driving (implemented as 15 min)
+  - 45 min after ~8h driving
+  - +10 min micro-break after 3–4h post major break
+- Departure (`crm.lead.departure_time`) is computed from first pickup schedule minus:
+  - first leg travel,
+  - 15 min warm-up,
+  - 10 min traffic buffer.
+- ETA (`premafirm.dispatch.stop.estimated_arrival`) is sequenced from previous time + effective drive time.
+- Aggregates are persisted on lead:
+  - `total_distance_km`
+  - `total_drive_hours`
 
-Buffers:
-- +15 minutes truck warm-up before first movement.
-- +10 minutes traffic buffer applied in ETA sequencing.
+## 3) Default scheduling rules
+- If first pickup has no window and no explicit schedule, defaults to 9:00 AM local.
+- Pickup/delivery windows are respected when provided.
+- Delivery ETA rolls into same day when possible; otherwise naturally pushes to next day based on cumulative travel + HOS break additions.
 
-## 3) Break Scheduling Rules
-- First pickup without customer time window defaults to **9:00 AM local**.
-- Explicit customer times (for example 8:00 AM) are respected.
-- Break rules:
-  - After 4 hours drive: 10 minutes
-  - After 8 hours drive: 30 minutes
-  - After major break: additional 10-minute micro-break in subsequent long segments
-- `Leave Yard At` is computed from first pickup time minus first segment travel and startup/buffer offsets.
+## 4) Stop-level service product selection
+- Dispatch stop now has explicit service product:
+  - `premafirm.dispatch.stop.product_id`
+- Backward compatibility kept through related alias:
+  - `freight_product_id` → related to `product_id`
+- CRM line label is now **Service** in stop table.
+- Product selection considers:
+  - country (Canada vs USA),
+  - stop type / multi-delivery behavior,
+  - total pallets vs inferred capacity,
+  - reefer vs dry service type.
 
-## 4) Freight Product Selection Matrix
-Stop-level field:
-- `premafirm.dispatch.stop.freight_product_id`
+## 5) CRM → Sales Order creation and mapping
+- CRM button: **Create Sales Order**.
+- Behavior:
+  - PO present (`po_number`) ⇒ confirms SO (`state='sale'`)
+  - no PO ⇒ stays draft quotation.
+- Lead→SO mapping includes:
+  - partner, PO/BOL/POD,
+  - pallets/weight/distance totals,
+  - pickup/delivery city,
+  - payment terms.
+- One SO line per stop:
+  - `product_id` from stop service,
+  - `name` from stop address,
+  - `product_uom_qty` from stop pallets,
+  - `price_unit` proportional share of total rate,
+  - `scheduled_date` from stop schedule,
+  - line discount from lead discount %.
+- Packaging columns are hidden in SO line list/form.
 
-Selection rules:
-- Pickup stop:
-  - If total pallets >= inferred truck pallet capacity ⇒ FTL
-  - Else ⇒ LTL
-- Multi-delivery loads force delivery stops to LTL.
-- Country split:
-  - US delivery: `FTL USA` / `LTL USA`
-  - Non-US delivery: `FTL Canada` / `LTL Canada`
+## 6) Discount system
+- If user sets `crm.lead.final_rate`, module computes:
+  - `discount_amount = suggested_rate - final_rate`
+  - `discount_percent = discount_amount / suggested_rate * 100`
+- Discount percent is propagated to each SO line (`sale.order.line.discount`).
 
-## 5) CRM → SO → Invoice Mapping Table
-### CRM Lead → Sale Order
-- `partner_id` → `partner_id`
-- pickup city (first pickup address city) → `pickup_city`
-- delivery city (first delivery address city) → `delivery_city`
-- `total_pallets` → `total_pallets`
-- `total_weight_lbs` → `total_weight_lbs`
-- `total_distance_km` → `total_distance_km`
-- `premafirm_po` → `client_order_ref`
-- `premafirm_bol` → `premafirm_bol`
-- `premafirm_pod` → `premafirm_pod`
-- `payment_terms` → `payment_term_id`
+## 7) Calendar scheduling / driver booking
+- When vehicle is assigned and routing completed, module creates/updates calendar event:
+  - `name = Load #<lead.id>`
+  - start = `departure_time`
+  - stop = last stop ETA
+  - attendees = assigned driver partner
+  - linked to `crm.lead`
+- Overlap check blocks booking when driver already has overlapping event.
 
-### Sale Order → Invoice (`account.move`)
-- `premafirm_po` → `ref`
-- `premafirm_bol` → `premafirm_bol`
-- `premafirm_pod` → `premafirm_pod`
-- `load_reference` → `load_reference`
-- `client_order_ref` → `payment_reference`
+## 8) POD document generation
+- On SO confirmation, POD PDF is generated and attached to `sale.order`.
+- POD report includes:
+  - SO number,
+  - PO/BOL/POD,
+  - stop rows with scheduled/ETA,
+  - driver and vehicle.
 
-## 6) PO Auto-Detection Logic
-PO detection in parsing layer includes:
-- `PO`
-- `Purchase Order`
-- pattern capture for PO number tokens
+## 9) Multi-country accounting logic
+- For US customers:
+  - prefers USA company,
+  - USA sales journal,
+  - USD currency.
+- For non-US customers:
+  - prefers Canada company,
+  - Canada sales journal,
+  - CAD currency.
+- Invoice prep mirrors the same company/journal selection intent.
 
-Detected PO is saved on lead as `premafirm_po` and mapped to SO `client_order_ref`.
-
-## 7) USA/Canada Accounting Auto-Switch
-On SO creation:
-- US customer country:
-  - attempts US fiscal position
-  - attempts US sales journal
-  - sets currency to USD
-- Otherwise:
-  - sets currency to CAD
-
-Invoice creation defaults `currency_id` to company currency when absent to avoid secondary currency forcing.
-
-## 8) POD Generation Flow
-- QWeb report file: `views/report_premafirm_pod.xml`
-- SO button: **Generate POD**
-- Report includes:
-  - Sales Order number
-  - Pickup
-  - Delivery
-  - Driver
-  - Signature placeholder
-
-## 9) Packaging Fields Removed Intentionally
-From Sale Order lines (form + list):
-- `packaging_id`
-- `product_packaging_qty`
-
-These are hidden to keep freight quoting UI focused on dispatch details.
-
-## 10) Known Dependencies
+## 10) Key dependency modules
+- `crm`
 - `sale_management`
 - `account`
+- `mail`
 - `fleet`
 - `hr`
 - `calendar`
-- `mail`
-
-## Testing Checklist
-- Multi stop FTL Canada
-- Multi stop LTL Canada
-- USA FTL
-- USA LTL
-- PO via PDF
-- PO via email body
-- No time window → default 9AM
-- Custom time window 8AM
-- Overlapping schedule detection
-- Invoice creation with attachments
-- Currency switching
-- Secondary currency error resolved

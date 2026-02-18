@@ -1,4 +1,4 @@
-from odoo import fields, models
+from odoo import api, fields, models
 
 
 class PremafirmDispatchStop(models.Model):
@@ -11,6 +11,7 @@ class PremafirmDispatchStop(models.Model):
 
     stop_type = fields.Selection([("pickup", "Pickup"), ("delivery", "Delivery")], required=True)
     address = fields.Char(required=True)
+    country = fields.Char()
 
     pallets = fields.Integer()
     weight_lbs = fields.Float()
@@ -19,8 +20,8 @@ class PremafirmDispatchStop(models.Model):
 
     requested_datetime = fields.Datetime()
     scheduled_datetime = fields.Datetime("Scheduled Time")
-    eta_datetime = fields.Datetime("ETA")
-    estimated_arrival = fields.Datetime(related="eta_datetime", store=True, readonly=False)
+    estimated_arrival = fields.Datetime("ETA")
+    eta_datetime = fields.Datetime(related="estimated_arrival", store=True, readonly=False)
     pickup_datetime_est = fields.Datetime()
     delivery_datetime_est = fields.Datetime()
 
@@ -47,4 +48,14 @@ class PremafirmDispatchStop(models.Model):
     map_url = fields.Char()
 
     is_ftl = fields.Boolean("FTL Stop", default=False)
-    freight_product_id = fields.Many2one("product.product", string="Freight Product")
+    product_id = fields.Many2one("product.product", string="Service")
+    freight_product_id = fields.Many2one(related="product_id", store=True, readonly=False)
+
+    @api.onchange("address")
+    def _onchange_address_country(self):
+        for stop in self:
+            addr = (stop.address or "").upper()
+            if any(token in addr for token in [" USA", " US", "UNITED STATES"]):
+                stop.country = "USA"
+            elif stop.address:
+                stop.country = "Canada"

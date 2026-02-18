@@ -1,6 +1,9 @@
+import logging
 from urllib.parse import quote
 
 import requests
+
+_logger = logging.getLogger(__name__)
 
 
 class MapboxService:
@@ -10,43 +13,53 @@ class MapboxService:
     def _get_api_key(self):
         return self.env["ir.config_parameter"].sudo().get_param("mapbox_api_key")
 
+    def _safe_get(self, url, timeout=20):
+        try:
+            response = requests.get(url, timeout=timeout)
+            response.raise_for_status()
+            return response.json()
+        except Exception:
+            _logger.exception("Mapbox request failed: %s", url)
+            return {}
+
     def _geocode(self, address):
         api_key = self._get_api_key()
         if not api_key or not address:
             return None
-
         encoded = quote(address)
         url = (
             "https://api.mapbox.com/geocoding/v5/mapbox.places/"
             f"{encoded}.json?access_token={api_key}&limit=1"
         )
-        response = requests.get(url, timeout=20)
-        response.raise_for_status()
-        features = response.json().get("features", [])
+        data = self._safe_get(url)
+        features = data.get("features", [])
         if not features:
             return None
-        return features[0]["center"]
+        return features[0].get("center")
 
     def get_route(self, origin_address, destination_address):
         api_key = self._get_api_key()
         if not api_key:
-            return {"distance_km": 0.0, "drive_hours": 0.0}
+            return {"distance_km": 0.0, "drive_hours": 0.0, "warning": "Mapbox API key missing."}
 
         origin = self._geocode(origin_address)
         destination = self._geocode(destination_address)
         if not origin or not destination:
-            return {"distance_km": 0.0, "drive_hours": 0.0}
+            return {
+                "distance_km": 0.0,
+                "drive_hours": 0.0,
+                "warning": "Could not geocode one or more stops.",
+            }
 
         coordinates = f"{origin[0]},{origin[1]};{destination[0]},{destination[1]}"
         route_url = (
             "https://api.mapbox.com/directions/v5/mapbox/driving/"
             f"{coordinates}?geometries=geojson&overview=false&access_token={api_key}"
         )
-        response = requests.get(route_url, timeout=20)
-        response.raise_for_status()
-        routes = response.json().get("routes", [])
+        data = self._safe_get(route_url)
+        routes = data.get("routes", [])
         if not routes:
-            return {"distance_km": 0.0, "drive_hours": 0.0}
+            return {"distance_km": 0.0, "drive_hours": 0.0, "warning": "No route found."}
 
         meters = routes[0].get("distance", 0.0)
         seconds = routes[0].get("duration", 0.0)

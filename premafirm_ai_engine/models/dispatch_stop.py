@@ -11,7 +11,14 @@ class PremafirmDispatchStop(models.Model):
 
     stop_type = fields.Selection([("pickup", "Pickup"), ("delivery", "Delivery")], required=True)
     address = fields.Char(required=True)
+    full_address = fields.Char()
     country = fields.Char()
+    postal_code = fields.Char()
+    latitude = fields.Float(digits=(10, 7))
+    longitude = fields.Float(digits=(10, 7))
+    place_categories = fields.Char()
+    needs_manual_review = fields.Boolean(default=False)
+    liftgate_needed = fields.Boolean(default=False)
 
     pallets = fields.Integer()
     weight_lbs = fields.Float()

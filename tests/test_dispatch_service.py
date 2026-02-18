@@ -29,22 +29,20 @@ def test_compute_lead_totals_basic():
             SimpleNamespace(
                 sequence=1,
                 address="Toronto, ON",
-                stop_pickup_dt=False,
-                stop_delivery_dt=False,
                 pallets=10,
                 weight_lbs=12000,
                 service_type=False,
                 load_type=False,
+                stop_type="pickup",
             ),
             SimpleNamespace(
                 sequence=2,
                 address="Ottawa, ON",
-                stop_pickup_dt=False,
-                stop_delivery_dt=False,
                 pallets=5,
                 weight_lbs=5000,
                 service_type=False,
                 load_type=False,
+                stop_type="delivery",
             ),
         ]
     )

@@ -54,6 +54,12 @@ class CrmLead(models.Model):
 
     assigned_vehicle_id = fields.Many2one("fleet.vehicle")
 
+    dispatch_run_id = fields.Many2one("premafirm.dispatch.run")
+    schedule_locked = fields.Boolean(default=False)
+    schedule_conflict = fields.Boolean(default=False)
+    ai_optimization_suggestion = fields.Text()
+
+
     @api.depends("suggested_rate", "final_rate")
     def _compute_discounts_from_final_rate(self):
         for lead in self:
@@ -138,7 +144,8 @@ class CrmLead(models.Model):
 
     def _assign_stop_products(self):
         for lead in self:
-            capacity = float(lead.assigned_vehicle_id.payload_capacity_lbs or 40000.0)
+            vehicle_capacity = getattr(lead.assigned_vehicle_id, "payload_capacity_lbs", 0.0) if lead.assigned_vehicle_id else 0.0
+            capacity = float(vehicle_capacity or 40000.0)
             inferred_capacity_pallets = max(1.0, capacity / 1800.0)
             delivery_count = len(lead.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery"))
             for stop in lead.dispatch_stop_ids:
@@ -241,6 +248,15 @@ class CrmLead(models.Model):
             "res_id": order.id,
             "view_mode": "form",
         }
+
+    def action_ai_optimize_schedule(self):
+        self.ensure_one()
+        from ..services.run_planner_service import RunPlannerService
+
+        planner = RunPlannerService(self.env)
+        suggestions = planner.optimize_insertion_for_lead(self)
+        self.write({"ai_optimization_suggestion": suggestions.get("text"), "schedule_conflict": not suggestions.get("feasible")})
+        return True
 
     # Backward-compatible button action.
     def action_create_quotation(self):

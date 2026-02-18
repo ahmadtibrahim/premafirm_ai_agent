@@ -18,6 +18,11 @@ class AIExtractionService:
     def __init__(self, env):
         self.env = env
 
+    def _record_runtime_warning(self, warning):
+        if not hasattr(self, "_runtime_warnings"):
+            self._runtime_warnings = []
+        self._runtime_warnings.append(warning)
+
     def _get_openai_key(self):
         return self.env["ir.config_parameter"].sudo().get_param("openai.api_key")
 
@@ -51,6 +56,14 @@ class AIExtractionService:
                 return (match.group(1) or "").strip()
         return None
 
+    def _extract_labeled_value(self, text, labels):
+        escaped = "|".join(labels)
+        patterns = [
+            rf"(?:{escaped})\s*[:\-]?\s*([^\n]+)",
+            rf"(?:{escaped})\s*\n\s*([^\n]+)",
+        ]
+        return self._extract_value(text, patterns)
+
     def _coerce_number(self, value):
         if value is None:
             return None
@@ -66,13 +79,35 @@ class AIExtractionService:
         warnings = []
         errors = []
         stops = []
+        pickup_labels = [
+            r"Pickup\s*Address",
+            r"Pickup\s*Location",
+            r"Pickup",
+            r"Origin",
+            r"Ship\s*From",
+            r"Shipper",
+        ]
+        delivery_labels = [
+            r"Delivery\s*Address",
+            r"Delivery\s*Location",
+            r"Delivery",
+            r"Destination",
+            r"Ship\s*To",
+            r"Receiver",
+            r"Consignee",
+            r"Drop",
+        ]
+        delivery_date_labels = [r"Delivery\s*Date", r"Delivery", r"Due\s*Date"]
+        pallet_labels = [r"#\s*of\s*Pallets", r"Pallets"]
+        weight_labels = [r"Total\s*Weight", r"Weight"]
+
         for idx, section in enumerate(self._load_sections(raw_text), 1):
-            pallets_raw = self._extract_value(section, [r"#\s*of\s*Pallets\s*[:\-]?\s*([^\n]+)"])
-            size_raw = self._extract_value(section, [r"Pallet\s*Size\s*[:\-]?\s*([^\n]+)"])
-            weight_raw = self._extract_value(section, [r"(?:Total\s*Weight|Weight)\s*[:\-]?\s*([^\n]+)"])
-            pickup = self._extract_value(section, [r"(?:Pickup\s*Location|Shipper)\s*[:\-]?\s*([^\n]+)"])
-            delivery = self._extract_value(section, [r"(?:Delivery\s*Location|Consignee|Receiver|Drop)\s*[:\-]?\s*([^\n]+)"])
-            delivery_date = self._extract_value(section, [r"Delivery\s*Date\s*[:\-]?\s*([^\n]+)"])
+            pallets_raw = self._extract_labeled_value(section, pallet_labels)
+            size_raw = self._extract_labeled_value(section, [r"Pallet\s*Size"])
+            weight_raw = self._extract_labeled_value(section, weight_labels)
+            pickup = self._extract_labeled_value(section, pickup_labels)
+            delivery = self._extract_labeled_value(section, delivery_labels)
+            delivery_date = self._extract_labeled_value(section, delivery_date_labels)
 
             pallets_val = self._coerce_number(pallets_raw)
             weight_val = self._coerce_number(weight_raw)
@@ -130,10 +165,18 @@ class AIExtractionService:
 
         if name.endswith(".pdf"):
             try:
-                import pypdf
+                try:
+                    from pypdf import PdfReader
+                except ModuleNotFoundError:
+                    from PyPDF2 import PdfReader
 
-                reader = pypdf.PdfReader(io.BytesIO(payload))
+                reader = PdfReader(io.BytesIO(payload))
                 return "\n".join((page.extract_text() or "") for page in reader.pages)
+            except ModuleNotFoundError:
+                warning = "PDF parser dependency missing. Install 'pypdf' in the Odoo venv to enable attachment parsing."
+                self._record_runtime_warning(warning)
+                _logger.error(warning)
+                return ""
             except Exception:
                 _logger.exception("PDF parsing failed for attachment %s", attachment.name)
                 return ""
@@ -182,38 +225,17 @@ class AIExtractionService:
             "warnings": ["AI extraction unavailable, used fallback parser."],
         }
 
-    def extract_load(self, email_text, attachments=None):
-        attachments = attachments or self.env["ir.attachment"]
-        parsable = attachments.filtered(lambda a: (a.name or "").lower().endswith((".pdf", ".xlsx", ".xls")))
-        if parsable:
-            raw_text = "\n".join(filter(None, [self._extract_attachment_text(att) for att in parsable]))
-            parsed = self._parse_load_sections(raw_text)
-            parsed.update(
-                {
-                    "inside_delivery": "inside delivery" in raw_text.lower(),
-                    "liftgate": "liftgate" in raw_text.lower(),
-                    "detention_requested": "detention" in raw_text.lower(),
-                    "reefer_required": self._contains_reefer_terms(raw_text),
-                    "source": "attachment",
-                    "notes": "Attachment data prioritized over email body.",
-                }
-            )
-            parsed["warnings"] = list(parsed.get("warnings") or [])
-            parsed["warnings"].append("Attachment data used as primary source; email body ignored.")
-            return parsed
-
+    def _openai_extract(self, source_text, source_label):
         api_key = self._get_openai_key()
         if not api_key:
-            parsed = self._fallback_parse(email_text)
-            parsed["source"] = "email"
-            return parsed
+            return {}
 
         system_prompt = (
-            "You are a senior freight-dispatch AI. Parse broker emails and return ONLY JSON with stops, "
+            "You are a senior freight-dispatch AI. Parse broker load details and return ONLY JSON with stops, "
             "weights, pallets, and accessorials."
         )
         user_prompt = f"""
-Extract freight details from this email and return valid JSON:
+Extract freight details from this {source_label} and return valid JSON:
 {{
   "stops": [{{"stop_type":"pickup|delivery","address":"string","pallets":number|null,"weight_lbs":number|null}}],
   "inside_delivery": boolean,
@@ -226,8 +248,8 @@ Extract freight details from this email and return valid JSON:
   "warnings": ["text"]
 }}
 
-EMAIL:
-{email_text}
+CONTENT:
+{source_text}
 """
         payload = {
             "model": "gpt-4o-mini",
@@ -244,16 +266,65 @@ EMAIL:
             response.raise_for_status()
             data = response.json()
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            structured = self._extract_json_from_text(content)
-            if not structured.get("stops"):
-                fallback = self._fallback_parse(email_text)
-                fallback["warnings"].append("AI response missing stops.")
-                fallback["source"] = "email"
-                return fallback
-            structured["source"] = "email"
-            return structured
+            return self._extract_json_from_text(content)
         except Exception:
             _logger.exception("OpenAI extraction failed")
-            parsed = self._fallback_parse(email_text)
-            parsed["source"] = "email"
-            return parsed
+            return {}
+
+    def extract_load(self, email_text, attachments=None):
+        self._runtime_warnings = []
+        attachments = attachments or self.env["ir.attachment"]
+        parsable = attachments.filtered(lambda a: (a.name or "").lower().endswith((".pdf", ".xlsx", ".xls")))
+        if parsable:
+            raw_text = "\n".join(filter(None, [self._extract_attachment_text(att) for att in parsable]))
+            parsed = self._parse_load_sections(raw_text)
+            if self._runtime_warnings:
+                parsed.setdefault("warnings", []).extend(self._runtime_warnings)
+            if not parsed.get("stops") and raw_text.strip():
+                structured = self._openai_extract(raw_text, "attachment text")
+                if structured.get("stops"):
+                    structured.setdefault("warnings", [])
+                    if self._runtime_warnings:
+                        structured["warnings"].extend(self._runtime_warnings)
+                    structured["warnings"].append("Attachment data used as primary source; email body ignored.")
+                    structured.update(
+                        {
+                            "inside_delivery": bool(structured.get("inside_delivery")),
+                            "liftgate": bool(structured.get("liftgate")),
+                            "detention_requested": bool(structured.get("detention_requested")),
+                            "reefer_required": bool(structured.get("reefer_required") or self._contains_reefer_terms(raw_text)),
+                            "source": "attachment",
+                            "notes": "Attachment data used as primary source; email body ignored.",
+                        }
+                    )
+                    return structured
+
+            if parsed.get("stops"):
+                parsed.update(
+                    {
+                        "inside_delivery": "inside delivery" in raw_text.lower(),
+                        "liftgate": "liftgate" in raw_text.lower(),
+                        "detention_requested": "detention" in raw_text.lower(),
+                        "reefer_required": self._contains_reefer_terms(raw_text),
+                        "source": "attachment",
+                        "notes": "Attachment data used as primary source; email body ignored.",
+                    }
+                )
+                parsed["warnings"] = list(parsed.get("warnings") or [])
+                parsed["warnings"].append("Attachment data used as primary source; email body ignored.")
+                return parsed
+
+        structured_email = self._openai_extract(email_text, "email")
+        if self._runtime_warnings and not structured_email.get("warnings"):
+            structured_email["warnings"] = list(self._runtime_warnings)
+        if structured_email.get("stops"):
+            structured_email["source"] = "email"
+            return structured_email
+
+        parsed = self._fallback_parse(email_text)
+        if self._runtime_warnings:
+            parsed.setdefault("warnings", []).extend(self._runtime_warnings)
+        parsed["source"] = "email"
+        if parsable:
+            parsed.setdefault("warnings", []).append("Attachment parsing and AI attachment extraction failed; used email fallback.")
+        return parsed

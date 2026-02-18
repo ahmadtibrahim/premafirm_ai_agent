@@ -128,34 +128,36 @@ class CrmLead(models.Model):
         is_reefer = (stop.service_type or "dry") == "reefer"
         key = (is_us, bool(stop.is_ftl))
         product_tmpl = self.env.ref(xmlids[key], raise_if_not_found=False)
-        product = product_tmpl.product_variant_id if product_tmpl else False
-        if product and is_reefer:
-            reefer_product = self.env["product.product"].search(
-                [
-                    ("name", "ilike", "reefer"),
-                    ("name", "ilike", "usa" if is_us else "can"),
-                    ("name", "ilike", "ftl" if stop.is_ftl else "ltl"),
-                ],
-                limit=1,
-            )
-            if reefer_product:
-                product = reefer_product
+        if not product_tmpl:
+            return False
+
+        product = product_tmpl.product_variant_id
+        if is_reefer and product_tmpl.product_variant_ids:
+            variant = product_tmpl.product_variant_ids.filtered(lambda p: "reefer" in (p.display_name or "").lower())[:1]
+            if variant:
+                product = variant
         return product
 
     def _assign_stop_products(self):
         for lead in self:
-            vehicle_capacity = getattr(lead.assigned_vehicle_id, "payload_capacity_lbs", 0.0) if lead.assigned_vehicle_id else 0.0
-            capacity = float(vehicle_capacity or 40000.0)
-            inferred_capacity_pallets = max(1.0, capacity / 1800.0)
-            delivery_count = len(lead.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery"))
-            for stop in lead.dispatch_stop_ids:
-                stop.is_ftl = float(lead.total_pallets or 0) >= inferred_capacity_pallets
-                if float(stop.pallets or 0) < inferred_capacity_pallets or delivery_count > 1:
-                    stop.is_ftl = False
+            stops = lead.dispatch_stop_ids.sorted("sequence")
+            if not stops:
+                continue
+
+            pickup_count = len(stops.filtered(lambda s: s.stop_type == "pickup"))
+            delivery_count = len(stops.filtered(lambda s: s.stop_type == "delivery"))
+            is_ftl = len(stops) == 2 and pickup_count == 1 and delivery_count == 1
+
+            for stop in stops:
+                stop.is_ftl = bool(is_ftl)
                 product = lead._get_correct_product(stop)
                 if product:
                     stop.product_id = product.id
                     stop.freight_product_id = product.id
+
+            first_product = stops[:1].product_id
+            if first_product:
+                lead.product_id = first_product.id
 
     def _prepare_order_values(self):
         self.ensure_one()

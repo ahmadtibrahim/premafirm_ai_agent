@@ -1,5 +1,8 @@
 import json
+import logging
+import math
 import re
+
 import requests
 from odoo import models
 from odoo.exceptions import UserError
@@ -9,15 +12,111 @@ from ..services.mapbox_service import MapboxService
 from ..services.pricing_engine import PricingEngine
 
 
+_logger = logging.getLogger(__name__)
+
+
 class CrmLeadAI(models.Model):
     _inherit = "crm.lead"
 
     def _clean_body(self):
+        """Return latest customer email text, preferring body_plaintext over HTML body."""
         messages = self.message_ids.sorted("date", reverse=True)
         for msg in messages:
+            if msg.model != "crm.lead" or msg.res_id != self.id:
+                continue
+
+            # Prioritize true incoming emails from customers.
+            if msg.message_type not in ("email", "comment"):
+                continue
+
+            plain = (msg.body_plaintext or "").strip()
+            if plain:
+                return plain
+
             if msg.body:
-                return html2plaintext(msg.body)
+                cleaned_html = (html2plaintext(msg.body) or "").strip()
+                if cleaned_html:
+                    return cleaned_html
         return ""
+
+    @staticmethod
+    def _fallback_extract_stops(email_text):
+        """Fallback extraction when model output is empty/invalid.
+
+        Handles plain patterns like:
+        - Pickup: city, state zip
+        - Delivery: city, state zip
+        - LOAD #1 / LOAD #2 blocks
+        """
+        text = email_text or ""
+        if not text.strip():
+            return []
+
+        def _clean_addr(raw):
+            return re.sub(r"\s+", " ", (raw or "").strip(" -:\n\t"))
+
+        stops = []
+        # Block-based parsing for multi-load emails.
+        load_blocks = re.split(r"\bLOAD\s*#?\d+\b", text, flags=re.I)
+        if len(load_blocks) > 1:
+            for block in load_blocks[1:]:
+                pickup_match = re.search(r"pickup\s*:\s*(.+?)(?:\n\s*\n|\n\s*delivery\s*:|$)", block, re.I | re.S)
+                delivery_match = re.search(r"delivery\s*:\s*(.+?)(?:\n\s*\n|\n\s*delivery\s*date\s*:|$)", block, re.I | re.S)
+                pallets_match = re.search(r"pallets?\s*[:#]?\s*([\d,]+)", block, re.I)
+                weight_match = re.search(r"weight\s*[:#]?\s*([\d,\.]+)\s*(?:lbs?|lb)?", block, re.I)
+
+                pallets = int((pallets_match.group(1) if pallets_match else "0").replace(",", "") or 0)
+                weight_lbs = float((weight_match.group(1) if weight_match else "0").replace(",", "") or 0)
+
+                if pickup_match:
+                    stops.append(
+                        {
+                            "stop_type": "pickup",
+                            "address": _clean_addr(pickup_match.group(1).splitlines()[0]),
+                            "pallets": pallets,
+                            "weight_lbs": weight_lbs,
+                        }
+                    )
+                if delivery_match:
+                    stops.append(
+                        {
+                            "stop_type": "delivery",
+                            "address": _clean_addr(delivery_match.group(1).splitlines()[0]),
+                            "pallets": pallets,
+                            "weight_lbs": weight_lbs,
+                        }
+                    )
+
+        if stops:
+            return stops
+
+        # Generic one-off pickup/delivery patterns.
+        pickup = re.search(r"pickup\s*:\s*(.+)", text, re.I)
+        delivery = re.search(r"delivery\s*:\s*(.+)", text, re.I)
+        pallets_match = re.search(r"pallets?\s*[:#]?\s*([\d,]+)", text, re.I)
+        weight_match = re.search(r"weight\s*[:#]?\s*([\d,\.]+)\s*(?:lbs?|lb)?", text, re.I)
+        pallets = int((pallets_match.group(1) if pallets_match else "0").replace(",", "") or 0)
+        weight_lbs = float((weight_match.group(1) if weight_match else "0").replace(",", "") or 0)
+
+        if pickup:
+            stops.append(
+                {
+                    "stop_type": "pickup",
+                    "address": _clean_addr(pickup.group(1)),
+                    "pallets": pallets,
+                    "weight_lbs": weight_lbs,
+                }
+            )
+        if delivery:
+            stops.append(
+                {
+                    "stop_type": "delivery",
+                    "address": _clean_addr(delivery.group(1)),
+                    "pallets": pallets,
+                    "weight_lbs": weight_lbs,
+                }
+            )
+        return stops
 
     def action_ai_calculate(self):
         self.ensure_one()
@@ -41,12 +140,15 @@ class CrmLeadAI(models.Model):
             "messages": [
                 {
                     "role": "system",
-                    "content": "Return ONLY valid JSON."
+                    "content": (
+                        "You are a senior freight dispatcher AI. Return ONLY valid JSON. "
+                        "Ignore signatures and quoted thread history. Detect multi-load emails."
+                    ),
                 },
                 {
                     "role": "user",
                     "content": f"""
-Extract pickup and delivery stops.
+Extract all dispatch stops and load metrics from this customer email.
 
 Return format:
 
@@ -58,8 +160,17 @@ Return format:
       "pallets": number,
       "weight_lbs": number
     }}
-  ]
+  ],
+  "inside_delivery": boolean,
+  "liftgate": boolean,
+  "detention_requested": boolean
 }}
+
+Rules:
+- If the email has LOAD #1/LOAD #2 blocks, create pickup + delivery for EACH load.
+- Extract pallets and weight for each load when available.
+- If pallets missing but weight provided, estimate pallets as ceil(weight_lbs / 1800).
+- Return valid JSON only.
 
 Email:
 {email_text}
@@ -74,12 +185,7 @@ Email:
             "Content-Type": "application/json"
         }
 
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=60
-        )
+        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60)
 
         data = response.json()
 
@@ -93,8 +199,17 @@ Email:
         if not match:
             raise UserError("AI returned invalid JSON.")
 
-        structured = json.loads(match.group(0))
-        stops = structured.get("stops", [])
+        try:
+            structured = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            _logger.exception("AI returned malformed JSON, attempting fallback stop extraction")
+            structured = {"stops": self._fallback_extract_stops(email_text)}
+
+        stops = structured.get("stops") or self._fallback_extract_stops(email_text)
+
+        for stop in stops:
+            if not stop.get("pallets") and stop.get("weight_lbs"):
+                stop["pallets"] = max(1, int(math.ceil(float(stop["weight_lbs"]) / 1800.0)))
 
         if not stops:
             raise UserError("No stops detected.")
@@ -145,6 +260,9 @@ Email:
             "estimated_cost": pricing["estimated_cost"],
             "suggested_rate": pricing["suggested_rate"],
             "ai_recommendation": pricing["recommendation"],
+            "inside_delivery": bool(structured.get("inside_delivery")),
+            "liftgate": bool(structured.get("liftgate")),
+            "detention_requested": bool(structured.get("detention_requested")),
         })
 
         # ---------------- Auto Suggested Reply ----------------
@@ -164,6 +282,7 @@ Best regards,
 PremaFirm Logistics
 """
 
-        self.message_post(body=reply_text)
+        # Draft response suggestion only; dispatcher manually reviews/edits before send.
+        self.message_post(body=reply_text, subtype_xmlid="mail.mt_note")
 
         return True

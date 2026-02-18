@@ -3,6 +3,8 @@ from datetime import timedelta
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 
+from ..services.crm_dispatch_service import CRMDispatchService
+
 
 class CrmLead(models.Model):
     _inherit = "crm.lead"
@@ -29,13 +31,15 @@ class CrmLead(models.Model):
     discount_percent = fields.Float()
     discount_amount = fields.Monetary(currency_field="company_currency_id")
 
-    product_id = fields.Many2one("product.product", string="Freight Product", required=True)
+    product_id = fields.Many2one("product.product", string="Freight Product")
 
-    po_number = fields.Char("Customer PO #")
-    bol_number = fields.Char("BOL #")
-    pod_reference = fields.Char("POD Reference")
+    premafirm_po = fields.Char("Customer PO #")
+    premafirm_bol = fields.Char("BOL #")
+    premafirm_pod = fields.Char("POD Reference")
+    payment_terms = fields.Many2one("account.payment.term", string="Payment Terms")
 
-    departure_time = fields.Datetime("Leave Yard At")
+    leave_yard_at = fields.Datetime("Leave Yard At")
+    departure_time = fields.Datetime(related="leave_yard_at", store=True, readonly=False)
 
     inside_delivery = fields.Boolean()
     liftgate = fields.Boolean()
@@ -47,13 +51,10 @@ class CrmLead(models.Model):
     def _compute_final_rate(self):
         for lead in self:
             rate = lead.suggested_rate or 0.0
-
             if lead.discount_percent:
                 rate -= rate * (lead.discount_percent / 100.0)
-
             if lead.discount_amount:
                 rate -= lead.discount_amount
-
             lead.final_rate = max(rate, 0.0)
 
     @api.depends(
@@ -69,58 +70,114 @@ class CrmLead(models.Model):
             lead.total_distance_km = sum(lead.dispatch_stop_ids.mapped("distance_km"))
             lead.total_drive_hours = sum(lead.dispatch_stop_ids.mapped("drive_hours"))
 
+    def _extract_city(self, address):
+        return (address.split(",", 1)[0] or "").strip() if address else ""
+
+    def _is_us_stop(self, stop):
+        address = (stop.address or "").upper()
+        return "USA" in address or "UNITED STATES" in address or ", US" in address
+
+    def _get_correct_product(self, stop):
+        xmlids = {
+            (True, True): "premafirm_ai_engine.product_ftl_usa",
+            (True, False): "premafirm_ai_engine.product_ltl_usa",
+            (False, True): "premafirm_ai_engine.product_ftl_can",
+            (False, False): "premafirm_ai_engine.product_ltl_can",
+        }
+        is_us = self._is_us_stop(stop)
+        key = (is_us, bool(stop.is_ftl))
+        return self.env.ref(xmlids[key], raise_if_not_found=False)
+
+    def _assign_stop_products(self):
+        for lead in self:
+            capacity = float(lead.assigned_vehicle_id.payload_capacity_lbs or 40000.0)
+            inferred_capacity_pallets = max(1.0, capacity / 1800.0)
+
+            for stop in lead.dispatch_stop_ids:
+                if stop.stop_type == "pickup":
+                    stop.is_ftl = float(lead.total_pallets or 0) >= inferred_capacity_pallets
+                elif len(lead.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery")) > 1:
+                    stop.is_ftl = False
+                product = lead._get_correct_product(stop)
+                if product:
+                    stop.freight_product_id = product.id
+
+    def action_ai_calculate(self):
+        for lead in self:
+            CRMDispatchService(self.env)._apply_routes(lead)
+            lead._assign_stop_products()
+        return True
+
     def action_create_quotation(self):
         self.ensure_one()
-
-        if not self.product_id:
-            raise UserError("Select a freight product first.")
 
         if not self.partner_id:
             raise UserError("A customer must be selected before creating a quotation.")
 
+        if not self.dispatch_stop_ids:
+            raise UserError("Add dispatch stops before creating a quotation.")
+
+        self._assign_stop_products()
         pickup_stop = self.dispatch_stop_ids.filtered(lambda s: s.stop_type == "pickup")[:1]
         delivery_stop = self.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery")[:1]
 
-        pickup_city = pickup_stop.address.split(",", 1)[0].strip() if pickup_stop and pickup_stop.address else ""
-        delivery_city = delivery_stop.address.split(",", 1)[0].strip() if delivery_stop and delivery_stop.address else ""
+        order_vals = {
+            "partner_id": self.partner_id.id,
+            "origin": self.name,
+            "opportunity_id": self.id,
+            "client_order_ref": self.premafirm_po,
+            "note": self.ai_recommendation,
+            "validity_date": fields.Date.today() + timedelta(days=7),
+            "premafirm_po": self.premafirm_po,
+            "premafirm_bol": self.premafirm_bol,
+            "premafirm_pod": self.premafirm_pod,
+            "pickup_city": self._extract_city(pickup_stop.address),
+            "delivery_city": self._extract_city(delivery_stop.address),
+            "total_pallets": self.total_pallets,
+            "total_weight_lbs": self.total_weight_lbs,
+            "total_distance_km": self.total_distance_km,
+            "payment_term_id": self.payment_terms.id,
+        }
 
-        template_name = "FTL Quote" if (self.total_pallets or 0) > 10 else "LTL Quote"
-        template = self.env["sale.order.template"].search([("name", "=", template_name)], limit=1)
+        if self.partner_id.country_id.code == "US":
+            order_vals["fiscal_position_id"] = self.env["account.fiscal.position"].search([("name", "ilike", "US")], limit=1).id
+            order_vals["journal_id"] = self.env["account.journal"].search([("name", "ilike", "US Sales"), ("type", "=", "sale")], limit=1).id
+            order_vals["currency_id"] = self.env.ref("base.USD").id
+        else:
+            order_vals["currency_id"] = self.env.ref("base.CAD").id
 
-        order = self.env["sale.order"].create(
-            {
-                "partner_id": self.partner_id.id,
-                "origin": self.name,
-                "opportunity_id": self.id,
-                "client_order_ref": self.po_number,
-                "note": self.ai_recommendation,
-                "validity_date": fields.Date.today() + timedelta(days=7),
-                "sale_order_template_id": template.id,
-            }
-        )
+        order = self.env["sale.order"].create(order_vals)
 
-        self.env["sale.order.line"].create(
-            {
-                "order_id": order.id,
-                "product_id": self.product_id.id,
-                "name": self.product_id.name,
-                "product_uom_qty": 1,
-                "price_unit": self.final_rate,
-            }
-        )
+        base_rate = self.final_rate or self.suggested_rate or 0.0
+        stops = self.dispatch_stop_ids.sorted("sequence")
+        rate_per_stop = base_rate / len(stops) if stops else 0.0
+        for stop in stops:
+            product = stop.freight_product_id or self.product_id
+            if not product:
+                raise UserError("Each stop requires a freight product.")
+            line_name = (
+                f"{stop.stop_type.title()} | {stop.address or ''} | "
+                f"Scheduled: {stop.scheduled_datetime or '-'} | ETA: {stop.eta_datetime or '-'} | "
+                f"Distance: {stop.distance_km:.1f} KM | Drive: {stop.drive_hours:.2f} H"
+            )
+            self.env["sale.order.line"].create(
+                {
+                    "order_id": order.id,
+                    "product_id": product.id,
+                    "name": line_name,
+                    "product_uom_qty": 1,
+                    "price_unit": rate_per_stop,
+                    "stop_type": stop.stop_type,
+                    "stop_address": stop.address,
+                    "scheduled_time": stop.scheduled_datetime,
+                    "eta_datetime": stop.eta_datetime,
+                    "stop_distance_km": stop.distance_km,
+                    "stop_drive_hours": stop.drive_hours,
+                }
+            )
 
-        order.write(
-            {
-                "premafirm_po": self.po_number,
-                "premafirm_bol": self.bol_number,
-                "premafirm_pod": self.pod_reference,
-                "pickup_city": pickup_city,
-                "delivery_city": delivery_city,
-                "total_pallets": self.total_pallets,
-                "total_weight_lbs": self.total_weight_lbs,
-                "total_distance_km": self.total_distance_km,
-            }
-        )
+        if self.premafirm_po:
+            order.action_confirm()
 
         return {
             "type": "ir.actions.act_window",

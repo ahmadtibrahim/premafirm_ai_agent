@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="action_report_premafirm_pod" model="ir.actions.report">
+        <field name="name">PremaFirm POD</field>
+        <field name="model">sale.order</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">premafirm_ai_engine.report_premafirm_pod_template</field>
+        <field name="report_file">premafirm_ai_engine.report_premafirm_pod_template</field>
+        <field name="print_report_name">'POD - %s' % (object.name)</field>
+    </record>
+
+    <template id="report_premafirm_pod_template">
+        <t t-call="web.external_layout">
+            <div class="page" t-foreach="docs" t-as="o">
+                <h2>Proof of Delivery</h2>
+                <p><strong>Sales Order:</strong> <span t-field="o.name"/></p>
+                <p><strong>Pickup:</strong> <span t-field="o.pickup_city"/></p>
+                <p><strong>Delivery:</strong> <span t-field="o.delivery_city"/></p>
+                <p><strong>Driver:</strong> <span t-esc="o.user_id.name or ''"/></p>
+                <p style="margin-top: 40px;"><strong>Signature:</strong> ____________________________</p>
+            </div>
+        </t>
+    </template>
+</odoo>

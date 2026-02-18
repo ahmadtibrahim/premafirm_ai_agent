@@ -5,12 +5,17 @@
         <field name="model">sale.order</field>
         <field name="inherit_id" ref="sale.view_order_form"/>
         <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="action_generate_pod" type="object" string="Generate POD" class="btn-primary"/>
+            </xpath>
+
             <xpath expr="//sheet/group" position="after">
                 <group string="PremaFirm Load Details">
                     <group>
                         <field name="premafirm_po"/>
                         <field name="premafirm_bol"/>
                         <field name="premafirm_pod"/>
+                        <field name="load_reference"/>
                     </group>
                     <group>
                         <field name="pickup_city"/>
@@ -20,6 +25,30 @@
                         <field name="total_distance_km"/>
                     </group>
                 </group>
+            </xpath>
+
+
+            <xpath expr="//field[@name='order_line']/list/field[@name='name']" position="after">
+                <field name="stop_type" optional="show"/>
+                <field name="stop_address" optional="show"/>
+                <field name="scheduled_time" optional="show"/>
+                <field name="eta_datetime" optional="show"/>
+                <field name="stop_distance_km" optional="show"/>
+                <field name="stop_drive_hours" optional="show"/>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/list/field[@name='packaging_id']" position="attributes">
+                <attribute name="invisible">1</attribute>
+                <attribute name="optional">hide</attribute>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_packaging_qty']" position="attributes">
+                <attribute name="invisible">1</attribute>
+                <attribute name="optional">hide</attribute>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/form//field[@name='packaging_id']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/form//field[@name='product_packaging_qty']" position="attributes">
+                <attribute name="invisible">1</attribute>
             </xpath>
         </field>
     </record>

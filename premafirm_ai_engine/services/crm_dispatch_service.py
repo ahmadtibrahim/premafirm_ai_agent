@@ -1,5 +1,6 @@
 import logging
 import math
+import re
 from datetime import datetime, time, timedelta
 
 from odoo import fields
@@ -27,9 +28,11 @@ class CRMDispatchService:
             address = (stop.get("address") or "").strip()
             if not stop_type or not address:
                 continue
-            scheduled_datetime = stop.get("scheduled_datetime")
-            if stop_type == "pickup" and not stop.get("window_start"):
-                scheduled_datetime = datetime.combine(fields.Date.today(), time(9, 0))
+
+            requested = stop.get("window_start") or stop.get("scheduled_datetime")
+            if stop_type == "pickup" and not requested:
+                requested = datetime.combine(fields.Date.today(), time(9, 0))
+
             stops.append(
                 {
                     "sequence": seq,
@@ -42,7 +45,7 @@ class CRMDispatchService:
                     "pickup_window_end": stop.get("window_end") if stop_type == "pickup" else None,
                     "delivery_window_start": stop.get("window_start") if stop_type == "delivery" else None,
                     "delivery_window_end": stop.get("window_end") if stop_type == "delivery" else None,
-                    "scheduled_datetime": scheduled_datetime,
+                    "scheduled_datetime": requested,
                     "special_instructions": stop.get("special_instructions"),
                 }
             )
@@ -71,60 +74,69 @@ class CRMDispatchService:
             stop["weight_lbs"] = float(stop.get("weight_lbs") or 0.0)
         return stops
 
+    def _break_minutes(self, cumulative_drive_hours):
+        if cumulative_drive_hours >= 8:
+            return 30
+        if cumulative_drive_hours >= 4:
+            return 10
+        return 0
+
     def _apply_routes(self, lead):
         warnings = []
         ordered_stops = lead.dispatch_stop_ids.sorted("sequence")
-        total_distance = 0.0
-        total_hours = 0.0
         if not ordered_stops:
             return warnings
 
-        vehicle = lead.assigned_vehicle_id
-        depot = (vehicle.home_location if vehicle and vehicle.home_location else "5585 McAdam Rd, Mississauga, ON L4Z 1P1")
+        segments = self.mapbox_service.calculate_trip_segments(ordered_stops.mapped("address"))
+        total_distance = 0.0
+        total_hours = 0.0
+        cumulative_drive = 0.0
+        running_dt = None
 
-        first_route = self.mapbox_service.get_route(depot, ordered_stops[0].address)
-        ordered_stops[0].write(
-            {
-                "distance_km": first_route.get("distance_km", 0.0),
-                "drive_hours": first_route.get("drive_hours", 0.0),
-            }
-        )
-        total_distance += float(first_route.get("distance_km", 0.0))
-        total_hours += float(first_route.get("drive_hours", 0.0))
-        if first_route.get("warning"):
-            warnings.append(first_route["warning"])
+        first_pickup = ordered_stops.filtered(lambda s: s.stop_type == "pickup")[:1]
+        if first_pickup and first_pickup.scheduled_datetime:
+            first_segment = segments[0] if segments else {"drive_hours": 0.0}
+            lead.leave_yard_at = first_pickup.scheduled_datetime - timedelta(
+                hours=float(first_segment.get("drive_hours") or 0.0),
+                minutes=25,
+            )
+            running_dt = lead.leave_yard_at + timedelta(minutes=15)
 
-        for i in range(len(ordered_stops) - 1):
-            route = self.mapbox_service.get_route(ordered_stops[i].address, ordered_stops[i + 1].address)
-            ordered_stops[i + 1].write(
+        for index, stop in enumerate(ordered_stops):
+            segment = segments[index] if index < len(segments) else {}
+            distance_km = float(segment.get("distance_km") or 0.0)
+            drive_hours = float(segment.get("drive_hours") or 0.0)
+            total_distance += distance_km
+            total_hours += drive_hours
+
+            cumulative_drive += drive_hours
+            break_minutes = self._break_minutes(cumulative_drive)
+            if break_minutes and cumulative_drive > 8:
+                break_minutes += 10
+
+            if not stop.scheduled_datetime:
+                if stop.stop_type == "pickup" and not running_dt:
+                    stop.scheduled_datetime = datetime.combine(fields.Date.today(), time(9, 0))
+                elif running_dt:
+                    stop.scheduled_datetime = running_dt + timedelta(hours=drive_hours)
+
+            eta_dt = (stop.scheduled_datetime or running_dt or fields.Datetime.now()) + timedelta(hours=drive_hours)
+            eta_dt += timedelta(minutes=10 + break_minutes)
+
+            stop.write(
                 {
-                    "distance_km": route.get("distance_km", 0.0),
-                    "drive_hours": route.get("drive_hours", 0.0),
+                    "distance_km": distance_km,
+                    "drive_hours": drive_hours,
+                    "eta_datetime": eta_dt,
+                    "scheduled_datetime": stop.scheduled_datetime,
                 }
             )
-            total_distance += float(route.get("distance_km", 0.0))
-            total_hours += float(route.get("drive_hours", 0.0))
-            if route.get("warning"):
-                warnings.append(route["warning"])
+            running_dt = eta_dt
 
-        final_route = self.mapbox_service.get_route(ordered_stops[-1].address, depot)
-        total_distance += float(final_route.get("distance_km", 0.0))
-        total_hours += float(final_route.get("drive_hours", 0.0))
-        if final_route.get("warning"):
-            warnings.append(final_route["warning"])
+            if segment.get("warning"):
+                warnings.append(segment["warning"])
 
         lead.write({"total_distance_km": total_distance, "total_drive_hours": total_hours})
-
-        pickups = lead.dispatch_stop_ids.filtered(lambda s: s.stop_type == "pickup")
-        if pickups:
-            first = pickups[0]
-            if first.scheduled_datetime and first.drive_hours:
-                lead.departure_time = first.scheduled_datetime - timedelta(hours=first.drive_hours)
-
-        for stop in lead.dispatch_stop_ids:
-            if stop.scheduled_datetime and stop.drive_hours:
-                stop.estimated_arrival = stop.scheduled_datetime + timedelta(hours=stop.drive_hours)
-
         return warnings
 
     def _build_quote_email(self, lead, pricing_result, extraction):
@@ -144,8 +156,18 @@ class CRMDispatchService:
             "PremaFirm Logistics Dispatch"
         )
 
+    def _extract_po_details(self, email_text):
+        text = email_text or ""
+        po_match = re.search(r"(?:PO|Purchase\s*Order)\s*[:#-]?\s*([A-Z0-9-]+)", text, re.I)
+        terms_match = re.search(r"(?:payment\s*terms?)\s*[:#-]?\s*([A-Za-z0-9\s-]+)", text, re.I)
+        return {
+            "premafirm_po": po_match.group(1) if po_match else None,
+            "payment_terms_text": terms_match.group(1).strip() if terms_match else None,
+        }
+
     def process_lead(self, lead, email_text):
         extraction = self.ai_service.extract_load(email_text)
+        po_data = self._extract_po_details(email_text)
         stop_vals = self._normalize_stop_values(
             extraction.get("stops", []),
             total_weight_lbs=extraction.get("total_weight_lbs"),
@@ -164,13 +186,14 @@ class CRMDispatchService:
             vals["lead_id"] = lead.id
             self.env["premafirm.dispatch.stop"].create(vals)
 
-        lead.write(
-            {
-                "inside_delivery": bool(extraction.get("inside_delivery")),
-                "liftgate": bool(extraction.get("liftgate")),
-                "detention_requested": bool(extraction.get("detention_requested")),
-            }
-        )
+        updates = {
+            "inside_delivery": bool(extraction.get("inside_delivery")),
+            "liftgate": bool(extraction.get("liftgate")),
+            "detention_requested": bool(extraction.get("detention_requested")),
+        }
+        if po_data.get("premafirm_po"):
+            updates["premafirm_po"] = po_data["premafirm_po"]
+        lead.write(updates)
 
         warnings.extend(self._apply_routes(lead))
 

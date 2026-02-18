@@ -20,14 +20,14 @@
                             <field name="total_weight_lbs" readonly="1"/>
                         </group>
                         <group>
-                            <field name="product_id"/>
-                            <field name="po_number"/>
-                            <field name="bol_number"/>
-                            <field name="pod_reference"/>
+                            <field name="premafirm_po"/>
+                            <field name="premafirm_bol"/>
+                            <field name="premafirm_pod"/>
+                            <field name="payment_terms"/>
                             <field name="discount_percent"/>
                             <field name="discount_amount"/>
                             <field name="final_rate" readonly="1"/>
-                            <field name="departure_time" readonly="1"/>
+                            <field name="leave_yard_at" readonly="1"/>
                             <field name="inside_delivery"/>
                             <field name="liftgate"/>
                             <field name="detention_requested"/>
@@ -40,19 +40,20 @@
                             <field name="sequence"/>
                             <field name="stop_type"/>
                             <field name="address"/>
+                            <field name="freight_product_id"/>
                             <field name="service_type"/>
                             <field name="pallets"/>
                             <field name="weight_lbs"/>
                             <field name="scheduled_datetime"/>
-                            <field name="estimated_arrival" readonly="1"/>
+                            <field name="eta_datetime" readonly="1"/>
+                            <field name="distance_km"/>
+                            <field name="drive_hours"/>
                             <field name="equipment_required" optional="hide"/>
                             <field name="pickup_window_start" optional="hide"/>
                             <field name="pickup_window_end" optional="hide"/>
                             <field name="delivery_window_start" optional="hide"/>
                             <field name="delivery_window_end" optional="hide"/>
                             <field name="special_instructions" optional="hide"/>
-                            <field name="distance_km"/>
-                            <field name="drive_hours"/>
                         </list>
                     </field>
 

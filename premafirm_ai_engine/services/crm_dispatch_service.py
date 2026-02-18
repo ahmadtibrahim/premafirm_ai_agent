@@ -13,6 +13,23 @@ from .pricing_engine import PricingEngine
 _logger = logging.getLogger(__name__)
 
 
+def _normalize_odoo_datetime(value):
+    if not value:
+        return False
+
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+
+    if isinstance(value, str):
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", ""))
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return False
+
+    return False
+
+
 class CRMDispatchService:
     """CRM integration layer that orchestrates AI extraction, routing, pricing, and quote generation."""
 
@@ -252,8 +269,22 @@ class CRMDispatchService:
             return {"warnings": warnings, "pricing": {"estimated_cost": 0.0, "suggested_rate": 0.0}}
 
         lead.dispatch_stop_ids.unlink()
+        datetime_fields = [
+            "requested_datetime",
+            "scheduled_datetime",
+            "estimated_arrival",
+            "pickup_datetime_est",
+            "delivery_datetime_est",
+            "pickup_window_start",
+            "pickup_window_end",
+            "delivery_window_start",
+            "delivery_window_end",
+        ]
         for vals in stop_vals:
             vals["lead_id"] = lead.id
+            for field in datetime_fields:
+                if field in vals:
+                    vals[field] = _normalize_odoo_datetime(vals.get(field))
             self.env["premafirm.dispatch.stop"].create(vals)
 
         updates = {

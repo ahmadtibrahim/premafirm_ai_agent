@@ -140,6 +140,27 @@ class RunPlannerService:
         sim = option.get("simulation") or self.simulate_run(run, run.stop_ids.sorted("run_sequence"))
         self._update_run(run, sim)
 
+    def _get_driver_partner(self, vehicle):
+        # Fleet standard: vehicle.driver_id is res.partner
+        if not vehicle:
+            return False
+
+        driver = vehicle.driver_id
+        if driver:
+            if getattr(driver, "_name", "") == "res.partner":
+                return driver
+            partner = getattr(driver, "partner_id", False)
+            if partner:
+                return partner
+
+        emp = getattr(vehicle, "driver_employee_id", False)
+        if emp:
+            partner = getattr(emp, "address_home_id", False) or getattr(emp, "partner_id", False)
+            if partner:
+                return partner
+
+        return False
+
     def _update_run(self, run, simulation):
         start = fields.Datetime.now()
         end = start + timedelta(hours=float(simulation.get("total_drive_hours") or 0.0))
@@ -155,15 +176,12 @@ class RunPlannerService:
         run.write(run_vals)
 
 
-        driver_partner = run.vehicle_id.driver_id.partner_id
-
-        if not driver_partner:
-            return
+        driver_partner = self._get_driver_partner(run.vehicle_id)
         vals = {
             "name": run.name,
             "start": run.start_datetime,
             "stop": run.end_datetime,
-            "partner_ids": [(6, 0, [driver_partner.id])],
+            "partner_ids": [(6, 0, [driver_partner.id])] if driver_partner else [(6, 0, [])],
             "res_model": "premafirm.dispatch.run",
             "res_id": run.id,
         }

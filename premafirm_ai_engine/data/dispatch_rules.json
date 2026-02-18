@@ -1,0 +1,35 @@
+{
+  "pricing": {
+    "dry_rate_per_km": 2.25,
+    "reefer_rate_per_km": 2.55,
+    "min_load_charge": 450,
+    "inside_delivery_fee": 125,
+    "liftgate_fee": 85,
+    "detention_per_hour": 75,
+    "extra_stop_fee": 75,
+    "overload_per_pallet": 12
+  },
+  "costing": {
+    "fuel_cost_per_km": 0.55,
+    "maintenance_cost_per_km": 0.2,
+    "insurance_daily": 95,
+    "target_net_profit_per_day": 400,
+    "overhead_daily": 60
+  },
+  "hos_rules": {
+    "max_drive_hours": 13,
+    "break_after_hours": 8,
+    "short_break_after": 4
+  },
+  "traffic_rules": {
+    "rush_hours_morning": [
+      "06:30",
+      "09:30"
+    ],
+    "rush_hours_evening": [
+      "15:30",
+      "18:30"
+    ],
+    "traffic_buffer_percent": 0.18
+  }
+}

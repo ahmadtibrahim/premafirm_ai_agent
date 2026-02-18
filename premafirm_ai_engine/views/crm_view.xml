@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- CRM FORM INHERIT -->
+    <record id="view_crm_lead_form_premafirm_ai" model="ir.ui.view">
+        <field name="name">crm.lead.form.premafirm.ai</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+        <field name="arch" type="xml">
+
+            <!-- AI Button -->
+            <xpath expr="//header" position="inside">
+                <button name="action_ai_calculate"
+                        type="object"
+                        string="AI Calculate"
+                        class="btn-primary"/>
+            </xpath>
+
+            <!-- Load Info Tab -->
+            <xpath expr="//sheet/notebook" position="inside">
+                <page string="Load Info">
+                    <field name="dispatch_stop_ids">
+                        <list editable="bottom">
+                            <field name="sequence"/>
+                            <field name="stop_type"/>
+                            <field name="address"/>
+                            <field name="pallets"/>
+                            <field name="weight_lbs"/>
+                            <field name="distance_km"/>
+                            <field name="drive_hours"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

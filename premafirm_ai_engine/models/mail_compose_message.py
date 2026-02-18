@@ -1,3 +1,4 @@
+import ast
 import re
 
 from odoo import api, models
@@ -7,16 +8,45 @@ class MailComposeMessage(models.TransientModel):
     _inherit = "mail.compose.message"
 
     @api.model
+    def _extract_single_res_id(self, raw_res_ids):
+        if not raw_res_ids:
+            return None
+
+        parsed = raw_res_ids
+        if isinstance(raw_res_ids, str):
+            try:
+                parsed = ast.literal_eval(raw_res_ids)
+            except (ValueError, SyntaxError):
+                return None
+
+        if isinstance(parsed, (list, tuple)) and len(parsed) == 1:
+            try:
+                return int(parsed[0])
+            except (TypeError, ValueError):
+                return None
+
+        return None
+
+    @api.model
     def default_get(self, fields_list):
         defaults = super().default_get(fields_list)
 
-        model = defaults.get("model") or self.env.context.get("default_model")
-        res_id = defaults.get("res_id") or self.env.context.get("default_res_id")
         body = defaults.get("body")
-        if body or model != "crm.lead" or not res_id:
+        model = defaults.get("model") or self.env.context.get("active_model")
+        if body or model != "crm.lead":
             return defaults
 
-        lead = self.env["crm.lead"].browse(res_id).exists()
+        lead_id = None
+        if self.env.context.get("active_model") == "crm.lead":
+            lead_id = self.env.context.get("active_id")
+
+        if not lead_id:
+            lead_id = self._extract_single_res_id(defaults.get("res_ids"))
+
+        if not lead_id:
+            return defaults
+
+        lead = self.env["crm.lead"].browse(lead_id).exists()
         if not lead:
             return defaults
 
@@ -70,10 +100,21 @@ class MailComposeMessage(models.TransientModel):
 
     def _log_pricing_history_from_wizard(self):
         for wizard in self:
-            if wizard.model != "crm.lead" or not wizard.res_id:
+            if wizard.model != "crm.lead":
                 continue
 
-            lead = self.env["crm.lead"].browse(wizard.res_id).exists()
+            if getattr(wizard, "subtype_is_log", False):
+                continue
+
+            try:
+                res_ids = wizard._evaluate_res_ids()
+            except Exception:
+                res_ids = []
+
+            if len(res_ids) != 1:
+                continue
+
+            lead = self.env["crm.lead"].browse(res_ids[0]).exists()
             if not lead:
                 continue
 

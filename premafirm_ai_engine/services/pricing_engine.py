@@ -51,6 +51,50 @@ class PricingEngine:
                 return "reefer"
         return "dry"
 
+
+    @staticmethod
+    def _extract_city(address):
+        if not address:
+            return ""
+        return (address.split(",", 1)[0] or "").strip().lower()
+
+    def _history_rate_adjustment(self, lead):
+        """Return historical average rate for similar customer/route when available."""
+        try:
+            history_model = self.env["premafirm.pricing.history"]
+        except Exception:
+            return None
+
+        if not getattr(lead, "partner_id", False):
+            return None
+
+        pickups = [s for s in lead.dispatch_stop_ids if s.stop_type == "pickup"]
+        deliveries = [s for s in lead.dispatch_stop_ids if s.stop_type == "delivery"]
+        pickup_city = self._extract_city(pickups[0].address if pickups else "")
+        delivery_city = self._extract_city(deliveries[0].address if deliveries else "")
+        if not pickup_city or not delivery_city:
+            return None
+
+        domain = [
+            ("customer_id", "=", lead.partner_id.id),
+            ("pickup_city", "ilike", pickup_city),
+            ("delivery_city", "ilike", delivery_city),
+            ("final_price", ">", 0),
+        ]
+
+        records = history_model.search(domain, order="sent_date desc", limit=20)
+        if not records:
+            return None
+
+        similar = records.filtered(
+            lambda r: (
+                abs((r.distance_km or 0.0) - float(lead.total_distance_km or 0.0)) <= 80.0
+                and abs((r.pallets or 0) - int(lead.total_pallets or 0)) <= 6
+            )
+        )
+        sample = similar or records
+        return sum(sample.mapped("final_price")) / max(1, len(sample))
+
     def calculate_pricing(self, lead):
         pricing_rules = self.rules["pricing"]
         costing_rules = self.rules["costing"]
@@ -89,6 +133,11 @@ class PricingEngine:
         if base_price - operating_cost < target_profit:
             base_price = operating_cost + target_profit
 
+        history_rate = self._history_rate_adjustment(lead)
+        if history_rate:
+            # Blend AI/rule output with accepted historical pricing for consistency.
+            base_price = (base_price * 0.35) + (history_rate * 0.65)
+
         suggested_rate = round(base_price, 0)
         estimated_cost = round(operating_cost, 0)
 
@@ -104,6 +153,8 @@ class PricingEngine:
             f"Estimated drive {lead.total_drive_hours:.2f} hrs. Estimated operating cost ${estimated_cost:.0f}. "
             f"Recommended sell rate ${suggested_rate:.0f} to protect minimum ${target_profit:.0f} daily net target."
         )
+        if history_rate:
+            recommendation += f" Historical average for similar customer/route: ${history_rate:.0f}."
         if warnings:
             recommendation += " " + " ".join(warnings)
 

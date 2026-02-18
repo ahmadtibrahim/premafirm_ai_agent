@@ -31,6 +31,8 @@
                             <field name="inside_delivery"/>
                             <field name="liftgate"/>
                             <field name="detention_requested"/>
+                            <field name="reefer_required"/>
+                            <field name="pump_truck_required"/>
                             <field name="assigned_vehicle_id"/>
                         </group>
                     </group>
@@ -41,6 +43,11 @@
                             <field name="stop_type"/>
                             <field name="product_id" string="Service"/>
                             <field name="address"/>
+                            <field name="full_address" optional="hide"/>
+                            <field name="postal_code" optional="hide"/>
+                            <field name="latitude" optional="hide"/>
+                            <field name="longitude" optional="hide"/>
+                            <field name="map_url" widget="url" optional="show"/>
                             <field name="service_type"/>
                             <field name="pallets"/>
                             <field name="weight_lbs"/>

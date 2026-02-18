@@ -49,6 +49,8 @@ class CrmLead(models.Model):
     inside_delivery = fields.Boolean()
     liftgate = fields.Boolean()
     detention_requested = fields.Boolean()
+    reefer_required = fields.Boolean()
+    pump_truck_required = fields.Boolean()
 
     assigned_vehicle_id = fields.Many2one("fleet.vehicle")
 
@@ -119,7 +121,8 @@ class CrmLead(models.Model):
         is_us = self._is_us_stop(stop)
         is_reefer = (stop.service_type or "dry") == "reefer"
         key = (is_us, bool(stop.is_ftl))
-        product = self.env.ref(xmlids[key], raise_if_not_found=False)
+        product_tmpl = self.env.ref(xmlids[key], raise_if_not_found=False)
+        product = product_tmpl.product_variant_id if product_tmpl else False
         if product and is_reefer:
             reefer_product = self.env["product.product"].search(
                 [
@@ -200,11 +203,23 @@ class CrmLead(models.Model):
                     "scheduled_date": stop.scheduled_datetime,
                     "stop_type": stop.stop_type,
                     "stop_address": stop.address,
+                    "stop_map_url": stop.map_url,
                     "eta_datetime": stop.estimated_arrival,
                     "stop_distance_km": stop.distance_km,
                     "stop_drive_hours": stop.drive_hours,
                 }
             )
+
+        if self.liftgate:
+            liftgate_tmpl = self.env.ref("premafirm_ai_engine.product_liftgate", raise_if_not_found=False)
+            liftgate_product = liftgate_tmpl.product_variant_id if liftgate_tmpl else False
+            if liftgate_product:
+                self.env["sale.order.line"].create({"order_id": order.id, "product_id": liftgate_product.id, "name": "Liftgate", "product_uom_qty": 1, "price_unit": liftgate_product.list_price})
+        if self.inside_delivery:
+            inside_tmpl = self.env.ref("premafirm_ai_engine.product_inside_delivery", raise_if_not_found=False)
+            inside_product = inside_tmpl.product_variant_id if inside_tmpl else False
+            if inside_product:
+                self.env["sale.order.line"].create({"order_id": order.id, "product_id": inside_product.id, "name": "Inside Delivery", "product_uom_qty": 1, "price_unit": inside_product.list_price})
 
     def action_create_sales_order(self):
         self.ensure_one()

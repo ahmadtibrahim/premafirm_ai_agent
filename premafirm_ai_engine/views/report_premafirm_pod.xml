@@ -1,65 +1,76 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <record id="action_report_premafirm_pod" model="ir.actions.report">
-        <field name="name">PremaFirm POD</field>
-        <field name="model">sale.order</field>
+    <record id="action_report_premafirm_load_pod" model="ir.actions.report">
+        <field name="name">PremaFirm Load POD</field>
+        <field name="model">premafirm.load</field>
         <field name="report_type">qweb-pdf</field>
-        <field name="report_name">premafirm_ai_engine.report_premafirm_pod_template</field>
-        <field name="report_file">premafirm_ai_engine.report_premafirm_pod_template</field>
+        <field name="report_name">premafirm_ai_engine.report_premafirm_load_pod_template</field>
+        <field name="report_file">premafirm_ai_engine.report_premafirm_load_pod_template</field>
         <field name="print_report_name">'POD - %s' % (object.name)</field>
     </record>
 
-    <template id="report_premafirm_pod_template">
+    <template id="report_premafirm_load_pod_template">
         <t t-call="web.external_layout">
             <main>
                 <t t-foreach="docs" t-as="o">
                     <div class="page">
-                        <h2>Proof of Delivery</h2>
+                        <h2 style="margin-bottom: 4px;">PREMAFIRM LOGISTICS</h2>
+                        <h3 style="margin-top: 0;">PROOF OF DELIVERY (POD)</h3>
 
-                        <p><strong>Sales Order:</strong> <span t-field="o.name"/></p>
-                        <p><strong>PO:</strong> <span t-field="o.premafirm_po"/></p>
-                        <p><strong>BOL:</strong> <span t-field="o.premafirm_bol"/></p>
-                        <p><strong>POD Ref:</strong> <span t-field="o.premafirm_pod"/></p>
-                        <p><strong>Driver:</strong>
-                            <span t-esc="o.opportunity_id.assigned_vehicle_id.driver_id.name or ''"/>
-                        </p>
-                        <p><strong>Vehicle:</strong>
-                            <span t-esc="o.opportunity_id.assigned_vehicle_id.name or ''"/>
-                        </p>
-
-                        <h3 style="margin-top: 16px;">Stops</h3>
-                        <table class="table table-sm table-bordered">
-                            <thead>
-                                <tr>
-                                    <th>Type</th>
-                                    <th>Address</th>
-                                    <th>Scheduled</th>
-                                    <th>ETA</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr t-foreach="o.order_line" t-as="l">
-                                    <td><span t-field="l.stop_type"/></td>
-                                    <td>
-                                        <t t-if="l.stop_map_url">
-                                            <a t-att-href="l.stop_map_url">
-                                                <span t-field="l.stop_address"/>
-                                            </a>
-                                        </t>
-                                        <t t-else="">
-                                            <span t-field="l.stop_address"/>
-                                        </t>
-                                    </td>
-                                    <td><span t-field="l.scheduled_date"/></td>
-                                    <td><span t-field="l.eta_datetime"/></td>
-                                </tr>
-                            </tbody>
+                        <table class="table table-sm" style="margin-top: 10px;">
+                            <tr><td><strong>Load #:</strong></td><td><span t-field="o.name"/></td><td><strong>Sales Order #:</strong></td><td><span t-field="o.sale_order_id.name"/></td></tr>
+                            <tr><td><strong>Driver:</strong></td><td><span t-esc="o.driver_id.name or ''"/></td><td><strong>Vehicle:</strong></td><td><span t-esc="o.vehicle_id.name or ''"/></td></tr>
+                            <tr><td><strong>Route #:</strong></td><td><span t-field="o.route_reference"/></td><td><strong>BOL #:</strong></td><td><span t-field="o.bol_number"/></td></tr>
+                            <tr><td><strong>Seal #:</strong></td><td><span t-field="o.seal_number"/></td><td><strong>Billing Mode:</strong></td><td>
+                                <t t-if="o.billing_mode == 'flat'">Flat Rate</t>
+                                <t t-elif="o.billing_mode == 'per_km'">Per KM</t>
+                                <t t-elif="o.billing_mode == 'per_pallet'">Per Pallet</t>
+                                <t t-elif="o.billing_mode == 'per_stop'">Per Stop</t>
+                            </td></tr>
                         </table>
 
-                        <p style="margin-top: 36px;">
-                            <strong>Receiver Signature:</strong>
-                            ____________________________
+                        <t t-set="stop_number" t-value="0"/>
+                        <t t-foreach="o.sale_order_id.order_line" t-as="line">
+                            <t t-if="line.stop_type == 'pickup' or ('Pickup' in (line.name or ''))">
+                                <t t-set="stop_number" t-value="stop_number + 1"/>
+                                <h4 style="margin-top: 18px;">STOP <span t-esc="stop_number"/> – PICKUP</h4>
+                                <p><strong>Location:</strong> <span t-esc="line.stop_address or line.name"/></p>
+                                <p><strong>City:</strong> <span t-esc="o.sale_order_id.pickup_city or ''"/></p>
+                                <p><strong>Date:</strong> <span t-field="line.scheduled_date"/></p>
+                                <p><strong>Signature:</strong> ____________________________</p>
+                                <t t-if="o.pickup_signature">
+                                    <img style="max-height: 90px;" t-att-src="'data:image/png;base64,%s' % o.pickup_signature"/>
+                                </t>
+                            </t>
+                            <t t-if="line.stop_type == 'delivery' or ('Delivery' in (line.name or ''))">
+                                <t t-set="stop_number" t-value="stop_number + 1"/>
+                                <h4 style="margin-top: 18px;">STOP <span t-esc="stop_number"/> – DELIVERY</h4>
+                                <p><strong>Location:</strong> <span t-esc="line.stop_address or line.name"/></p>
+                                <p><strong>City:</strong> <span t-esc="o.sale_order_id.delivery_city or ''"/></p>
+                                <p><strong>Pallets Delivered:</strong> <span t-esc="o.total_pallets or 0"/></p>
+                                <p><strong>Signature:</strong> ____________________________</p>
+                                <t t-if="o.delivery_signature">
+                                    <img style="max-height: 90px;" t-att-src="'data:image/png;base64,%s' % o.delivery_signature"/>
+                                </t>
+                            </t>
+                        </t>
+
+                        <h4 style="margin-top: 20px;">SUMMARY</h4>
+                        <p><strong>Total Distance:</strong> <span t-esc="'%.2f' % (o.total_distance_km or 0.0)"/> KM</p>
+                        <p><strong>Billing Mode:</strong>
+                            <t t-if="o.billing_mode == 'flat'">Flat Rate</t>
+                            <t t-elif="o.billing_mode == 'per_km'">Per KM</t>
+                            <t t-elif="o.billing_mode == 'per_pallet'">Per Pallet</t>
+                            <t t-elif="o.billing_mode == 'per_stop'">Per Stop</t>
                         </p>
+                        <p t-if="o.billing_mode == 'flat'"><strong>Total Amount:</strong> <span t-field="o.total_amount"/></p>
+                        <p t-if="o.billing_mode == 'per_km'"><strong>Total KM:</strong> <span t-esc="'%.2f' % (o.total_distance_km or 0.0)"/></p>
+
+                        <div style="margin-top: 28px; font-size: 12px;">
+                            <p><strong>Signature Acknowledgement:</strong> By signing, the receiver confirms freight was delivered in acceptable condition unless noted.</p>
+                            <p><strong>Legal Disclaimer:</strong> POD is issued for delivery confirmation and billing support only.</p>
+                            <p><strong>Contact:</strong> PremaFirm Logistics | dispatch@premafirm.com | +1 (000) 000-0000</p>
+                        </div>
                     </div>
                 </t>
             </main>

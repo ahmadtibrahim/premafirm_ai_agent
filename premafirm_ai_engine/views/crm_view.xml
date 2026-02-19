@@ -9,7 +9,9 @@
                 <button name="action_ai_calculate" type="object" string="AI Calculate" class="btn-primary"/>
                 <button name="action_create_sales_order" type="object" string="Create Sales Order" class="btn-success"/>
                 <button name="action_ai_optimize_schedule" type="object" string="AI Optimize Schedule" class="btn-secondary"/>
-                <button name="action_reset_ai" type="object" string="Reset AI" class="btn-secondary"/>
+                <button name="action_reset_ai" type="object" string="Reset AI" class="btn-secondary" invisible="load_status not in ('draft','quoted')"/>
+                <button name="action_unlock_ai" type="object" string="Unlock AI" class="btn-secondary" groups="base.group_system"/>
+                <button name="action_mark_quoted" type="object" string="Mark Quoted" class="btn-secondary"/>
             </xpath>
 
             <xpath expr="//sheet/notebook" position="inside">
@@ -86,6 +88,10 @@
                         <field name="hos_warning_text" readonly="1"/>
                         <field name="ai_optimization_suggestion" readonly="1" nolabel="1"/>
                     </group>
+                </page>
+
+                <page string="Vehicle Schedule">
+                    <field name="vehicle_booking_ids" context="{'default_lead_id': id}" mode="calendar,list,form"/>
                 </page>
             </xpath>
         </field>

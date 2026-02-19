@@ -25,6 +25,11 @@ class FleetVehicle(models.Model):
         string="Home Location",
     )
 
+    payload_capacity_lbs = fields.Float(default=40000.0)
+    driver_id = fields.Many2one("res.partner", domain=[("is_driver", "=", True)])
+    home_latitude = fields.Float()
+    home_longitude = fields.Float()
+
     vehicle_work_start_time = fields.Float(
         string="Work Start Hour",
         default=8.0,

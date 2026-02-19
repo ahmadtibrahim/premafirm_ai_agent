@@ -2,6 +2,7 @@ import logging
 import re
 from datetime import datetime, time, timedelta
 
+
 import pytz
 from odoo import fields
 
@@ -62,7 +63,9 @@ class CRMDispatchService:
                 continue
             requested = stop.get("scheduled_datetime")
             if stop_type == "pickup" and not requested:
-                requested = datetime.combine(self._now_toronto().date(), time(9, 0)).isoformat()
+                now_local = self._now_toronto()
+                pickup_day = now_local.date() + timedelta(days=1) if now_local.hour >= 12 else now_local.date()
+                requested = datetime.combine(pickup_day, time(9, 0)).isoformat()
             stops.append(
                 {
                     "sequence": int(stop.get("sequence") or seq),
@@ -155,20 +158,25 @@ class CRMDispatchService:
             if not stop.scheduled_datetime:
                 stop.scheduled_datetime = running_dt + timedelta(hours=effective_drive_hours)
             estimated_arrival = running_dt + timedelta(hours=effective_drive_hours)
+            service_minutes = 60
+            scheduled_start = stop.scheduled_datetime or estimated_arrival
+            scheduled_end = scheduled_start + timedelta(minutes=service_minutes)
             stop.write(
                 {
                     "distance_km": float(segment.get("distance_km") or 0.0),
                     "drive_hours": effective_drive_hours,
                     "scheduled_datetime": stop.scheduled_datetime,
                     "estimated_arrival": estimated_arrival,
+                    "scheduled_start_datetime": scheduled_start,
+                    "scheduled_end_datetime": scheduled_end,
                     "map_url": segment.get("map_url"),
                 }
             )
-            running_dt = estimated_arrival
+            running_dt = scheduled_end
         return leave_yard_at, total_distance, total_hours
 
     def _create_calendar_booking(self, lead):
-        if not (lead.assigned_vehicle_id and lead.departure_time and lead.total_distance_km):
+        if not (lead.assigned_vehicle_id and lead.departure_time):
             return
         planner = RunPlannerService(self.env)
         run_date = fields.Date.to_date((lead.departure_time or fields.Datetime.now()).date())
@@ -205,8 +213,22 @@ class CRMDispatchService:
     def _determine_freight_service(self, lead, extraction):
         pickups = lead.dispatch_stop_ids.filtered(lambda s: s.stop_type == "pickup")
         deliveries = lead.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery")
-        is_ftl = len(pickups) == 1 and len(deliveries) == 1 and len(lead.dispatch_stop_ids) == 2
+        classification = lead.classify_load(
+            email_text=extraction.get("raw_text"),
+            extracted_data={
+                "pickup_locations_count": len(pickups),
+                "delivery_locations_count": len(deliveries),
+                "additional_stops_planned": len(lead.dispatch_stop_ids) > 2,
+                "combining_multiple_customers": bool(extraction.get("combining_multiple_customers")),
+                "multiple_bols_detected": bool(extraction.get("multiple_bols_detected")),
+                "exclusive_language_detected": bool(extraction.get("exclusive_language_detected")),
+                "appointment_constraints_present": bool(extraction.get("appointment_constraints_present")),
+                "is_same_day": bool(extraction.get("is_same_day", True)),
+            },
+        )
+        is_ftl = classification.get("classification") == "FTL"
         is_ltl = not is_ftl
+        lead.ai_classification = "ftl" if is_ftl else "ltl"
 
         def _is_us(stop):
             country = (stop.country or "").upper()

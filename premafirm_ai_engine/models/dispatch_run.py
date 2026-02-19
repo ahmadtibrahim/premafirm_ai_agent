@@ -21,6 +21,8 @@ class PremafirmDispatchRun(models.Model):
     )
     start_datetime = fields.Datetime()
     end_datetime = fields.Datetime()
+    planned_start = fields.Datetime(related="start_datetime", store=True, readonly=False)
+    planned_end = fields.Datetime(related="end_datetime", store=True, readonly=False)
     calendar_event_id = fields.Many2one("calendar.event")
     total_distance_km = fields.Float()
     total_drive_hours = fields.Float()
@@ -33,3 +35,4 @@ class PremafirmDispatchRun(models.Model):
 
     currency_id = fields.Many2one("res.currency", related="vehicle_id.company_id.currency_id", store=True, readonly=True)
     stop_ids = fields.One2many("premafirm.dispatch.stop", "run_id")
+    stops = fields.One2many(related="stop_ids", readonly=False)

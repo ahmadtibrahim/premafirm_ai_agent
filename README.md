@@ -117,3 +117,35 @@ This module extends dispatch planning and downstream sales/accounting automation
 - Use `<list>...</list>` instead.
 - For this module, `premafirm_ai_engine/views/premafirm_load_view.xml` was updated from tree to list view syntax.
 - Team rule: **do not introduce new `<tree>` views**; always define list views with `<list>` in Odoo 18.
+
+## Odoo 18 Report Inheritance Rule
+
+When inheriting QWeb reports:
+
+DO NOT use class-based XPath expressions such as:
+
+    //div[@class='row mt32 mb32']
+
+Reason:
+- CSS classes change between Odoo versions.
+- Report structure is not guaranteed stable.
+- Causes registry load failures.
+- Breaks module upgrades.
+
+Instead, always target stable IDs:
+
+Examples:
+
+    //div[@id='informations']
+    //div[@id='total']
+    //div[@id='payment_term']
+
+ID-based targeting is stable across Odoo 18 updates.
+
+If unsure:
+1. Open Odoo shell
+2. Inspect parent view:
+       env.ref('sale.report_saleorder_document').arch_db
+3. Verify real structure before writing XPath.
+
+This rule is mandatory for all future report inheritance work.

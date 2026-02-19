@@ -142,6 +142,14 @@ class CrmLead(models.Model):
             lead.total_distance_km = sum(lead.dispatch_stop_ids.mapped("distance_km"))
             lead.total_drive_hours = sum(lead.dispatch_stop_ids.mapped("drive_hours"))
 
+    def _get_pallet_mismatch_warning(self):
+        self.ensure_one()
+        pickups = sum(max(int(s.pallets or 0), 0) for s in self.dispatch_stop_ids if s.stop_type == "pickup")
+        deliveries = sum(max(int(s.pallets or 0), 0) for s in self.dispatch_stop_ids if s.stop_type == "delivery")
+        if pickups != deliveries:
+            return "Pallet mismatch warning: picked %s pallets, deliveries total %s pallets." % (pickups, deliveries)
+        return False
+
     def _extract_city(self, address):
         return (address.split(",", 1)[0] or "").strip() if address else ""
 
@@ -201,6 +209,7 @@ class CrmLead(models.Model):
                 raise UserError("Total distance must be greater than zero for flat mode.")
 
             stops = lead.dispatch_stop_ids.sorted("sequence")
+            mismatch_warning = lead._get_pallet_mismatch_warning()
             rate = max(lead.final_rate or lead.suggested_rate or 0.0, 0.0)
             if rate < 0.0:
                 raise UserError("Pricing cannot be negative.")
@@ -264,6 +273,7 @@ class CrmLead(models.Model):
                     "pricing_payload_json": json.dumps(payload),
                     "ai_internal_summary": "\n".join(bullets),
                     "ai_customer_email": f"Quoted in {lead.billing_mode} mode. Total {total_segment_amount:.2f}.",
+                    "ai_warning_text": mismatch_warning,
                 }
             )
             lead._create_ai_log(user_modified=False)
@@ -329,7 +339,9 @@ class CrmLead(models.Model):
                     "ai_optimization_suggestion": False,
                     "ai_warning_text": False,
                     "pricing_payload_json": False,
+
                     "dispatch_stop_ids": [(5, 0, 0)],
+
                 }
             )
         return True
@@ -517,6 +529,9 @@ class CrmLead(models.Model):
         if not self.delivery_date:
             self.delivery_date = self.pickup_date
         self._assign_stop_products()
+        pallet_warning = self._get_pallet_mismatch_warning()
+        if pallet_warning:
+            self.ai_warning_text = pallet_warning
         self.compute_pricing()
         order = self.env["sale.order"].create(self._prepare_order_values())
 

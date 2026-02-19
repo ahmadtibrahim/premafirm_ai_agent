@@ -66,9 +66,11 @@ class PremafirmLoad(models.Model):
         self._allocate_pallets()
         return self.env.ref("premafirm_ai_engine.action_report_premafirm_load_pod").report_action(self)
 
+
     def _allocate_pallets(self):
         """Allocates pallets from pickups to deliveries for POD generation."""
         self.ensure_one()
+     main
         allocations = {}
         pickup_stack = deque()
         stops = self.stop_ids.sorted(lambda s: (s.sequence, s.id))
@@ -113,6 +115,7 @@ class PremafirmLoad(models.Model):
 
             allocations[stop.id] = delivery_allocations
 
+  main
         return allocations
 
     def _get_pickup_for_delivery(self, delivery):

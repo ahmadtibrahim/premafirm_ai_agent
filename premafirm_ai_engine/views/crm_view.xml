@@ -9,6 +9,7 @@
                 <button name="action_ai_calculate" type="object" string="AI Calculate" class="btn-primary"/>
                 <button name="action_create_sales_order" type="object" string="Create Sales Order" class="btn-success"/>
                 <button name="action_ai_optimize_schedule" type="object" string="AI Optimize Schedule" class="btn-secondary"/>
+                <button name="action_reset_ai" type="object" string="Reset AI" class="btn-secondary"/>
             </xpath>
 
             <xpath expr="//sheet/notebook" position="inside">
@@ -36,6 +37,7 @@
                             <field name="liftgate"/>
                             <field name="detention_requested"/>
                             <field name="reefer_required"/>
+                            <field name="reefer_setpoint_c"/>
                             <field name="pump_truck_required"/>
                             <field name="assigned_vehicle_id"/>
                             <field name="ai_locked" readonly="1"/>
@@ -80,6 +82,8 @@
                         <field name="ai_internal_summary" readonly="1" nolabel="1"/>
                         <field name="ai_customer_email" readonly="1" nolabel="1"/>
                         <field name="ai_recommendation" readonly="1" nolabel="1"/>
+                        <field name="ai_warning_text" readonly="1" nolabel="1"/>
+                        <field name="hos_warning_text" readonly="1"/>
                         <field name="ai_optimization_suggestion" readonly="1" nolabel="1"/>
                     </group>
                 </page>

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_premafirm_booking_tree" model="ir.ui.view">
+        <field name="name">premafirm.booking.tree</field>
+        <field name="model">premafirm.booking</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="lead_id"/>
+                <field name="vehicle_id"/>
+                <field name="driver_id"/>
+                <field name="start_datetime"/>
+                <field name="end_datetime"/>
+                <field name="duration_hours"/>
+                <field name="state"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_premafirm_booking_form" model="ir.ui.view">
+        <field name="name">premafirm.booking.form</field>
+        <field name="model">premafirm.booking</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_confirm" type="object" string="Confirm" class="btn-primary" invisible="state != 'draft'"/>
+                    <button name="action_done" type="object" string="Done" invisible="state != 'confirmed'"/>
+                    <button name="action_cancel" type="object" string="Cancel" invisible="state in ('done','cancelled')"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,confirmed,done,cancelled"/>
+                </header>
+                <sheet>
+                    <group>
+                        <field name="lead_id"/>
+                        <field name="vehicle_id"/>
+                        <field name="driver_id"/>
+                        <field name="start_datetime"/>
+                        <field name="end_datetime"/>
+                        <field name="duration_hours" readonly="1"/>
+                    </group>
+                    <group string="Snapshots">
+                        <field name="vehicle_model_snapshot" readonly="1"/>
+                        <field name="license_plate_snapshot" readonly="1"/>
+                        <field name="unit_number_snapshot" readonly="1"/>
+                        <field name="driver_name_snapshot" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_premafirm_booking_calendar" model="ir.ui.view">
+        <field name="name">premafirm.booking.calendar</field>
+        <field name="model">premafirm.booking</field>
+        <field name="arch" type="xml">
+            <calendar string="Vehicle Bookings" date_start="start_datetime" date_stop="end_datetime" color="vehicle_id">
+                <field name="lead_id"/>
+                <field name="vehicle_id"/>
+                <field name="driver_id"/>
+                <field name="state"/>
+            </calendar>
+        </field>
+    </record>
+
+    <record id="action_premafirm_booking" model="ir.actions.act_window">
+        <field name="name">Vehicle Bookings</field>
+        <field name="res_model">premafirm.booking</field>
+        <field name="view_mode">calendar,list,form</field>
+    </record>
+</odoo>

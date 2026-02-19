@@ -75,6 +75,25 @@ class CrmLead(models.Model):
     service_type = fields.Selection([("ftl", "FTL"), ("ltl", "LTL")], default="ftl")
     ai_override_command = fields.Text()
     ai_locked = fields.Boolean(default=False)
+    load_status = fields.Selection(
+        [
+            ("draft", "Draft"),
+            ("quoted", "Quoted"),
+            ("approved", "Approved"),
+            ("dispatched", "Dispatched"),
+            ("at_pickup", "At Pickup"),
+            ("loaded", "Loaded"),
+            ("in_transit", "In Transit"),
+            ("at_delivery", "At Delivery"),
+            ("completed", "Completed"),
+            ("invoiced", "Invoiced"),
+            ("closed", "Closed"),
+            ("cancelled", "Cancelled"),
+        ],
+        default="draft",
+        tracking=True,
+    )
+    vehicle_booking_ids = fields.One2many("premafirm.booking", "lead_id", string="Vehicle Bookings")
     ai_internal_summary = fields.Text()
     ai_customer_email = fields.Text()
     pricing_payload_json = fields.Text(readonly=True)
@@ -329,10 +348,25 @@ class CrmLead(models.Model):
                     "ai_optimization_suggestion": False,
                     "ai_warning_text": False,
                     "pricing_payload_json": False,
-                    "dispatch_stop_ids": [(5, 0, 0)],
+                    "suggested_rate": False,
+                    "estimated_cost": False,
+                    "load_status": "draft",
                 }
             )
         return True
+
+
+    def action_unlock_ai(self):
+        self.write({"ai_locked": False})
+
+    def action_mark_quoted(self):
+        self.write({"load_status": "quoted"})
+
+    @api.constrains("final_rate")
+    def _check_non_negative_final_rate(self):
+        for lead in self:
+            if (lead.final_rate or 0.0) < 0.0:
+                raise UserError("Final rate cannot be negative.")
 
     def _default_pickup_datetime_toronto(self):
         tz = ZoneInfo("America/Toronto")

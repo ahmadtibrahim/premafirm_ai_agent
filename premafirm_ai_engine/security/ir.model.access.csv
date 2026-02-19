@@ -4,3 +4,4 @@ access_premafirm_pricing_history_user,access_premafirm_pricing_history_user,mode
 access_sale_order_premafirm,sale order premafirm,model_sale_order,base.group_user,1,1,1,0
 access_account_move_premafirm,invoice premafirm,model_account_move,base.group_user,1,1,1,0
 access_premafirm_dispatch_run_user,access_premafirm_dispatch_run_user,model_premafirm_dispatch_run,base.group_user,1,1,1,1
+access_premafirm_ai_log_user,access_premafirm_ai_log_user,model_premafirm_ai_log,base.group_user,1,1,1,1

@@ -27,6 +27,8 @@ class SaleOrder(models.Model):
         result = super().action_confirm()
         report_action = self.env.ref("premafirm_ai_engine.action_report_premafirm_pod")
         for order in self:
+            if order.opportunity_id:
+                order.opportunity_id.ai_locked = True
             pdf_content, _ = report_action._render_qweb_pdf(order.id)
             self.env["ir.attachment"].create(
                 {
@@ -81,3 +83,9 @@ class SaleOrderLine(models.Model):
     eta_datetime = fields.Datetime()
     stop_distance_km = fields.Float()
     stop_drive_hours = fields.Float()
+
+    def _prepare_invoice_line(self, **optional_values):
+        vals = super()._prepare_invoice_line(**optional_values)
+        if self.stop_distance_km:
+            vals["name"] = f"{self.name or ''} ({self.stop_distance_km:.2f} km)"
+        return vals

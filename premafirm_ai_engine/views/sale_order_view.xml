@@ -16,6 +16,7 @@
                         <field name="premafirm_bol"/>
                         <field name="premafirm_pod"/>
                         <field name="load_reference"/>
+                        <field name="billing_mode"/>
                     </group>
                     <group>
                         <field name="pickup_city"/>
@@ -23,6 +24,18 @@
                         <field name="total_pallets"/>
                         <field name="total_weight_lbs"/>
                         <field name="total_distance_km"/>
+                    </group>
+                    <group>
+                        <field name="load_ids" context="{'default_sale_order_id': id}">
+                            <list editable="bottom">
+                                <field name="name"/>
+                                <field name="vehicle_id"/>
+                                <field name="driver_id" readonly="1"/>
+                                <field name="route_reference"/>
+                                <field name="bol_number"/>
+                                <field name="seal_number"/>
+                            </list>
+                        </field>
                     </group>
                 </group>
             </xpath>

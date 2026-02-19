@@ -399,6 +399,7 @@ class CrmLead(models.Model):
             "total_pallets": self.total_pallets,
             "total_weight_lbs": self.total_weight_lbs,
             "total_distance_km": self.total_distance_km,
+            "billing_mode": self.billing_mode,
             "payment_term_id": self.payment_terms.id,
         }
 

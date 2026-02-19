@@ -22,6 +22,7 @@
         "views/premafirm_load_view.xml",
         "views/account_move_view.xml",
         "views/report_premafirm_pod.xml",
+        "views/report_company_header_inherit.xml",
     ],
     "installable": True,
     "application": False,

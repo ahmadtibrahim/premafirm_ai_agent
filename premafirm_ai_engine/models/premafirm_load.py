@@ -66,21 +66,11 @@ class PremafirmLoad(models.Model):
         self._allocate_pallets()
         return self.env.ref("premafirm_ai_engine.action_report_premafirm_load_pod").report_action(self)
 
-    def _get_pallet_mismatch_warning(self):
-        self.ensure_one()
-        pickup_total = sum(max(int(s.pallets or 0), 0) for s in self.stop_ids if s.stop_type == "pickup")
-        delivery_total = sum(max(int(s.pallets or 0), 0) for s in self.stop_ids if s.stop_type == "delivery")
-        if pickup_total != delivery_total:
-            return "Pallet mismatch detected: picked %s, scheduled to deliver %s." % (pickup_total, delivery_total)
-        return False
 
     def _allocate_pallets(self):
         """Allocates pallets from pickups to deliveries for POD generation."""
         self.ensure_one()
-        cached = getattr(self, "_pod_allocation_cache", None)
-        if cached is not None:
-            return cached
-
+     main
         allocations = {}
         pickup_stack = deque()
         stops = self.stop_ids.sorted(lambda s: (s.sequence, s.id))
@@ -125,7 +115,7 @@ class PremafirmLoad(models.Model):
 
             allocations[stop.id] = delivery_allocations
 
-        self._pod_allocation_cache = allocations
+  main
         return allocations
 
     def _get_pickup_for_delivery(self, delivery):

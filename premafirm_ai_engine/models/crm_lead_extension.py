@@ -339,6 +339,9 @@ class CrmLead(models.Model):
                     "ai_optimization_suggestion": False,
                     "ai_warning_text": False,
                     "pricing_payload_json": False,
+
+                    "dispatch_stop_ids": [(5, 0, 0)],
+
                 }
             )
         return True

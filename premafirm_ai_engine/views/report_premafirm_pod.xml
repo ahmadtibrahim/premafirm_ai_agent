@@ -83,7 +83,9 @@
                             <p><strong>Date:</strong> ________________________________</p>
                             <p><strong>Seal number:</strong> <span t-esc="o.seal_number or ''"/></p>
                         </div>
-                        <div class="page" t-if="delivery != deliveries[-1]"/>
+
+                        <div class="page"/>
+             main
                     </t>
                 </t>
             </main>

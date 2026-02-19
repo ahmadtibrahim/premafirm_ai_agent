@@ -1,5 +1,7 @@
 from datetime import timedelta
 
+from zoneinfo import ZoneInfo
+
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 
@@ -53,6 +55,10 @@ class CrmLead(models.Model):
     pump_truck_required = fields.Boolean()
 
     assigned_vehicle_id = fields.Many2one("fleet.vehicle")
+
+    pickup_date = fields.Date()
+    delivery_date = fields.Date()
+    ai_classification = fields.Selection([("ftl", "FTL"), ("ltl", "LTL")], default="ftl")
 
     dispatch_run_id = fields.Many2one("premafirm.dispatch.run")
     schedule_locked = fields.Boolean(default=False)
@@ -138,6 +144,67 @@ class CrmLead(models.Model):
                 product = variant
         return product
 
+
+    def _default_pickup_datetime_toronto(self):
+        tz = ZoneInfo("America/Toronto")
+        now_utc = fields.Datetime.now()
+        if getattr(now_utc, "tzinfo", None) is None:
+            now_utc = now_utc.replace(tzinfo=ZoneInfo("UTC"))
+        now_local = now_utc.astimezone(tz)
+        pickup_local = now_local.replace(hour=9, minute=0, second=0, microsecond=0)
+        if now_local.hour >= 12:
+            pickup_local += timedelta(days=1)
+        return pickup_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+    def classify_load(self, email_text=None, extracted_data=None):
+        data = extracted_data or {}
+        pickups = int(data.get("pickup_locations_count") or 0)
+        deliveries = int(data.get("delivery_locations_count") or 0)
+        additional_stops = bool(data.get("additional_stops_planned"))
+        combining = bool(data.get("combining_multiple_customers"))
+        multiple_bols = bool(data.get("multiple_bols_detected"))
+        exclusive = bool(data.get("exclusive_language_detected"))
+        appointment = bool(data.get("appointment_constraints_present"))
+        is_same_day = bool(data.get("is_same_day"))
+        multi_pick = pickups > 1
+        multi_drop = deliveries > 1
+        consolidation = combining or (multiple_bols and multi_pick)
+
+        reasoning = []
+        confidence = "MEDIUM"
+        if exclusive:
+            classification = "ftl"
+            confidence = "HIGH"
+            reasoning.append("Exclusive-use language detected")
+        elif pickups == 1 and deliveries == 1 and not additional_stops and not consolidation:
+            classification = "ftl"
+            confidence = "HIGH"
+            reasoning.append("Single pickup and delivery without consolidation")
+        elif multi_pick or multi_drop or consolidation or combining or additional_stops:
+            classification = "ltl"
+            confidence = "HIGH"
+            reasoning.append("Multi-stop or consolidation pattern detected")
+        elif appointment and is_same_day and not additional_stops:
+            classification = "ftl"
+            confidence = "MEDIUM"
+            reasoning.append("Same-day appointment-constrained lane")
+        else:
+            classification = "ftl"
+            confidence = "MEDIUM"
+            reasoning.append("Defaulted to FTL due to limited constraints")
+
+        return {
+            "classification": classification.upper(),
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "route_structure": {
+                "pickup_count": pickups,
+                "delivery_count": deliveries,
+                "consolidated": consolidation,
+                "exclusive_detected": exclusive,
+            },
+        }
+
     def _assign_stop_products(self):
         for lead in self:
             stops = lead.dispatch_stop_ids.sorted("sequence")
@@ -146,7 +213,18 @@ class CrmLead(models.Model):
 
             pickup_count = len(stops.filtered(lambda s: s.stop_type == "pickup"))
             delivery_count = len(stops.filtered(lambda s: s.stop_type == "delivery"))
-            is_ftl = len(stops) == 2 and pickup_count == 1 and delivery_count == 1
+            classification = lead.classify_load(
+                extracted_data={
+                    "pickup_locations_count": pickup_count,
+                    "delivery_locations_count": delivery_count,
+                    "additional_stops_planned": len(stops) > 2,
+                }
+            )
+            is_ftl = classification["classification"] == "FTL"
+            lead.ai_classification = "ftl" if is_ftl else "ltl"
+            max_capacity = (lead.assigned_vehicle_id.payload_capacity_lbs if lead.assigned_vehicle_id else 40000.0) or 40000.0
+            if not is_ftl and sum(stops.mapped("weight_lbs")) > max_capacity:
+                raise UserError("LTL consolidation exceeds vehicle payload capacity.")
 
             for stop in stops:
                 stop.is_ftl = bool(is_ftl)
@@ -238,6 +316,10 @@ class CrmLead(models.Model):
         if not self.dispatch_stop_ids:
             raise UserError("Add dispatch stops before creating a sales order.")
 
+        if not self.pickup_date:
+            self.pickup_date = fields.Date.to_date(self._default_pickup_datetime_toronto())
+        if not self.delivery_date:
+            self.delivery_date = self.pickup_date
         self._assign_stop_products()
         order = self.env["sale.order"].create(self._prepare_order_values())
         self._create_order_lines(order)

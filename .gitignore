@@ -1,3 +1,8 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# Reference-only schema exports (not runtime code)
+module_model_map.json
+odoo_full_schema.json
+postgres_schema.sql

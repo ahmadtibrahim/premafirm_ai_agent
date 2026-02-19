@@ -10,5 +10,6 @@ from . import mail_compose_message
 from . import ai_engine
 from . import ai_log
 from . import premafirm_load
+from . import premafirm_booking
 
 from . import res_partner_extension

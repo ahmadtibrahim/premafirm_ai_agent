@@ -54,7 +54,10 @@ class CrmLead(models.Model):
     liftgate = fields.Boolean()
     detention_requested = fields.Boolean()
     reefer_required = fields.Boolean()
+    reefer_setpoint_c = fields.Float("Reefer Setpoint (°C)")
     pump_truck_required = fields.Boolean()
+    ai_warning_text = fields.Text()
+    hos_warning_text = fields.Char(compute="_compute_hos_warning_text", store=True)
 
     assigned_vehicle_id = fields.Many2one("fleet.vehicle")
 
@@ -120,6 +123,12 @@ class CrmLead(models.Model):
             self._compute_discounts_from_final_rate()
         return res
 
+
+    @api.depends("total_drive_hours")
+    def _compute_hos_warning_text(self):
+        for lead in self:
+            lead.hos_warning_text = "Driver hours exceed recommended HOS threshold." if (lead.total_drive_hours or 0.0) > 11.0 else False
+
     @api.depends(
         "dispatch_stop_ids.pallets",
         "dispatch_stop_ids.weight_lbs",
@@ -132,6 +141,14 @@ class CrmLead(models.Model):
             lead.total_weight_lbs = sum(lead.dispatch_stop_ids.mapped("weight_lbs"))
             lead.total_distance_km = sum(lead.dispatch_stop_ids.mapped("distance_km"))
             lead.total_drive_hours = sum(lead.dispatch_stop_ids.mapped("drive_hours"))
+
+    def _get_pallet_mismatch_warning(self):
+        self.ensure_one()
+        pickups = sum(max(int(s.pallets or 0), 0) for s in self.dispatch_stop_ids if s.stop_type == "pickup")
+        deliveries = sum(max(int(s.pallets or 0), 0) for s in self.dispatch_stop_ids if s.stop_type == "delivery")
+        if pickups != deliveries:
+            return "Pallet mismatch warning: picked %s pallets, deliveries total %s pallets." % (pickups, deliveries)
+        return False
 
     def _extract_city(self, address):
         return (address.split(",", 1)[0] or "").strip() if address else ""
@@ -192,25 +209,33 @@ class CrmLead(models.Model):
                 raise UserError("Total distance must be greater than zero for flat mode.")
 
             stops = lead.dispatch_stop_ids.sorted("sequence")
+            mismatch_warning = lead._get_pallet_mismatch_warning()
             rate = max(lead.final_rate or lead.suggested_rate or 0.0, 0.0)
             if rate < 0.0:
                 raise UserError("Pricing cannot be negative.")
 
             payload = []
-            total_km = sum(stops.mapped("distance_km")) or lead.total_distance_km or 0.0
+            delivery_stops = stops.filtered(lambda s: s.stop_type == "delivery")
+            total_km = sum(max(stop.distance_km or 0.0, 0.0) for stop in delivery_stops) or lead.total_distance_km or 0.0
             per_km_rate = (rate / total_km) if lead.billing_mode == "flat" and total_km else (rate if lead.billing_mode == "per_km" else 0.0)
             per_pallet_rate = rate if lead.billing_mode == "per_pallet" else 0.0
-            per_stop_rate = rate if lead.billing_mode == "per_stop" else 0.0
+            per_stop_rate = (rate / len(delivery_stops)) if lead.billing_mode == "per_stop" and delivery_stops else 0.0
 
+            flat_delivery_ids = [stop.id for stop in delivery_stops]
             for stop in stops:
                 segment_km = max(stop.distance_km or 0.0, 0.0)
                 pallets = max(stop.pallets or 0, 0)
-                if lead.billing_mode in ("flat", "per_km"):
+                if lead.billing_mode == "flat":
+                    if stop.id in flat_delivery_ids:
+                        segment_rate = segment_km * per_km_rate
+                    else:
+                        segment_rate = 0.0
+                elif lead.billing_mode == "per_km":
                     segment_rate = segment_km * per_km_rate
                 elif lead.billing_mode == "per_pallet":
                     segment_rate = per_pallet_rate * pallets
                 else:
-                    segment_rate = per_stop_rate
+                    segment_rate = per_stop_rate if stop.stop_type == "delivery" else 0.0
                 payload.append(
                     {
                         "stop_id": stop.id,
@@ -221,6 +246,14 @@ class CrmLead(models.Model):
                         "segment_rate": max(segment_rate, 0.0),
                     }
                 )
+
+            if lead.billing_mode == "flat" and flat_delivery_ids:
+                delivery_payload = [item for item in payload if item["stop_type"] == "delivery"]
+                rounded_running = 0.0
+                for item in delivery_payload[:-1]:
+                    item["segment_rate"] = round(item["segment_rate"], 2)
+                    rounded_running += item["segment_rate"]
+                delivery_payload[-1]["segment_rate"] = round(max(rate - rounded_running, 0.0), 2)
 
             bullets = [
                 f"• Billing mode: {lead.billing_mode}",
@@ -240,6 +273,7 @@ class CrmLead(models.Model):
                     "pricing_payload_json": json.dumps(payload),
                     "ai_internal_summary": "\n".join(bullets),
                     "ai_customer_email": f"Quoted in {lead.billing_mode} mode. Total {total_segment_amount:.2f}.",
+                    "ai_warning_text": mismatch_warning,
                 }
             )
             lead._create_ai_log(user_modified=False)
@@ -287,6 +321,27 @@ class CrmLead(models.Model):
             lead.ai_override_command = False
         return True
 
+
+    def action_reset_ai(self):
+        for lead in self:
+            if lead.ai_locked:
+                continue
+            lead.write(
+                {
+                    "billing_mode": "flat",
+                    "service_type": "ftl",
+                    "equipment_type": "dry",
+                    "final_rate": 0.0,
+                    "ai_override_command": False,
+                    "ai_internal_summary": False,
+                    "ai_customer_email": False,
+                    "ai_recommendation": False,
+                    "ai_optimization_suggestion": False,
+                    "ai_warning_text": False,
+                    "pricing_payload_json": False,
+                }
+            )
+        return True
 
     def _default_pickup_datetime_toronto(self):
         tz = ZoneInfo("America/Toronto")
@@ -471,6 +526,9 @@ class CrmLead(models.Model):
         if not self.delivery_date:
             self.delivery_date = self.pickup_date
         self._assign_stop_products()
+        pallet_warning = self._get_pallet_mismatch_warning()
+        if pallet_warning:
+            self.ai_warning_text = pallet_warning
         self.compute_pricing()
         order = self.env["sale.order"].create(self._prepare_order_values())
 

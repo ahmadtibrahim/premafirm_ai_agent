@@ -36,6 +36,8 @@ class PremafirmDispatchStop(models.Model):
     liftgate_needed = fields.Boolean(default=False)
 
     pallets = fields.Integer()
+    delivered_pallets = fields.Integer(compute="_compute_pallet_tracking", store=True)
+    remaining_pallets = fields.Integer(compute="_compute_pallet_tracking", store=True)
     weight_lbs = fields.Float()
     weight = fields.Float(related="weight_lbs", store=True, readonly=False)
 
@@ -80,6 +82,37 @@ class PremafirmDispatchStop(models.Model):
     is_ftl = fields.Boolean("FTL Stop", default=False)
     product_id = fields.Many2one("product.product", string="Service")
     freight_product_id = fields.Many2one(related="product_id", store=True, readonly=False)
+
+
+    @api.depends("lead_id.dispatch_stop_ids.stop_type", "lead_id.dispatch_stop_ids.pallets", "lead_id.dispatch_stop_ids.sequence")
+    def _compute_pallet_tracking(self):
+        for lead in self.mapped("lead_id"):
+            tracked = lead.dispatch_stop_ids.sorted(lambda s: (s.sequence, s.id))
+            pickup_stack = []
+            result = {stop.id: {"delivered": 0, "remaining": 0} for stop in tracked}
+            for stop in tracked:
+                pallets = max(int(stop.pallets or 0), 0)
+                if stop.stop_type == "pickup":
+                    pickup_stack.append({"id": stop.id, "remaining": pallets})
+                    continue
+                if stop.stop_type != "delivery":
+                    continue
+                remaining = pallets
+                while remaining > 0 and pickup_stack:
+                    while pickup_stack and pickup_stack[-1]["remaining"] <= 0:
+                        pickup_stack.pop()
+                    if not pickup_stack:
+                        break
+                    candidate = pickup_stack[-1]
+                    qty = min(candidate["remaining"], remaining)
+                    candidate["remaining"] -= qty
+                    remaining -= qty
+                    result[stop.id]["delivered"] += qty
+            for pickup in pickup_stack:
+                result[pickup["id"]]["remaining"] = pickup["remaining"]
+            for stop in tracked:
+                stop.delivered_pallets = result[stop.id]["delivered"]
+                stop.remaining_pallets = result[stop.id]["remaining"]
 
     @api.depends("map_url", "address")
     def _compute_address_link_html(self):

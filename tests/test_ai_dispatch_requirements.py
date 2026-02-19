@@ -192,3 +192,37 @@ def test_classification_engine_marks_multistop_as_ltl():
     )
     assert result["classification"] == "LTL"
     assert result["confidence"] == "HIGH"
+
+
+def test_ai_override_command_updates_mode_equipment_and_rate():
+    mod = _load_module("crm_lead_extension_override_test", "premafirm_ai_engine/models/crm_lead_extension.py")
+
+    class _Country:
+        def __init__(self, cid):
+            self.id = cid
+
+    class _Env(dict):
+        def ref(self, xmlid, raise_if_not_found=False):
+            if xmlid == "base.ca":
+                return _Country(2)
+            if xmlid == "base.us":
+                return _Country(1)
+            return None
+
+    lead = __import__("types").SimpleNamespace(
+        ai_locked=False,
+        ai_override_command="make it flat rate 800 reefer canada",
+        billing_mode="per_km",
+        equipment_type="dry",
+        final_rate=100,
+        partner_id=__import__("types").SimpleNamespace(country_id=None),
+        env=_Env(),
+        write=lambda vals: [setattr(lead, k, v) for k, v in vals.items()],
+        compute_pricing=lambda: None,
+        _create_ai_log=lambda user_modified=False: None,
+    )
+
+    mod.CrmLead.action_ai_override([lead])
+    assert lead.billing_mode == "flat"
+    assert lead.equipment_type == "reefer"
+    assert lead.final_rate == 800.0

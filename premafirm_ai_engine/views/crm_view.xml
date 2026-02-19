@@ -21,6 +21,9 @@
                             <field name="total_weight_lbs" readonly="1"/>
                         </group>
                         <group>
+                            <field name="billing_mode"/>
+                            <field name="equipment_type"/>
+                            <field name="service_type"/>
                             <field name="po_number"/>
                             <field name="bol_number"/>
                             <field name="pod_reference"/>
@@ -35,6 +38,7 @@
                             <field name="reefer_required"/>
                             <field name="pump_truck_required"/>
                             <field name="assigned_vehicle_id"/>
+                            <field name="ai_locked" readonly="1"/>
                             <field name="dispatch_run_id" readonly="1"/>
                             <field name="schedule_locked"/>
                             <field name="schedule_conflict" readonly="1"/>
@@ -71,6 +75,10 @@
                     <group>
                         <field name="estimated_cost" readonly="1"/>
                         <field name="suggested_rate" readonly="1"/>
+                        <field name="ai_override_command" placeholder="e.g. make it flat rate 800 reefer canada"/>
+                        <button name="action_ai_override" type="object" string="Apply AI Command" class="btn-secondary"/>
+                        <field name="ai_internal_summary" readonly="1" nolabel="1"/>
+                        <field name="ai_customer_email" readonly="1" nolabel="1"/>
                         <field name="ai_recommendation" readonly="1" nolabel="1"/>
                         <field name="ai_optimization_suggestion" readonly="1" nolabel="1"/>
                     </group>

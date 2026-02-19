@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <record id="view_premafirm_load_tree" model="ir.ui.view">
-        <field name="name">premafirm.load.tree</field>
+    <record id="view_premafirm_load_list" model="ir.ui.view">
+        <field name="name">premafirm.load.list</field>
         <field name="model">premafirm.load</field>
         <field name="arch" type="xml">
-            <tree>
+            <list>
                 <field name="name"/>
                 <field name="sale_order_id"/>
                 <field name="vehicle_id"/>
                 <field name="driver_id"/>
                 <field name="billing_mode"/>
                 <field name="total_distance_km"/>
-            </tree>
+            </list>
         </field>
     </record>
 

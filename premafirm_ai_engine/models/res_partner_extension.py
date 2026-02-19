@@ -6,15 +6,17 @@ class ResPartner(models.Model):
 
     is_driver = fields.Boolean(default=False)
 
-    def _register_hook(self):
-        """Guard against schema drift when code is deployed before module update.
 
-        `_register_hook` executes during every registry load, which lets us keep
-        the database resilient even if `-u premafirm_ai_engine` has not been run
-        yet in an environment where this field was introduced.
+    def init(self):
+        """Backfill schema drift when the module code is deployed before `-u`.
+
+        Some environments load this field in the registry before the module
+        upgrade has created its SQL column, which crashes any partner fetch.
+        Keep startup resilient by creating the column if it is still missing.
+
         """
         self.env.cr.execute(
             "ALTER TABLE res_partner "
             "ADD COLUMN IF NOT EXISTS is_driver boolean DEFAULT false"
         )
-        return super()._register_hook()
+   main

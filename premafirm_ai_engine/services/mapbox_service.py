@@ -13,8 +13,12 @@ class MapboxService:
         self.env = env
 
     def _get_api_key(self):
-        key = self.env["ir.config_parameter"].sudo().get_param("google_maps_api_key")
-        return key or self.env["ir.config_parameter"].sudo().get_param("mapbox_api_key")
+        params = self.env["ir.config_parameter"].sudo()
+        return (
+            params.get_param("mapbox.access_token")
+            or params.get_param("mapbox_api_key")
+            or params.get_param("google_maps_api_key")
+        )
 
     def _safe_get(self, url, timeout=20):
         try:
@@ -32,56 +36,51 @@ class MapboxService:
         api_key = self._get_api_key()
         normalized = self._normalize_address(address)
         if not api_key or not normalized:
-            return {"warning": "Geocoding API key missing." if not api_key else "Missing address."}
+            return {"warning": "Mapbox access token missing." if not api_key else "Missing address."}
 
-        url = f"https://maps.googleapis.com/maps/api/geocode/json?address={quote(normalized)}&key={api_key}"
+        url = (
+            "https://api.mapbox.com/geocoding/v5/mapbox.places/"
+            f"{quote(normalized)}.json?access_token={api_key}&autocomplete=true&limit=1"
+        )
         data = self._safe_get(url)
-        results = data.get("results", [])
-        if not results:
+        features = data.get("features", [])
+        if not features:
             return {"warning": "Could not geocode address."}
 
-        first = results[0]
-        location = (first.get("geometry") or {}).get("location") or {}
-        comps = first.get("address_components") or []
+        first = features[0]
+        center = first.get("center") or [None, None]
+        context = first.get("context") or []
         city = None
         region = None
         postal = None
-        country = None
-        city_priority = ["locality", "postal_town", "sublocality", "administrative_area_level_2", "neighborhood"]
-        city_rank = {name: idx for idx, name in enumerate(city_priority)}
-        best_rank = 999
-        for comp in comps:
-            types = comp.get("types", [])
-            for ctype in types:
-                if ctype in city_rank and city_rank[ctype] < best_rank:
-                    best_rank = city_rank[ctype]
-                    city = comp.get("long_name")
-            if "administrative_area_level_1" in types:
-                region = comp.get("short_name")
-            if "postal_code" in types:
-                postal = comp.get("long_name")
-            if "country" in types:
-                country = comp.get("short_name")
+        country_code = None
+        for item in context:
+            item_id = item.get("id", "")
+            if item_id.startswith("place"):
+                city = item.get("text")
+            elif item_id.startswith("region"):
+                region = item.get("short_code", "").upper().replace("CA-", "").replace("US-", "") or item.get("text")
+            elif item_id.startswith("postcode"):
+                postal = item.get("text")
+            elif item_id.startswith("country"):
+                country_code = (item.get("short_code") or "").upper()
 
-        formatted = first.get("formatted_address") or normalized
+        place_name = first.get("place_name") or normalized
         if not city:
-            city = (formatted.split(",", 1)[0] or "").strip()
+            city = (first.get("text") or "").strip() or (place_name.split(",", 1)[0] or "").strip()
+        short_address = ", ".join([x for x in [city, region] if x]).strip() or normalized
 
-        short_address = ", ".join([x for x in [city, region] if x]).strip()
-        if not short_address:
-            short_address = normalized
-
-        types = first.get("types", [])
         return {
-            "latitude": location.get("lat"),
-            "longitude": location.get("lng"),
-            "full_address": formatted,
+            "latitude": center[1],
+            "longitude": center[0],
+            "full_address": place_name,
             "postal_code": postal,
-            "country": country,
+            "country": country_code,
+            "country_code": country_code,
             "city": city,
             "region": region,
             "short_address": short_address,
-            "place_categories": types,
+            "place_categories": first.get("place_type") or [],
         }
 
     def _google_maps_url(self, origin, destination):
@@ -89,7 +88,7 @@ class MapboxService:
             "https://www.google.com/maps/dir/?api=1"
             f"&origin={origin['latitude']},{origin['longitude']}"
             f"&destination={destination['latitude']},{destination['longitude']}"
-            "&travelmode=driving&dirflg=h"
+            "&travelmode=driving"
         )
 
     def get_route(self, origin_address, destination_address):
@@ -103,23 +102,24 @@ class MapboxService:
         if not api_key:
             return {"distance_km": 0.0, "drive_hours": 0.0, "map_url": map_url, "warning": "Routing API key missing."}
 
+        coords = f"{origin['longitude']},{origin['latitude']};{destination['longitude']},{destination['latitude']}"
         url = (
-            "https://maps.googleapis.com/maps/api/distancematrix/json"
-            f"?origins={origin['latitude']},{origin['longitude']}"
-            f"&destinations={destination['latitude']},{destination['longitude']}"
-            f"&key={api_key}"
+            "https://api.mapbox.com/directions/v5/mapbox/driving-traffic/"
+            f"{coords}?access_token={api_key}&overview=full&steps=false&annotations=duration,distance&geometries=geojson"
         )
         data = self._safe_get(url)
-        rows = data.get("rows", [])
-        if not rows or not rows[0].get("elements"):
+        routes = data.get("routes") or []
+        if not routes:
             return {"distance_km": 0.0, "drive_hours": 0.0, "map_url": map_url, "warning": "No route found."}
 
-        element = rows[0]["elements"][0]
-        if element.get("status") != "OK":
-            return {"distance_km": 0.0, "drive_hours": 0.0, "map_url": map_url, "warning": "No route found."}
+        route = routes[0]
+        legs = route.get("legs") or []
+        if not legs:
+            return {"distance_km": 0.0, "drive_hours": 0.0, "map_url": map_url, "warning": "No route legs found."}
 
-        distance_km = float((element.get("distance") or {}).get("value", 0.0)) / 1000.0
-        drive_hours = float((element.get("duration") or {}).get("value", 0.0)) / 3600.0
+        distance_km = float(sum(float(leg.get("distance") or 0.0) for leg in legs)) / 1000.0
+        drive_hours = float(sum(float(leg.get("duration") or 0.0) for leg in legs)) / 3600.0
+        drive_hours *= 1.2
         return {"distance_km": distance_km, "drive_hours": drive_hours, "map_url": map_url}
 
     def calculate_trip_segments(self, stops, origin_address=None):

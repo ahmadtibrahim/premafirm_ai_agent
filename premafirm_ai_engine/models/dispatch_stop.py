@@ -18,11 +18,15 @@ class PremafirmDispatchStop(models.Model):
 
     lead_id = fields.Many2one("crm.lead", required=True, ondelete="cascade")
     sequence = fields.Integer(default=1)
+    name = fields.Char()
 
     stop_type = fields.Selection([("pickup", "Pickup"), ("delivery", "Delivery")], required=True)
+    pickup_drop = fields.Selection(related="stop_type", store=True, readonly=False)
     address = fields.Char(required=True)
     address_link_html = fields.Html(compute="_compute_address_link_html", store=True)
     full_address = fields.Char()
+    city = fields.Char()
+    state = fields.Char()
     country = fields.Char()
     postal_code = fields.Char()
     latitude = fields.Float(digits=(10, 7))
@@ -33,11 +37,14 @@ class PremafirmDispatchStop(models.Model):
 
     pallets = fields.Integer()
     weight_lbs = fields.Float()
+    weight = fields.Float(related="weight_lbs", store=True, readonly=False)
 
     service_type = fields.Selection([("dry", "Dry"), ("reefer", "Reefer")], default="dry")
 
     requested_datetime = fields.Datetime()
     scheduled_datetime = fields.Datetime("Scheduled Time")
+    scheduled_start_datetime = fields.Datetime()
+    scheduled_end_datetime = fields.Datetime()
     estimated_arrival = fields.Datetime("ETA")
     eta_datetime = fields.Datetime(related="estimated_arrival", store=True, readonly=False)
     pickup_datetime_est = fields.Datetime()

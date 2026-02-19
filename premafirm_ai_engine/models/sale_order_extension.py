@@ -1,6 +1,6 @@
 import base64
 
-from odoo import fields, models
+from odoo import api, fields, models
 
 
 class SaleOrder(models.Model):
@@ -18,27 +18,67 @@ class SaleOrder(models.Model):
     total_distance_km = fields.Float()
 
     load_reference = fields.Char()
+    billing_mode = fields.Selection(
+        [
+            ("flat", "Flat Rate"),
+            ("per_km", "Per KM"),
+            ("per_pallet", "Per Pallet"),
+            ("per_stop", "Per Stop"),
+        ],
+        default="flat",
+    )
+    load_ids = fields.One2many("premafirm.load", "sale_order_id", string="Loads")
 
     def action_generate_pod(self):
         self.ensure_one()
-        return self.env.ref("premafirm_ai_engine.action_report_premafirm_pod").report_action(self)
+        if len(self.load_ids) == 1:
+            return self.load_ids.action_generate_pod()
+        return {
+            "type": "ir.actions.act_window",
+            "name": "Loads",
+            "res_model": "premafirm.load",
+            "view_mode": "list,form",
+            "domain": [("sale_order_id", "=", self.id)],
+            "context": {"default_sale_order_id": self.id},
+        }
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        orders = super().create(vals_list)
+        for order in orders:
+            if not order.load_ids:
+                order.load_ids = [
+                    (
+                        0,
+                        0,
+                        {
+                            "vehicle_id": order.opportunity_id.assigned_vehicle_id.id,
+                            "route_reference": order.load_reference,
+                            "bol_number": order.premafirm_bol,
+                        },
+                    )
+                ]
+        return orders
 
     def action_confirm(self):
         result = super().action_confirm()
-        report_action = self.env.ref("premafirm_ai_engine.action_report_premafirm_pod")
         for order in self:
             if order.opportunity_id:
                 order.opportunity_id.ai_locked = True
-            pdf_content, _ = report_action._render_qweb_pdf(order.id)
-            self.env["ir.attachment"].create(
-                {
-                    "name": f"POD-{order.name}.pdf",
-                    "datas": base64.b64encode(pdf_content),
-                    "res_model": "sale.order",
-                    "res_id": order.id,
-                    "mimetype": "application/pdf",
-                }
-            )
+            for load in order.load_ids:
+                if not load.vehicle_id or not load.driver_id:
+                    continue
+                report_action = self.env.ref("premafirm_ai_engine.action_report_premafirm_load_pod")
+                pdf_content, _ = report_action._render_qweb_pdf(load.id)
+                self.env["ir.attachment"].create(
+                    {
+                        "name": f"POD-{order.name}-{load.name}.pdf",
+                        "datas": base64.b64encode(pdf_content),
+                        "res_model": "premafirm.load",
+                        "res_id": load.id,
+                        "mimetype": "application/pdf",
+                    }
+                )
         return result
 
     def _prepare_invoice(self):

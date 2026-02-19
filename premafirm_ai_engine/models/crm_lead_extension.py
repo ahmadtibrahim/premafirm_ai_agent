@@ -1,3 +1,5 @@
+import json
+import re
 from datetime import timedelta
 
 from zoneinfo import ZoneInfo
@@ -55,6 +57,24 @@ class CrmLead(models.Model):
     pump_truck_required = fields.Boolean()
 
     assigned_vehicle_id = fields.Many2one("fleet.vehicle")
+
+    billing_mode = fields.Selection(
+        [
+            ("flat", "Flat"),
+            ("per_km", "Per KM"),
+            ("per_pallet", "Per Pallet"),
+            ("per_stop", "Per Stop"),
+        ],
+        default="flat",
+        required=True,
+    )
+    equipment_type = fields.Selection([("dry", "Dry"), ("reefer", "Reefer")], default="dry")
+    service_type = fields.Selection([("ftl", "FTL"), ("ltl", "LTL")], default="ftl")
+    ai_override_command = fields.Text()
+    ai_locked = fields.Boolean(default=False)
+    ai_internal_summary = fields.Text()
+    ai_customer_email = fields.Text()
+    pricing_payload_json = fields.Text(readonly=True)
 
     pickup_date = fields.Date()
     delivery_date = fields.Date()
@@ -123,28 +143,149 @@ class CrmLead(models.Model):
         address = (stop.address or "").upper()
         return "USA" in address or "UNITED STATES" in address or ", US" in address
 
-    def _get_correct_product(self, stop):
-        xmlids = {
-            (True, True): "premafirm_ai_engine.product_ftl_usa",
-            (True, False): "premafirm_ai_engine.product_ltl_usa",
-            (False, True): "premafirm_ai_engine.product_ftl_can",
-            (False, False): "premafirm_ai_engine.product_ltl_can",
-        }
-        is_us = self._is_us_stop(stop)
-        is_reefer = (stop.service_type or "dry") == "reefer"
-        key = (is_us, bool(stop.is_ftl))
-        product_tmpl = self.env.ref(xmlids[key], raise_if_not_found=False)
-        if not product_tmpl:
-            product_tmpl = self.env.ref("premafirm_ai_engine.product_ftl_can", raise_if_not_found=False)
-        if not product_tmpl:
+    def _get_service_product(self):
+        self.ensure_one()
+        country_code = (self.partner_id.country_id.code or "").upper()
+        region = "usa" if country_code == "US" else "canada"
+        service_label = "FTL" if (self.service_type or "ftl") == "ftl" else "LTL"
+        region_label = "USA" if region == "usa" else "Canada"
+        equipment = (self.equipment_type or "dry").lower()
+
+        template = self.env["product.template"].search(
+            [
+                ("name", "ilike", service_label),
+                ("name", "ilike", "Freight Service"),
+                ("name", "ilike", region_label),
+            ],
+            limit=1,
+        )
+        if not template:
+            template = self.env["product.template"].search([("name", "ilike", "Freight Service")], limit=1)
+        if not template:
             return False
 
-        product = product_tmpl.product_variant_id
-        if is_reefer and product_tmpl.product_variant_ids:
-            variant = product_tmpl.product_variant_ids.filtered(lambda p: "reefer" in (p.display_name or "").lower())[:1]
-            if variant:
-                product = variant
-        return product
+        if equipment == "reefer":
+            reefer_variant = template.product_variant_ids.filtered(lambda p: "reefer" in (p.display_name or "").lower())[:1]
+            if reefer_variant:
+                return reefer_variant
+        return template.product_variant_id
+
+    def _create_ai_log(self, user_modified=False):
+        self.ensure_one()
+        self.env["premafirm.ai.log"].create(
+            {
+                "lead_id": self.id,
+                "billing_mode": self.billing_mode,
+                "distance_km": self.total_distance_km,
+                "pallets": self.total_pallets,
+                "final_rate": self.final_rate,
+                "user_modified": user_modified,
+                "timestamp": fields.Datetime.now(),
+            }
+        )
+
+    def compute_pricing(self):
+        for lead in self:
+            if lead.billing_mode == "flat" and (lead.final_rate or 0.0) <= 0.0:
+                raise UserError("Flat mode requires final_rate > 0.")
+            if lead.billing_mode == "flat" and (lead.total_distance_km or 0.0) <= 0.0:
+                raise UserError("Total distance must be greater than zero for flat mode.")
+
+            stops = lead.dispatch_stop_ids.sorted("sequence")
+            rate = max(lead.final_rate or lead.suggested_rate or 0.0, 0.0)
+            if rate < 0.0:
+                raise UserError("Pricing cannot be negative.")
+
+            payload = []
+            total_km = sum(stops.mapped("distance_km")) or lead.total_distance_km or 0.0
+            per_km_rate = (rate / total_km) if lead.billing_mode == "flat" and total_km else (rate if lead.billing_mode == "per_km" else 0.0)
+            per_pallet_rate = rate if lead.billing_mode == "per_pallet" else 0.0
+            per_stop_rate = rate if lead.billing_mode == "per_stop" else 0.0
+
+            for stop in stops:
+                segment_km = max(stop.distance_km or 0.0, 0.0)
+                pallets = max(stop.pallets or 0, 0)
+                if lead.billing_mode in ("flat", "per_km"):
+                    segment_rate = segment_km * per_km_rate
+                elif lead.billing_mode == "per_pallet":
+                    segment_rate = per_pallet_rate * pallets
+                else:
+                    segment_rate = per_stop_rate
+                payload.append(
+                    {
+                        "stop_id": stop.id,
+                        "sequence": stop.sequence,
+                        "stop_type": stop.stop_type,
+                        "segment_km": segment_km,
+                        "pallets": pallets,
+                        "segment_rate": max(segment_rate, 0.0),
+                    }
+                )
+
+            bullets = [
+                f"• Billing mode: {lead.billing_mode}",
+                f"• Service type: {lead.service_type.upper()} | Equipment: {lead.equipment_type.upper()}",
+                f"• Total distance: {total_km:.2f} km",
+                f"• Final rate basis: {rate:.2f}",
+            ]
+            for item in payload:
+                bullets.append(
+                    f"• Stop {item['sequence']} ({item['stop_type']}): {item['segment_km']:.2f} km => {item['segment_rate']:.2f}"
+                )
+            total_segment_amount = sum(x["segment_rate"] for x in payload)
+            bullets.append(f"• Computed total: {total_segment_amount:.2f}")
+
+            lead.write(
+                {
+                    "pricing_payload_json": json.dumps(payload),
+                    "ai_internal_summary": "\n".join(bullets),
+                    "ai_customer_email": f"Quoted in {lead.billing_mode} mode. Total {total_segment_amount:.2f}.",
+                }
+            )
+            lead._create_ai_log(user_modified=False)
+        return True
+
+    def action_ai_override(self):
+        for lead in self:
+            if lead.ai_locked:
+                raise UserError("AI override is locked after sales order confirmation.")
+            command = (lead.ai_override_command or "").strip()
+            if not command:
+                continue
+            vals = {}
+            amount_match = re.search(r"(?:\$|rate\s*)(\d+(?:\.\d+)?)", command, re.I)
+            if amount_match:
+                vals["final_rate"] = float(amount_match.group(1))
+            lowered = command.lower()
+            if "per pallet" in lowered:
+                vals["billing_mode"] = "per_pallet"
+            elif "per stop" in lowered:
+                vals["billing_mode"] = "per_stop"
+            elif "per km" in lowered:
+                vals["billing_mode"] = "per_km"
+            elif "flat" in lowered:
+                vals["billing_mode"] = "flat"
+
+            if "reefer" in lowered:
+                vals["equipment_type"] = "reefer"
+            elif "dry" in lowered:
+                vals["equipment_type"] = "dry"
+
+            if "usa" in lowered:
+                country = lead.env.ref("base.us", raise_if_not_found=False)
+                if country and lead.partner_id:
+                    lead.partner_id.country_id = country.id
+            elif "canada" in lowered:
+                country = lead.env.ref("base.ca", raise_if_not_found=False)
+                if country and lead.partner_id:
+                    lead.partner_id.country_id = country.id
+
+            if vals:
+                lead.write(vals)
+            lead.compute_pricing()
+            lead._create_ai_log(user_modified=True)
+            lead.ai_override_command = False
+        return True
 
 
     def _default_pickup_datetime_toronto(self):
@@ -230,7 +371,7 @@ class CrmLead(models.Model):
 
             for stop in stops:
                 stop.is_ftl = bool(is_ftl)
-                product = lead._get_correct_product(stop)
+                product = lead._get_service_product()
                 if product:
                     stop.product_id = product.id
                     stop.freight_product_id = product.id
@@ -274,6 +415,10 @@ class CrmLead(models.Model):
         return order_vals
 
     def _create_order_lines(self, order):
+        pricing_payload = []
+        if self.pricing_payload_json:
+            pricing_payload = json.loads(self.pricing_payload_json)
+        payload_by_stop = {item.get("stop_id"): item for item in pricing_payload}
         base_rate = self.final_rate or self.suggested_rate or 0.0
         stops = self.dispatch_stop_ids.sorted("sequence")
         rate_per_stop = base_rate / len(stops) if stops else 0.0
@@ -281,13 +426,15 @@ class CrmLead(models.Model):
             product = stop.product_id or stop.freight_product_id
             if not product:
                 raise UserError("Each stop requires a service product.")
+            payload_line = payload_by_stop.get(stop.id, {})
+            segment_rate = payload_line.get("segment_rate", rate_per_stop)
             self.env["sale.order.line"].create(
                 {
                     "order_id": order.id,
                     "product_id": product.id,
                     "name": stop.address or product.display_name,
-                    "product_uom_qty": stop.pallets or 1,
-                    "price_unit": rate_per_stop,
+                    "product_uom_qty": 1,
+                    "price_unit": max(segment_rate, 0.0),
                     "discount": self.discount_percent or 0.0,
                     "scheduled_date": stop.scheduled_datetime,
                     "stop_type": stop.stop_type,
@@ -323,6 +470,7 @@ class CrmLead(models.Model):
         if not self.delivery_date:
             self.delivery_date = self.pickup_date
         self._assign_stop_products()
+        self.compute_pricing()
         order = self.env["sale.order"].create(self._prepare_order_values())
 
         if self.assigned_vehicle_id and self.dispatch_stop_ids and not self.dispatch_run_id:

@@ -6,3 +6,4 @@ access_account_move_premafirm,invoice premafirm,model_account_move,base.group_us
 access_premafirm_dispatch_run_user,access_premafirm_dispatch_run_user,model_premafirm_dispatch_run,base.group_user,1,1,1,1
 access_premafirm_ai_log_user,access_premafirm_ai_log_user,model_premafirm_ai_log,base.group_user,1,1,1,1
 access_premafirm_load_user,access_premafirm_load_user,model_premafirm_load,base.group_user,1,1,1,1
+access_premafirm_booking_user,access_premafirm_booking_user,model_premafirm_booking,base.group_user,1,1,1,1

@@ -11,44 +11,58 @@
 
     <template id="report_premafirm_pod_template">
         <t t-call="web.external_layout">
-            <div class="page" t-foreach="docs" t-as="o">
-                <h2>Proof of Delivery</h2>
-                <p><strong>Sales Order:</strong> <span t-field="o.name"/></p>
-                <p><strong>PO:</strong> <span t-field="o.premafirm_po"/></p>
-                <p><strong>BOL:</strong> <span t-field="o.premafirm_bol"/></p>
-                <p><strong>POD Ref:</strong> <span t-field="o.premafirm_pod"/></p>
-                <p><strong>Driver:</strong> <span t-esc="o.opportunity_id.assigned_vehicle_id.driver_id.name or ''"/></p>
-                <p><strong>Vehicle:</strong> <span t-esc="o.opportunity_id.assigned_vehicle_id.name or ''"/></p>
+            <main>
+                <t t-foreach="docs" t-as="o">
+                    <div class="page">
+                        <h2>Proof of Delivery</h2>
 
-                <h3 style="margin-top: 16px;">Stops</h3>
-                <table class="table table-sm table-bordered">
-                    <thead>
-                        <tr>
-                            <th>Type</th>
-                            <th>Address</th>
-                            <th>Scheduled</th>
-                            <th>ETA</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr t-foreach="o.order_line" t-as="l">
-                            <td><span t-field="l.stop_type"/></td>
-                            <td>
-                                <t t-if="l.stop_map_url">
-                                    <a t-att-href="l.stop_map_url"><span t-field="l.stop_address"/></a>
-                                </t>
-                                <t t-else="">
-                                    <span t-field="l.stop_address"/>
-                                </t>
-                            </td>
-                            <td><span t-field="l.scheduled_date"/></td>
-                            <td><span t-field="l.eta_datetime"/></td>
-                        </tr>
-                    </tbody>
-                </table>
+                        <p><strong>Sales Order:</strong> <span t-field="o.name"/></p>
+                        <p><strong>PO:</strong> <span t-field="o.premafirm_po"/></p>
+                        <p><strong>BOL:</strong> <span t-field="o.premafirm_bol"/></p>
+                        <p><strong>POD Ref:</strong> <span t-field="o.premafirm_pod"/></p>
+                        <p><strong>Driver:</strong>
+                            <span t-esc="o.opportunity_id.assigned_vehicle_id.driver_id.name or ''"/>
+                        </p>
+                        <p><strong>Vehicle:</strong>
+                            <span t-esc="o.opportunity_id.assigned_vehicle_id.name or ''"/>
+                        </p>
 
-                <p style="margin-top: 36px;"><strong>Receiver Signature:</strong> ____________________________</p>
-            </div>
+                        <h3 style="margin-top: 16px;">Stops</h3>
+                        <table class="table table-sm table-bordered">
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Address</th>
+                                    <th>Scheduled</th>
+                                    <th>ETA</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="o.order_line" t-as="l">
+                                    <td><span t-field="l.stop_type"/></td>
+                                    <td>
+                                        <t t-if="l.stop_map_url">
+                                            <a t-att-href="l.stop_map_url">
+                                                <span t-field="l.stop_address"/>
+                                            </a>
+                                        </t>
+                                        <t t-else="">
+                                            <span t-field="l.stop_address"/>
+                                        </t>
+                                    </td>
+                                    <td><span t-field="l.scheduled_date"/></td>
+                                    <td><span t-field="l.eta_datetime"/></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <p style="margin-top: 36px;">
+                            <strong>Receiver Signature:</strong>
+                            ____________________________
+                        </p>
+                    </div>
+                </t>
+            </main>
         </t>
     </template>
 </odoo>

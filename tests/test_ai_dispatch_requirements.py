@@ -12,11 +12,26 @@ def _install_base_fakes():
     req.post = lambda *a, **k: SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"choices": [{"message": {"content": "{}"}}]})
     sys.modules["requests"] = req
 
+    class _FakeFieldFactory:
+        def __call__(self, *a, **k):
+            return None
+
+    class _FakeDatetime(_FakeFieldFactory):
+        @staticmethod
+        def now():
+            return __import__("datetime").datetime(2026, 2, 18, 9, 0, 0)
+
+    class _FakeDate(_FakeFieldFactory):
+        @staticmethod
+        def to_date(d):
+            return d
+
+    class _FakeFields(SimpleNamespace):
+        def __getattr__(self, _name):
+            return _FakeFieldFactory()
+
     odoo = ModuleType("odoo")
-    odoo.fields = SimpleNamespace(
-        Datetime=SimpleNamespace(now=lambda: __import__("datetime").datetime(2026, 2, 18, 9, 0, 0)),
-        Date=SimpleNamespace(to_date=lambda d: d),
-    )
+    odoo.fields = _FakeFields(Datetime=_FakeDatetime(), Date=_FakeDate())
     odoo.models = SimpleNamespace(Model=object)
     odoo.api = SimpleNamespace(depends=lambda *a, **k: (lambda f: f), onchange=lambda *a, **k: (lambda f: f), constrains=lambda *a, **k: (lambda f: f))
     sys.modules["odoo"] = odoo
@@ -112,16 +127,17 @@ def test_city_extraction_prefers_city_region_not_region_only():
 
     svc = mod.MapboxService({"ir.config_parameter": FakeConfig()})
     svc._safe_get = lambda _url, timeout=20: {
-        "results": [
+        "features": [
             {
-                "formatted_address": "Barrie, ON L4N 8Y1, Canada",
-                "geometry": {"location": {"lat": 44.3, "lng": -79.6}},
-                "address_components": [
-                    {"long_name": "Barrie", "types": ["administrative_area_level_2"]},
-                    {"short_name": "ON", "types": ["administrative_area_level_1"]},
-                    {"long_name": "L4N 8Y1", "types": ["postal_code"]},
+                "place_name": "Barrie, Ontario L4N 8Y1, Canada",
+                "center": [-79.6, 44.3],
+                "text": "Barrie",
+                "place_type": ["place"],
+                "context": [
+                    {"id": "region.123", "short_code": "ca-on", "text": "Ontario"},
+                    {"id": "postcode.1", "text": "L4N 8Y1"},
+                    {"id": "country.1", "short_code": "ca", "text": "Canada"},
                 ],
-                "types": ["street_address"],
             }
         ]
     }
@@ -161,3 +177,18 @@ def test_run_insertion_reduces_empty_km():
     best = planner.simulate_run(run, [Stop(address="Toronto PU", stop_service_mins=60, cargo_delta=1), Stop(address="Barrie DEL", stop_service_mins=45, cargo_delta=-1), Stop(address="Barrie PU", stop_service_mins=60, cargo_delta=1), Stop(address="Mississauga DEL", stop_service_mins=45, cargo_delta=-1)])
     assert best["empty_distance_km"] < base["empty_distance_km"]
 
+
+
+def test_classification_engine_marks_multistop_as_ltl():
+    mod = _load_module("crm_lead_extension_test", "premafirm_ai_engine/models/crm_lead_extension.py")
+    lead = mod.CrmLead()
+    result = lead.classify_load(
+        extracted_data={
+            "pickup_locations_count": 2,
+            "delivery_locations_count": 1,
+            "additional_stops_planned": True,
+            "exclusive_language_detected": False,
+        }
+    )
+    assert result["classification"] == "LTL"
+    assert result["confidence"] == "HIGH"

@@ -13,85 +13,78 @@
         <t t-call="web.external_layout">
             <main>
                 <t t-foreach="docs" t-as="o">
-                    <div class="page">
-                        <h2 style="margin-bottom: 4px;">PREMAFIRM LOGISTICS</h2>
-                        <h3 style="margin-top: 0;">PROOF OF DELIVERY (POD)</h3>
+                    <t t-set="deliveries" t-value="o.stop_ids.filtered(lambda s: s.stop_type == 'delivery').sorted(lambda s: (s.sequence, s.id))"/>
+                    <t t-foreach="deliveries" t-as="delivery">
+                        <t t-set="pickup" t-value="o._get_pickup_for_delivery(delivery)"/>
+                        <t t-set="allocations" t-value="o._get_delivery_allocations(delivery)"/>
+                        <div class="page">
+                            <h3 style="margin-bottom: 8px;">PROOF OF DELIVERY (POD)</h3>
+                            <table class="table table-sm">
+                                <tr><td><strong>Company Name</strong></td><td><span t-esc="o.company_id.name"/></td></tr>
+                                <tr><td><strong>CVOR</strong></td><td><span t-esc="getattr(o.company_id, 'x_cvor', '')"/></td></tr>
+                                <tr><td><strong>MC #</strong></td><td><span t-esc="getattr(o.company_id, 'x_mc_number', '')"/></td></tr>
+                                <tr><td><strong>USDOT #</strong></td><td><span t-esc="getattr(o.company_id, 'x_usdot_number', '')"/></td></tr>
+                                <tr><td><strong>HST / VAT</strong></td><td><span t-esc="o.company_id.vat or ''"/></td></tr>
+                            </table>
 
-                        <table class="table table-sm" style="margin-top: 10px;">
-                            <tr><td><strong>Load #:</strong></td><td><span t-field="o.name"/></td><td><strong>Sales Order #:</strong></td><td><span t-field="o.sale_order_id.name"/></td></tr>
-                            <tr><td><strong>Route #:</strong></td><td><span t-field="o.route_reference"/></td><td><strong>BOL #:</strong></td><td><span t-field="o.bol_number"/></td></tr>
-                            <tr><td><strong>Seal #:</strong></td><td><span t-field="o.seal_number"/></td><td><strong>Billing Mode:</strong></td><td>
-                                <t t-if="o.billing_mode == 'flat'">Flat Rate</t>
-                                <t t-elif="o.billing_mode == 'per_km'">Per KM</t>
-                                <t t-elif="o.billing_mode == 'per_pallet'">Per Pallet</t>
-                                <t t-elif="o.billing_mode == 'per_stop'">Per Stop</t>
-                            </td></tr>
-                        </table>
+                            <h4>Vehicle</h4>
+                            <p>
+                                <strong>Vehicle model:</strong> <span t-esc="o.vehicle_id.model_id.name or ''"/><br/>
+                                <strong>Unit number:</strong> <span t-esc="getattr(o.vehicle_id, 'x_unit_number', False) or getattr(o.vehicle_id, 'x_studio_unit_number', False) or o.vehicle_id.name"/><br/>
+                                <strong>License plate:</strong> <span t-esc="o.vehicle_id.license_plate or ''"/><br/>
+                                <strong>Driver name:</strong> <span t-esc="o.driver_id.name or ''"/>
+                            </p>
 
-                        <h3>Vehicle Information</h3>
-
-                        <p>
-                            <strong>Truck Model:</strong>
-                            <span t-field="o.vehicle_id.model_id.name"/><br/>
-
-                            <strong>Unit Number:</strong>
-                            <t t-if="'x_studio_unit_number' in o.vehicle_id._fields">
-                                <span t-esc="o.vehicle_id.x_studio_unit_number or o.vehicle_id.name"/>
-                            </t>
-                            <t t-else="">
-                                <span t-field="o.vehicle_id.name"/>
-                            </t><br/>
-
-                            <strong>License Plate:</strong>
-                            <span t-field="o.vehicle_id.license_plate"/><br/>
-
-                            <strong>Driver Name:</strong>
-                            <span t-field="o.vehicle_id.driver_id.name"/>
-                        </p>
-
-                        <t t-set="stop_number" t-value="0"/>
-                        <t t-foreach="o.sale_order_id.order_line" t-as="line">
-                            <t t-if="line.stop_type == 'pickup' or ('Pickup' in (line.name or ''))">
-                                <t t-set="stop_number" t-value="stop_number + 1"/>
-                                <h4 style="margin-top: 18px;">STOP <span t-esc="stop_number"/> – PICKUP</h4>
-                                <p><strong>Location:</strong> <span t-esc="line.stop_address or line.name"/></p>
-                                <p><strong>City:</strong> <span t-esc="o.sale_order_id.pickup_city or ''"/></p>
-                                <p><strong>Date:</strong> <span t-field="line.scheduled_date"/></p>
-                                <p><strong>Signature:</strong> ____________________________</p>
-                                <t t-if="o.pickup_signature">
-                                    <img style="max-height: 90px;" t-att-src="'data:image/png;base64,%s' % o.pickup_signature"/>
+                            <h4>Load</h4>
+                            <p>
+                                <strong>Sale Order #:</strong> <span t-esc="o.sale_order_id.name"/><br/>
+                                <strong>Load #:</strong> <span t-esc="o.name"/><br/>
+                                <strong>Customer PO:</strong> <span t-esc="o.sale_order_id.premafirm_po or ''"/><br/>
+                                <strong>BOL #:</strong> <span t-esc="o.bol_number or o.sale_order_id.premafirm_bol or ''"/><br/>
+                                <strong>Service type:</strong> <span t-esc="o.sale_order_id.opportunity_id.service_type or ''"/><br/>
+                                <strong>Equipment type:</strong> <span t-esc="o.sale_order_id.opportunity_id.equipment_type or ''"/><br/>
+                                <t t-if="o.reefer_required">
+                                    <strong>Reefer setpoint (°C):</strong> <span t-esc="o.reefer_setpoint_c or ''"/><br/>
                                 </t>
-                            </t>
-                            <t t-if="line.stop_type == 'delivery' or ('Delivery' in (line.name or ''))">
-                                <t t-set="stop_number" t-value="stop_number + 1"/>
-                                <h4 style="margin-top: 18px;">STOP <span t-esc="stop_number"/> – DELIVERY</h4>
-                                <p><strong>Location:</strong> <span t-esc="line.stop_address or line.name"/></p>
-                                <p><strong>City:</strong> <span t-esc="o.sale_order_id.delivery_city or ''"/></p>
-                                <p><strong>Pallets Delivered:</strong> <span t-esc="o.total_pallets or 0"/></p>
-                                <p><strong>Signature:</strong> ____________________________</p>
-                                <t t-if="o.delivery_signature">
-                                    <img style="max-height: 90px;" t-att-src="'data:image/png;base64,%s' % o.delivery_signature"/>
-                                </t>
-                            </t>
-                        </t>
+                            </p>
 
-                        <h4 style="margin-top: 20px;">SUMMARY</h4>
-                        <p><strong>Total Distance:</strong> <span t-esc="'%.2f' % (o.total_distance_km or 0.0)"/> KM</p>
-                        <p><strong>Billing Mode:</strong>
-                            <t t-if="o.billing_mode == 'flat'">Flat Rate</t>
-                            <t t-elif="o.billing_mode == 'per_km'">Per KM</t>
-                            <t t-elif="o.billing_mode == 'per_pallet'">Per Pallet</t>
-                            <t t-elif="o.billing_mode == 'per_stop'">Per Stop</t>
-                        </p>
-                        <p t-if="o.billing_mode == 'flat'"><strong>Total Amount:</strong> <span t-field="o.total_amount"/></p>
-                        <p t-if="o.billing_mode == 'per_km'"><strong>Total KM:</strong> <span t-esc="'%.2f' % (o.total_distance_km or 0.0)"/></p>
+                            <h4>Pickup</h4>
+                            <p>
+                                <strong>Pickup address:</strong> <span t-esc="pickup.address or ''"/><br/>
+                                <strong>Pickup company:</strong> <span t-esc="pickup.name or ''"/><br/>
+                                <strong>Pickup date/time:</strong> <span t-esc="pickup.scheduled_datetime or ''"/><br/>
+                                <strong>Pallets picked for this delivery:</strong>
+                                <span t-esc="sum(item.get('pallets', 0) for item in allocations)"/>
+                            </p>
 
-                        <div style="margin-top: 28px; font-size: 12px;">
-                            <p><strong>Signature Acknowledgement:</strong> By signing, the receiver confirms freight was delivered in acceptable condition unless noted.</p>
-                            <p><strong>Legal Disclaimer:</strong> POD is issued for delivery confirmation and billing support only.</p>
-                            <p><strong>Contact:</strong> PremaFirm Logistics | dispatch@premafirm.com | +1 (000) 000-0000</p>
+                            <h4>Delivery</h4>
+                            <p>
+                                <strong>Delivery address:</strong> <span t-esc="delivery.address or ''"/><br/>
+                                <strong>Delivery company:</strong> <span t-esc="delivery.name or ''"/><br/>
+                                <strong>Delivery date/time:</strong> <span t-esc="delivery.scheduled_datetime or ''"/><br/>
+                                <strong>Pallets delivered:</strong> <span t-esc="delivery.pallets or 0"/>
+                            </p>
+
+                            <h4>Commodity</h4>
+                            <p>
+                                <strong>Product:</strong> <span t-esc="delivery.product_id.display_name or ''"/>
+                            </p>
+
+                            <t t-if="o.hos_warning_text">
+                                <div class="alert alert-warning" role="alert">
+                                    <strong>HOS Warning:</strong> <span t-esc="o.hos_warning_text"/>
+                                </div>
+                            </t>
+
+                            <h4>Signatures</h4>
+                            <p><strong>Shipper signature:</strong> ________________________________</p>
+                            <p><strong>Receiver signature:</strong> ________________________________</p>
+                            <p><strong>Printed name:</strong> ________________________________</p>
+                            <p><strong>Date:</strong> ________________________________</p>
+                            <p><strong>Seal number:</strong> <span t-esc="o.seal_number or ''"/></p>
                         </div>
-                    </div>
+                        <div class="page"/>
+                    </t>
                 </t>
             </main>
         </t>

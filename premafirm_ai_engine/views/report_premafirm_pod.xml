@@ -19,7 +19,6 @@
 
                         <table class="table table-sm" style="margin-top: 10px;">
                             <tr><td><strong>Load #:</strong></td><td><span t-field="o.name"/></td><td><strong>Sales Order #:</strong></td><td><span t-field="o.sale_order_id.name"/></td></tr>
-                            <tr><td><strong>Driver:</strong></td><td><span t-esc="o.driver_id.name or ''"/></td><td><strong>Vehicle:</strong></td><td><span t-esc="o.vehicle_id.name or ''"/></td></tr>
                             <tr><td><strong>Route #:</strong></td><td><span t-field="o.route_reference"/></td><td><strong>BOL #:</strong></td><td><span t-field="o.bol_number"/></td></tr>
                             <tr><td><strong>Seal #:</strong></td><td><span t-field="o.seal_number"/></td><td><strong>Billing Mode:</strong></td><td>
                                 <t t-if="o.billing_mode == 'flat'">Flat Rate</t>
@@ -28,6 +27,27 @@
                                 <t t-elif="o.billing_mode == 'per_stop'">Per Stop</t>
                             </td></tr>
                         </table>
+
+                        <h3>Vehicle Information</h3>
+
+                        <p>
+                            <strong>Truck Model:</strong>
+                            <span t-field="o.vehicle_id.model_id.name"/><br/>
+
+                            <strong>Unit Number:</strong>
+                            <t t-if="'x_studio_unit_number' in o.vehicle_id._fields">
+                                <span t-esc="o.vehicle_id.x_studio_unit_number or o.vehicle_id.name"/>
+                            </t>
+                            <t t-else="">
+                                <span t-field="o.vehicle_id.name"/>
+                            </t><br/>
+
+                            <strong>License Plate:</strong>
+                            <span t-field="o.vehicle_id.license_plate"/><br/>
+
+                            <strong>Driver Name:</strong>
+                            <span t-field="o.vehicle_id.driver_id.name"/>
+                        </p>
 
                         <t t-set="stop_number" t-value="0"/>
                         <t t-foreach="o.sale_order_id.order_line" t-as="line">

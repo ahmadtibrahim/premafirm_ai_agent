@@ -135,6 +135,8 @@ class CrmLead(models.Model):
         key = (is_us, bool(stop.is_ftl))
         product_tmpl = self.env.ref(xmlids[key], raise_if_not_found=False)
         if not product_tmpl:
+            product_tmpl = self.env.ref("premafirm_ai_engine.product_ftl_can", raise_if_not_found=False)
+        if not product_tmpl:
             return False
 
         product = product_tmpl.product_variant_id
@@ -322,6 +324,16 @@ class CrmLead(models.Model):
             self.delivery_date = self.pickup_date
         self._assign_stop_products()
         order = self.env["sale.order"].create(self._prepare_order_values())
+
+        if self.assigned_vehicle_id and self.dispatch_stop_ids and not self.dispatch_run_id:
+            from ..services.run_planner_service import RunPlannerService
+
+            planner = RunPlannerService(self.env)
+            run_date = self.pickup_date or fields.Date.today()
+            run = planner.get_or_create_run(self.assigned_vehicle_id, run_date)
+            planner.append_lead_to_run(run, self)
+            simulation = planner.simulate_run(run, run.stop_ids.sorted("run_sequence"))
+            planner._update_run(run, simulation)
         self._create_order_lines(order)
 
         if self.po_number:

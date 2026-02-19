@@ -83,6 +83,20 @@ class MapboxService:
             "place_categories": first.get("place_type") or [],
         }
 
+
+    def _directions_for_coordinates(self, coordinates):
+        api_key = self._get_api_key()
+        if not api_key:
+            return {}
+        joined = ";".join(f"{lon},{lat}" for lon, lat in coordinates if lat is not None and lon is not None)
+        if ";" not in joined:
+            return {}
+        url = (
+            "https://api.mapbox.com/directions/v5/mapbox/driving-traffic/"
+            f"{joined}?access_token={api_key}&overview=full&steps=false&annotations=duration,distance&geometries=geojson"
+        )
+        return self._safe_get(url)
+
     def _google_maps_url(self, origin, destination):
         return (
             "https://www.google.com/maps/dir/?api=1"
@@ -123,31 +137,79 @@ class MapboxService:
         return {"distance_km": distance_km, "drive_hours": drive_hours, "map_url": map_url}
 
     def calculate_trip_segments(self, stops, origin_address=None):
-        origin = self._normalize_address(origin_address) or self.ORIGIN_YARD
-        stop_addresses = []
+        origin_address = self._normalize_address(origin_address) or self.ORIGIN_YARD
+        origin_geo = self.geocode_address(origin_address)
+
+        stop_points = []
         for stop in (stops or []):
-            if hasattr(stop, "full_address") and stop.full_address:
-                stop_addresses.append(self._normalize_address(stop.full_address))
-            elif hasattr(stop, "address"):
-                stop_addresses.append(self._normalize_address(stop.address))
-            else:
-                stop_addresses.append(self._normalize_address(stop))
-        stop_addresses = [address for address in stop_addresses if address]
+            if hasattr(stop, "latitude") and hasattr(stop, "longitude") and stop.latitude and stop.longitude:
+                stop_points.append(
+                    {
+                        "address": self._normalize_address(getattr(stop, "full_address", False) or getattr(stop, "address", "")),
+                        "latitude": float(stop.latitude),
+                        "longitude": float(stop.longitude),
+                    }
+                )
+                continue
+
+            address = self._normalize_address(getattr(stop, "full_address", False) or getattr(stop, "address", stop))
+            geo = self.geocode_address(address)
+            stop_points.append(
+                {
+                    "address": address,
+                    "latitude": geo.get("latitude"),
+                    "longitude": geo.get("longitude"),
+                    "warning": geo.get("warning"),
+                }
+            )
+
+        if not stop_points:
+            return []
+
+        coordinates = []
+        if origin_geo.get("latitude") and origin_geo.get("longitude"):
+            coordinates.append((origin_geo["longitude"], origin_geo["latitude"]))
+        else:
+            coordinates.append((None, None))
+        coordinates.extend((pt.get("longitude"), pt.get("latitude")) for pt in stop_points)
+
+        directions = self._directions_for_coordinates(coordinates)
+        legs = ((directions.get("routes") or [{}])[0].get("legs") or []) if directions else []
 
         segments = []
-        previous = origin
-        for idx, address in enumerate(stop_addresses):
-            route = self.get_route(previous, address)
+        previous_label = origin_address
+        for idx, point in enumerate(stop_points):
+            leg = legs[idx] if idx < len(legs) else {}
+            origin = {
+                "latitude": coordinates[idx][1],
+                "longitude": coordinates[idx][0],
+            }
+            destination = {
+                "latitude": point.get("latitude"),
+                "longitude": point.get("longitude"),
+            }
+            map_url = None
+            if origin["latitude"] is not None and destination["latitude"] is not None:
+                map_url = self._google_maps_url(origin, destination)
+
+            drive_hours = float(leg.get("duration") or 0.0) / 3600.0
+            if drive_hours:
+                drive_hours *= 1.2
+
+            warning = point.get("warning")
+            if not leg and not warning:
+                warning = "No route found."
+
             segments.append(
                 {
                     "sequence": idx + 1,
-                    "from": previous,
-                    "to": address,
-                    "distance_km": route.get("distance_km", 0.0),
-                    "drive_hours": route.get("drive_hours", 0.0),
-                    "warning": route.get("warning"),
-                    "map_url": route.get("map_url"),
+                    "from": previous_label,
+                    "to": point.get("address"),
+                    "distance_km": float(leg.get("distance") or 0.0) / 1000.0,
+                    "drive_hours": drive_hours,
+                    "warning": warning,
+                    "map_url": map_url,
                 }
             )
-            previous = address
+            previous_label = point.get("address")
         return segments

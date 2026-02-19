@@ -1,6 +1,5 @@
 
-from datetime import datetime, timedelta
-
+from datetime import timedelta
 
 from odoo import fields
 
@@ -141,25 +140,10 @@ class RunPlannerService:
         self._update_run(run, sim)
 
     def _get_driver_partner(self, vehicle):
-        # Fleet standard: vehicle.driver_id is res.partner
+        # Fleet standard: vehicle.driver_id is already a res.partner record.
         if not vehicle:
             return False
-
-        driver = vehicle.driver_id
-        if driver:
-            if getattr(driver, "_name", "") == "res.partner":
-                return driver
-            partner = getattr(driver, "partner_id", False)
-            if partner:
-                return partner
-
-        emp = getattr(vehicle, "driver_employee_id", False)
-        if emp:
-            partner = getattr(emp, "address_home_id", False) or getattr(emp, "partner_id", False)
-            if partner:
-                return partner
-
-        return False
+        return vehicle.driver_id or False
 
     def _update_run(self, run, simulation):
         start = fields.Datetime.now()
@@ -181,10 +165,12 @@ class RunPlannerService:
             "name": run.name,
             "start": run.start_datetime,
             "stop": run.end_datetime,
-            "partner_ids": [(6, 0, [driver_partner.id])] if driver_partner else [(6, 0, [])],
+            "partner_ids": [(6, 0, [driver_partner.id])] if driver_partner else [(6, 0, []),],
             "res_model": "premafirm.dispatch.run",
             "res_id": run.id,
         }
+        if "vehicle_id" in self.env["calendar.event"]._fields:
+            vals["vehicle_id"] = run.vehicle_id.id
         if run.calendar_event_id:
             run.calendar_event_id.write(vals)
         else:

@@ -111,3 +111,9 @@ This module extends dispatch planning and downstream sales/accounting automation
 - `fleet`
 - `hr`
 - `calendar`
+
+## 11) Odoo 18 view type compatibility note
+- Odoo 18 no longer accepts `<tree>` as a view root tag for list views.
+- Use `<list>...</list>` instead.
+- For this module, `premafirm_ai_engine/views/premafirm_load_view.xml` was updated from tree to list view syntax.
+- Team rule: **do not introduce new `<tree>` views**; always define list views with `<list>` in Odoo 18.

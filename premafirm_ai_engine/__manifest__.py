@@ -12,6 +12,7 @@
         "fleet",
         "hr",
         "calendar",
+        "portal",
     ],
     "data": [
         "security/ir.model.access.csv",
@@ -20,6 +21,7 @@
         "views/sale_order_view.xml",
         "views/account_move_view.xml",
         "views/report_premafirm_pod.xml",
+        "views/portal_templates.xml",
     ],
     "installable": True,
     "application": False,

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <template id="portal_user_dropdown_safe_name" inherit_id="portal.user_dropdown" priority="100">
+        <xpath expr="//span[@t-if='_user_name']" position="replace">
+            <t t-set="display_user_name" t-value="user_id.login or user_id.name or ''"/>
+            <span
+                t-if="_user_name"
+                t-attf-class="#{_user_name_class}"
+                t-esc="display_user_name[:23] + '...' if len(display_user_name) &gt; 25 else display_user_name"
+            />
+        </xpath>
+    </template>
+</odoo>

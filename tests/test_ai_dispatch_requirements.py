@@ -250,3 +250,8 @@ def test_dispatch_rules_engine_uses_product_and_accessorial_mapping_from_json():
     assert rules.select_product("United States", "FTL", "dry") == 266
     assert rules.select_product("Canada", "LTL", "reefer") == 273
     assert rules.accessorial_product_ids(liftgate=True, inside_delivery=True) == [269, 270]
+
+
+def test_crm_dispatch_service_instantiates_rules_engine_for_accessorial_selection():
+    source = (ROOT / "premafirm_ai_engine/services/crm_dispatch_service.py").read_text()
+    assert "DispatchRulesEngine(self.env).accessorial_product_ids" in source

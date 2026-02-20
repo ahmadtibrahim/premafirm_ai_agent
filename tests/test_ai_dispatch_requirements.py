@@ -252,6 +252,6 @@ def test_dispatch_rules_engine_uses_product_and_accessorial_mapping_from_json():
     assert rules.accessorial_product_ids(liftgate=True, inside_delivery=True) == [269, 270]
 
 
-def test_dispatch_rules_engine_accessorial_lookup_supports_class_invocation():
-    mod = _load_module("dispatch_rules_engine_test_class_call", "premafirm_ai_engine/services/dispatch_rules_engine.py")
-    assert mod.DispatchRulesEngine.accessorial_product_ids(liftgate=True, inside_delivery=True) == [269, 270]
+def test_crm_dispatch_service_instantiates_rules_engine_for_accessorial_selection():
+    source = (ROOT / "premafirm_ai_engine/services/crm_dispatch_service.py").read_text()
+    assert "DispatchRulesEngine(self.env).accessorial_product_ids" in source

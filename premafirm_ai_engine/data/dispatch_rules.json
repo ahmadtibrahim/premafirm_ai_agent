@@ -1,4 +1,346 @@
 {
+  "_meta": {
+    "version": "2026.02.20",
+    "notes": [
+      "Do NOT hard-code system identity (home base, timezone, etc.). Read from Odoo.",
+      "Leave Yard At is a CRM field (lead/opportunity). Developer must confirm the technical field name.",
+      "Product selection for Canada/USA templates is based on CUSTOMER (partner) country for tax rules, not route country.",
+      "HOS profile selection is based on where the truck will operate (route touches USA => use USA HOS).",
+      "Routing uses MapBox truck-safe routing with vehicle specs sourced dynamically from fleet.vehicle.",
+      "Weather uses WeatherAPI.com and only warns / suggests adjustments (no auto-reject)."
+    ]
+  },
+  "data_sources": {
+    "odoo": {
+      "home_base_source_note": "Home base location should be sourced from your Odoo saved 'home location' (company/partner/address). Confirm actual model/field with developer.",
+      "vehicle_source": {
+        "model": "fleet.vehicle",
+        "fields_note": [
+          "work_start_at (your daily start time)",
+          "vehicle specs for routing: height, weight, length, width, axle count (field names are implementation-specific)",
+          "reefer capability flag if you store it (optional)"
+        ]
+      },
+      "customer_source": {
+        "model": "res.partner",
+        "fields_note": [
+          "Customer/broker country drives tax product template selection (partner_id.country_id).",
+          "Do NOT use pickup/delivery country for selecting Canada vs USA product templates."
+        ]
+      },
+      "crm_source": {
+        "model": "crm.lead",
+        "fields_note": [
+          "Leave Yard At is stored in CRM lead/opportunity (custom field). Confirm technical field name.",
+          "Load inquiry timestamps come from mail.message or inbound integration timestamps."
+        ]
+      }
+    }
+  },
+  "routing_engine": {
+    "provider": "MapBox",
+    "truck_routing_required": true,
+    "vehicle_spec_source": {
+      "model": "fleet.vehicle",
+      "mapping_note": "Developer must map these to your actual Odoo fields.",
+      "spec_fields": {
+        "height_m": "fleet.vehicle.<MAP_ME>",
+        "weight_kg": "fleet.vehicle.<MAP_ME>",
+        "length_m": "fleet.vehicle.<MAP_ME>",
+        "width_m": "fleet.vehicle.<MAP_ME>",
+        "axle_count": "fleet.vehicle.<MAP_ME>"
+      }
+    },
+    "constraints": {
+      "avoid_low_bridges": true,
+      "avoid_weight_restricted_roads": true,
+      "avoid_restricted_tunnels": true
+    },
+    "required_outputs": [
+      "distance_km",
+      "duration_minutes",
+      "polyline_geometry",
+      "border_crossings_if_any"
+    ],
+    "midpoint_logic": "Route midpoint should be derived from the route geometry (or mid-distance) for weather checkpoint."
+  },
+  "email_intake_engine": {
+    "scan_subject": true,
+    "scan_body": true,
+    "scan_attachments": true,
+    "use_ocr_for_pdf": true,
+    "extract_fields": [
+      "pickup_address",
+      "delivery_address",
+      "pickup_window_start",
+      "pickup_window_end",
+      "delivery_due_by",
+      "delivery_window_start",
+      "delivery_window_end",
+      "pallet_count",
+      "weight",
+      "commodity",
+      "temperature_requirement",
+      "rate_type",
+      "number_of_stops",
+      "multiple_bol"
+    ],
+    "temperature_detection": {
+      "method": "keyword_weighted_scoring",
+      "confidence_threshold": 0.6,
+      "reefer_keywords": [
+        "reefer",
+        "temperature controlled",
+        "temp controlled",
+        "chilled",
+        "frozen",
+        "keep frozen",
+        "keep refrigerated",
+        "maintain temperature",
+        "2-8c",
+        "-18c",
+        "cold chain",
+        "perishable",
+        "produce",
+        "meat",
+        "dairy",
+        "pharma",
+        "vaccine",
+        "ice cream"
+      ],
+      "dry_keywords": [
+        "dry",
+        "general freight",
+        "ambient",
+        "non-perishable",
+        "no temp required",
+        "machinery",
+        "equipment",
+        "steel",
+        "lumber",
+        "auto parts"
+      ],
+      "if_uncertain": "flag_for_manual_review"
+    },
+    "accessorial_detection": {
+      "liftgate_keywords": [
+        "liftgate",
+        "no dock",
+        "tailgate required"
+      ],
+      "inside_delivery_keywords": [
+        "inside delivery",
+        "white glove",
+        "bring inside"
+      ]
+    }
+  },
+  "job_classification": {
+    "freight_structure_detection": {
+      "rules": [
+        "if multiple_bol == true -> LTL",
+        "if rate_type == 'per_stop' -> LTL",
+        "if pallet_count >= 8 AND dedicated_truck == true -> FTL",
+        "if pallet_count < 8 AND number_of_stops > 1 -> LTL",
+        "else -> FTL"
+      ]
+    }
+  },
+  "product_selection_engine": {
+    "important_note": "Select Canada vs USA freight service product based on CUSTOMER (partner) country for tax rules. NOT pickup/delivery country.",
+    "customer_country_source": {
+      "model": "res.partner",
+      "field_note": "Use sale.order.partner_id.country_id (or crm.lead.partner_id.country_id)."
+    },
+    "mapping_by_customer_country": {
+      "USA": {
+        "FTL": {
+          "Dry": 266,
+          "Reefer": 264
+        },
+        "LTL": {
+          "Dry": 278,
+          "Reefer": 276
+        }
+      },
+      "Canada": {
+        "FTL": {
+          "Dry": 262,
+          "Reefer": 259
+        },
+        "LTL": {
+          "Dry": 274,
+          "Reefer": 273
+        }
+      }
+    },
+    "accessorials": {
+      "Liftgate": 269,
+      "Inside_Delivery": 270
+    },
+    "odoo_target": {
+      "model": "sale.order.line",
+      "field": "product_id",
+      "note": "Always use product.product ID (variant ID). Never use template_id."
+    }
+  },
+  "leave_yard_and_shift_start": {
+    "crm_field_note": "Leave Yard At is in CRM. Confirm technical field name before mapping.",
+    "pre_trip_inspection_minutes": 15,
+    "shift_start_definition": "on_duty_starts_at_leave_yard_at",
+    "default_anchor_when_no_time_windows": {
+      "source": "fleet.vehicle.work_start_at",
+      "note": "If broker provides no pickup/delivery time constraints, schedule first stop relative to vehicle work_start_at."
+    }
+  },
+  "time_window_scheduler": {
+    "purpose": "Schedule loads using broker-provided pickup/delivery windows when present; otherwise use vehicle work start.",
+    "priority_of_constraints": [
+      "delivery_due_by (hard deadline)",
+      "delivery_window_start/end",
+      "pickup_window_start/end",
+      "default_start = fleet.vehicle.work_start_at"
+    ],
+    "rules": {
+      "if_pickup_window_provided": "plan_route_to_arrive_within_window",
+      "if_delivery_deadline_provided": "backward_schedule_from_deadline",
+      "if_both_pickup_window_and_delivery_deadline": "must satisfy both; if infeasible -> flag manual",
+      "if_no_windows_provided": "forward_schedule_from_vehicle_work_start"
+    },
+    "leave_yard_calculation": {
+      "formula": "leave_yard_at = first_required_arrival_time - travel_time_home_to_first_stop - pre_trip_inspection",
+      "constraints": [
+        "leave_yard_at >= fleet.vehicle.work_start_at (or if earlier required -> shift schedule later and warn)",
+        "include_safety_buffer_minutes"
+      ]
+    },
+    "default_service_times": {
+      "avg_stop_time_minutes": 35,
+      "default_loading_minutes": 30,
+      "default_unloading_minutes": 30
+    }
+  },
+  "hos_engine": {
+    "note": "HOS shift start == Leave Yard At. On-duty includes pre-trip, fueling, loading/unloading, waiting while responsible.",
+    "safety_buffer_minutes": 30,
+    "jurisdiction_switching": {
+      "if_route_contains_USA": "USA",
+      "else": "CANADA"
+    },
+    "profiles": {
+      "CANADA": {
+        "max_drive_hours": 13,
+        "max_on_duty_hours": 14,
+        "max_elapsed_window_hours": 16,
+        "min_consecutive_off_duty_hours": 8,
+        "mandatory_30_min_break_after_drive_hours": null
+      },
+      "USA": {
+        "max_drive_hours": 11,
+        "max_on_duty_hours": 14,
+        "max_elapsed_window_hours": 14,
+        "min_consecutive_off_duty_hours": 10,
+        "mandatory_30_min_break_after_drive_hours": 8
+      }
+    },
+    "operational_preferences": {
+      "fuel_break_after_drive_hours": 6,
+      "fuel_break_duration_minutes": 30,
+      "fuel_break_counts_as_on_duty": true,
+      "note": "This is your preference and also conveniently satisfies the US 30-min break rule when long driving occurs."
+    }
+  },
+  "cross_border_logic": {
+    "border_buffer_minutes": 120,
+    "apply_if": "any_route_segment_in_USA == true",
+    "note": "Border buffer contributes to on-duty time (waiting/inspection)."
+  },
+  "weather_integration": {
+    "provider": "WeatherAPI.com",
+    "checkpoints": [
+      "home_base",
+      "pickup",
+      "midpoint",
+      "destination"
+    ],
+    "risk_scoring": {
+      "rain": 5,
+      "snow": 15,
+      "ice": 25,
+      "blizzard": 40,
+      "wind_above_60_kmh": 15,
+      "visibility_below_1_km": 20
+    },
+    "risk_levels": {
+      "0-10": "LOW",
+      "11-20": "MODERATE",
+      "21-35": "HIGH",
+      "36+": "SEVERE"
+    },
+    "actions": {
+      "LOW": "no_action",
+      "MODERATE": "display_warning",
+      "HIGH": "suggest_rate_increase",
+      "SEVERE": "require_manual_confirmation"
+    }
+  },
+  "cost_model": {
+    "fuel_cost_per_km_dry": 0.55,
+    "fuel_cost_per_km_reefer": 0.63,
+    "maintenance_cost_per_km": 0.22,
+    "insurance_daily": 95,
+    "overhead_daily": 60,
+    "reefer_daily_cost": 18,
+    "target_net_profit_per_day": 450
+  },
+  "deadhead_rules": {
+    "max_deadhead_percent_of_loaded": 0.35,
+    "absolute_max_deadhead_km": 70,
+    "warning_only": true,
+    "note": "No auto-reject; provide warnings and show impact to profit/hour."
+  },
+  "broker_scoring": {
+    "base_score": 50,
+    "warning_below_score": 45,
+    "priority_above_score": 75,
+    "factors_note": "Factor weights are stored externally (broker history). This config defines thresholds and intent."
+  },
+  "profit_calculation_logic": {
+    "note": "Use day-level economics (not just trip margin).",
+    "steps": [
+      "total_km = loaded_km + deadhead_km + return_home_km",
+      "fuel_cost = total_km * applicable_fuel_cost_per_km",
+      "maintenance_cost = total_km * maintenance_cost_per_km",
+      "daily_fixed = insurance_daily + overhead_daily + (reefer_daily_cost if reefer)",
+      "gross_profit = revenue - fuel_cost - maintenance_cost",
+      "net_day_profit = gross_profit - daily_fixed",
+      "revenue_per_hour = revenue / total_estimated_hours"
+    ],
+    "warnings": {
+      "if_net_day_profit_below_target": "display_profit_warning",
+      "if_revenue_per_hour_below_minimum": "display_hourly_warning",
+      "if_deadhead_rules_exceeded": "display_deadhead_warning"
+    }
+  },
+  "booking_decision_output": {
+    "no_auto_reject_policy": true,
+    "outputs": [
+      "recommended_schedule (pickup/delivery times)",
+      "leave_yard_at",
+      "hos_compliance_status",
+      "window_feasibility_status",
+      "weather_risk_level + notes",
+      "profit_estimate + revenue_per_hour",
+      "selected_service_product_id",
+      "selected_accessorial_product_ids"
+    ],
+    "manual_review_triggers": [
+      "temperature_detection_uncertain",
+      "time_windows_infeasible",
+      "SEVERE_weather",
+      "HOS_near_limit"
+    ]
+  },
   "pricing": {
     "dry_rate_per_km": 2.25,
     "reefer_rate_per_km": 2.55,
@@ -29,7 +371,11 @@
     "max_pallets": 12,
     "heavy_load_threshold_lbs": 11500,
     "deadhead_reject_percent": 0.4,
-    "deadhead_score_thresholds": [0.15, 0.25, 0.35],
+    "deadhead_score_thresholds": [
+      0.15,
+      0.25,
+      0.35
+    ],
     "deadhead_unpaid_km_limit": 150,
     "overnight_cost_per_night": 130,
     "local_min_profit": 250,

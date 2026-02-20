@@ -26,24 +26,23 @@ class DispatchRulesEngine:
         return self.rules.get(section, default if default is not None else {})
 
     def select_product(self, customer_country, structure, equipment):
-        mapping = {
-            "USA": {
-                "FTL": {"Dry": 266, "Reefer": 264},
-                "LTL": {"Dry": 278, "Reefer": 276},
-            },
-            "CANADA": {
-                "FTL": {"Dry": 262, "Reefer": 259},
-                "LTL": {"Dry": 274, "Reefer": 273},
-            },
-        }
-        country_key = "USA" if (customer_country or "").strip().upper() in {"US", "USA", "UNITED STATES"} else "CANADA"
-        return mapping[country_key][structure.upper()][equipment.title()]
+        product_engine = self.get("product_selection_engine", {})
+        mapping = product_engine.get("mapping_by_customer_country", {})
+        country_key = "USA" if (customer_country or "").strip().upper() in {"US", "USA", "UNITED STATES"} else "Canada"
+        country_map = mapping.get(country_key) or mapping.get("Canada", {})
+        structure_map = country_map.get(structure.upper(), {})
+        equipment_key = "Reefer" if (equipment or "").strip().lower() == "reefer" else "Dry"
+        return structure_map.get(equipment_key)
 
-    @staticmethod
-    def accessorial_product_ids(liftgate=False, inside_delivery=False):
+    def accessorial_product_ids(self, liftgate=False, inside_delivery=False):
+        accessorials = self.get("product_selection_engine", {}).get("accessorials", {})
         products = []
         if liftgate:
-            products.append(269)
+            product_id = accessorials.get("Liftgate")
+            if product_id:
+                products.append(product_id)
         if inside_delivery:
-            products.append(270)
+            product_id = accessorials.get("Inside_Delivery")
+            if product_id:
+                products.append(product_id)
         return products

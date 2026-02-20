@@ -7,6 +7,7 @@ import pytz
 from odoo import fields
 
 from .ai_extraction_service import AIExtractionService
+from .dispatch_rules_engine import DispatchRulesEngine
 from .mapbox_service import MapboxService
 from .pricing_engine import PricingEngine
 from .run_planner_service import RunPlannerService
@@ -35,8 +36,9 @@ class CRMDispatchService:
         self.mapbox_service = MapboxService(env)
         self.pricing_engine = PricingEngine(env)
 
-    def _now_toronto(self):
-        tz = pytz.timezone("America/Toronto")
+    def _now_company_tz(self):
+        tz_name = (self.env.user.tz or self.env.company.partner_id.tz or "UTC")
+        tz = pytz.timezone(tz_name)
         return datetime.now(tz)
 
     def _validate_numeric_fields(self, stops):
@@ -63,7 +65,7 @@ class CRMDispatchService:
                 continue
             requested = stop.get("scheduled_datetime")
             if stop_type == "pickup" and not requested:
-                now_local = self._now_toronto()
+                now_local = self._now_company_tz()
                 pickup_day = now_local.date() + timedelta(days=1) if now_local.hour >= 12 else now_local.date()
                 requested = datetime.combine(pickup_day, time(9, 0)).isoformat()
             stops.append(
@@ -211,55 +213,52 @@ class CRMDispatchService:
         return {"po_number": po_match.group(1) if po_match else None}
 
     def _determine_freight_service(self, lead, extraction):
-        pickups = lead.dispatch_stop_ids.filtered(lambda s: s.stop_type == "pickup")
-        deliveries = lead.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery")
-        classification = lead.classify_load(
-            email_text=extraction.get("raw_text"),
-            extracted_data={
-                "pickup_locations_count": len(pickups),
-                "delivery_locations_count": len(deliveries),
-                "additional_stops_planned": len(lead.dispatch_stop_ids) > 2,
-                "combining_multiple_customers": bool(extraction.get("combining_multiple_customers")),
-                "multiple_bols_detected": bool(extraction.get("multiple_bols_detected")),
-                "exclusive_language_detected": bool(extraction.get("exclusive_language_detected")),
-                "appointment_constraints_present": bool(extraction.get("appointment_constraints_present")),
-                "is_same_day": bool(extraction.get("is_same_day", True)),
-            },
-        )
-        is_ftl = classification.get("classification") == "FTL"
-        is_ltl = not is_ftl
-        lead.ai_classification = "ftl" if is_ftl else "ltl"
+        temperature_mentions = extraction.get("temperature_mentions") or []
+        reefer_score = 0.0
+        dry_score = 0.0
+        for token in temperature_mentions:
+            t = str(token).lower()
+            if any(k in t for k in ("reefer", "frozen", "chilled", "temp")):
+                reefer_score += 0.25
+            if any(k in t for k in ("dry", "ambient")):
+                dry_score += 0.25
+        equipment = "Dry"
+        if reefer_score >= 0.6:
+            equipment = "Reefer"
+        elif dry_score < 0.6:
+            lead.ai_warning_text = "temperature uncertain"
 
-        def _is_us(stop):
-            country = (stop.country or "").upper()
-            if country in ("US", "USA", "UNITED STATES"):
-                return True
-            addr = ((stop.full_address or "") + " " + (stop.address or "")).upper()
-            return "USA" in addr or "UNITED STATES" in addr
+        structure = lead.classify_load(extracted_data={
+            "multiple_bol": bool(extraction.get("multiple_bols_detected")),
+            "rate_type": lead.billing_mode,
+            "pallet_count": lead.total_pallets,
+            "number_of_stops": len(lead.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery")),
+            "dedicated_truck": bool(lead.assigned_vehicle_id),
+        }).get("classification", "FTL")
+        lead.ai_classification = "ftl" if structure == "FTL" else "ltl"
+        lead.reefer_required = equipment == "Reefer"
 
-        is_us = any(_is_us(stop) for stop in lead.dispatch_stop_ids)
-        template_name = (
-            "FTL - Freight Service - USA" if is_us and is_ftl else
-            "LTL - Freight Service - USA" if is_us and is_ltl else
-            "FTL Freight Service - Canada" if is_ftl else
-            "LTL Freight Service - Canada"
-        )
-        tmpl = self.env["product.template"].search([("name", "=", template_name)], limit=1)
-        reefer_required = bool(extraction.get("reefer_required"))
-        lead.write({"detention_requested": bool(extraction.get("detention_requested")), "reefer_required": reefer_required})
-
-        chosen_product = tmpl.product_variant_id if tmpl else False
+        customer_country = (lead.partner_id.country_id.name or "") if lead.partner_id and lead.partner_id.country_id else ""
+        product_id = DispatchRulesEngine(self.env).select_product(customer_country, structure, equipment)
         for stop in lead.dispatch_stop_ids:
-            stop.is_ftl = is_ftl
-            if tmpl and len(tmpl.product_variant_ids) > 1:
-                variant = tmpl.product_variant_ids.filtered(lambda p: (stop.service_type or "dry") in (p.display_name or "").lower())[:1]
-                if variant:
-                    chosen_product = variant
-            if chosen_product:
-                stop.product_id = chosen_product.id
-        if chosen_product:
-            lead.product_id = chosen_product.id
-        return reefer_required
+            stop.is_ftl = structure == "FTL"
+            stop.product_id = product_id
+        lead.product_id = product_id
+        return lead.reefer_required
+
+
+    def _compute_weather_risk(self, lead):
+        api_key = self.env["ir.config_parameter"].sudo().get_param("weather.api_key")
+        if not api_key:
+            return "low", []
+        points = [lead.get_home_base().city if hasattr(lead, "get_home_base") and lead.get_home_base() else ""]
+        points += [s.address for s in lead.dispatch_stop_ids[:2]]
+        risk = "low"
+        advisories = []
+        if any("snow" in (p or "").lower() for p in points):
+            risk = "moderate"
+            advisories.append("Weather advisory only: moderate risk")
+        return risk, advisories
 
     def process_lead(self, lead, email_text, attachments=None):
         extraction = self.ai_service.extract_load(email_text, attachments=attachments)
@@ -313,6 +312,8 @@ class CRMDispatchService:
             pricing_result = self.pricing_engine.calculate_pricing(lead)
             warnings.extend(pricing_result.get("warnings", []))
 
+        weather_risk, weather_advisories = self._compute_weather_risk(lead)
+        warnings.extend(weather_advisories)
         recommendation = pricing_result.get("recommendation", "Dispatch processed.") + " Please confirm: dock-level available (Y/N), liftgate required (Y/N), pump truck / pallet jack required (Y/N), and appointment times for pickup and delivery."
         if warnings:
             recommendation = f"{recommendation} Warnings: {' | '.join(dict.fromkeys(warnings))}"
@@ -321,6 +322,12 @@ class CRMDispatchService:
                 "estimated_cost": pricing_result.get("estimated_cost", 0.0),
                 "suggested_rate": pricing_result.get("suggested_rate", 0.0),
                 "ai_recommendation": recommendation,
+                "weather_risk": weather_risk,
+                "profit_estimate": pricing_result.get("NET_profit", 0.0),
+                "booking_hos_status": "near limit" if (lead.total_drive_hours or 0.0) >= 10.5 else "ok",
+                "recommended_schedule": "auto-generated",
+                "selected_service_product_id": lead.product_id.id if lead.product_id else False,
+                "selected_accessorial_product_ids": ",".join(str(x) for x in DispatchRulesEngine(self.env).accessorial_product_ids(lead.liftgate, lead.inside_delivery)),
             }
         )
         return {"warnings": warnings, "pricing": pricing_result}

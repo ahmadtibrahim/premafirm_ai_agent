@@ -52,6 +52,12 @@ class DispatchService:
                 "total_distance_km": distance_km,
                 "total_drive_hours": 4.0,
                 "total_pallets": aggregated_pallet_count,
+                "total_weight_lbs": aggregated_load_weight_lbs,
+                "deadhead_km": float(getattr(lead, "deadhead_km", 0.0) or 0.0),
+                "billing_mode": getattr(lead, "billing_mode", "per_km"),
+                "zone": getattr(lead, "zone", False),
+                "unpaid_deadhead": bool(getattr(lead, "unpaid_deadhead", False)),
+                "assigned_vehicle_id": lead.assigned_vehicle_id,
                 "liftgate": False,
                 "inside_delivery": False,
                 "detention_requested": False,
@@ -59,7 +65,7 @@ class DispatchService:
         )
         pricing = self.pricing_engine.calculate_pricing(pricing_lead)
 
-        return {
+        result = {
             "distance_km": distance_km,
             "aggregated_pallet_count": aggregated_pallet_count,
             "aggregated_load_weight_lbs": aggregated_load_weight_lbs,
@@ -68,3 +74,18 @@ class DispatchService:
             "estimated_cost": pricing["estimated_cost"],
             "suggested_rate": pricing["suggested_rate"],
         }
+        for key in (
+            "start_location",
+            "deadhead_km",
+            "total_km",
+            "gross_revenue",
+            "base_cost",
+            "overnight_cost",
+            "detention_cost",
+            "NET_profit",
+            "score",
+            "decision",
+        ):
+            if key in pricing:
+                result[key] = pricing[key]
+        return result

@@ -1,151 +1,154 @@
 # PremaFirm AI Engine (Odoo 18)
 
-## Dispatch + CRM → Sales → Invoice Intelligence Upgrade
+PremaFirm AI Engine is an Odoo module that connects CRM lead intake, dispatch planning, pricing logic, run planning, sales order creation, and invoice alignment for logistics workflows.
 
-This module extends dispatch planning and downstream sales/accounting automation for PremaFirm.
+---
 
-## 1) Mapbox integration (driving-traffic)
-- Service: `premafirm_ai_engine/services/mapbox_service.py`.
-- Uses Mapbox Geocoding + Directions API with `driving-traffic` profile.
-- Route chain is computed as:
-  - `fleet.vehicle.home_location` → stop 1 → stop 2 → ... → last stop → `home_location`.
-- Supports geocoding from full addresses and city/province strings.
-- For each leg, stop records get:
-  - `distance_km`
-  - `drive_hours`
-  - `map_url`
+## Application manual
 
-## 2) HOS and ETA logic
-- Implemented in `premafirm_ai_engine/services/crm_dispatch_service.py`.
-- Speed rule:
-  - >60% highway: 90 km/h
-  - otherwise: 45 km/h
-- Breaks included directly into `drive_hours`:
-  - 10–15 min after ~4h driving (implemented as 15 min)
-  - 45 min after ~8h driving
-  - +10 min micro-break after 3–4h post major break
-- Departure (`crm.lead.departure_time`) is computed from first pickup schedule minus:
-  - first leg travel,
-  - 15 min warm-up,
-  - 10 min traffic buffer.
-- ETA (`premafirm.dispatch.stop.estimated_arrival`) is sequenced from previous time + effective drive time.
-- Aggregates are persisted on lead:
-  - `total_distance_km`
-  - `total_drive_hours`
+## 1) What this app does
 
-## 3) Default scheduling rules
-- If first pickup has no window and no explicit schedule, defaults to 9:00 AM local.
-- Pickup/delivery windows are respected when provided.
-- Delivery ETA rolls into same day when possible; otherwise naturally pushes to next day based on cumulative travel + HOS break additions.
+This module extends Odoo to support an end-to-end freight lifecycle:
 
-## 4) Stop-level service product selection
-- Dispatch stop now has explicit service product:
-  - `premafirm.dispatch.stop.product_id`
-- Backward compatibility kept through related alias:
-  - `freight_product_id` → related to `product_id`
-- CRM line label is now **Service** in stop table.
-- Product selection considers:
-  - country (Canada vs USA),
-  - stop type / multi-delivery behavior,
-  - total pallets vs inferred capacity,
-  - reefer vs dry service type.
+1. Capture a load opportunity in **CRM**.
+2. Add dispatch stops (pickup/delivery, pallets, weights, schedule windows).
+3. Compute routing + timing + pricing suggestions.
+4. Assign service products per stop (FTL/LTL, country-aware defaults).
+5. Create a Sales Order from CRM with stop-based lines.
+6. Apply discount/final-rate logic.
+7. Plan dispatch runs and create calendar bookings.
+8. Generate POD reporting and align accounting behavior by region.
 
-## 5) CRM → Sales Order creation and mapping
-- CRM button: **Create Sales Order**.
-- Behavior:
-  - PO present (`po_number`) ⇒ confirms SO (`state='sale'`)
-  - no PO ⇒ stays draft quotation.
-- Lead→SO mapping includes:
-  - partner, PO/BOL/POD,
-  - pallets/weight/distance totals,
-  - pickup/delivery city,
-  - payment terms.
-- One SO line per stop:
-  - `product_id` from stop service,
-  - `name` from stop address,
-  - `product_uom_qty` from stop pallets,
-  - `price_unit` proportional share of total rate,
-  - `scheduled_date` from stop schedule,
-  - line discount from lead discount %.
-- Packaging columns are hidden in SO line list/form.
+---
 
-## 6) Discount system
-- If user sets `crm.lead.final_rate`, module computes:
-  - `discount_amount = suggested_rate - final_rate`
-  - `discount_percent = discount_amount / suggested_rate * 100`
-- Discount percent is propagated to each SO line (`sale.order.line.discount`).
+## 2) Functional modules and behavior
 
-## 7) Calendar scheduling / driver booking
-- When vehicle is assigned and routing completed, module creates/updates calendar event:
-  - `name = Load #<lead.id>`
-  - start = `departure_time`
-  - stop = last stop ETA
-  - attendees = assigned driver partner
-  - linked to `crm.lead`
-- Overlap check blocks booking when driver already has overlapping event.
+### A) CRM + dispatch orchestration
+- Maintains dispatch stops tied to leads.
+- Computes lead-level totals (distance, load metrics, estimated cost/suggested rate).
+- Supports dynamic service/load type behavior and stop-level product assignment.
 
-## 8) POD document generation
-- On SO confirmation, POD PDF is generated and attached to `sale.order`.
-- POD report includes:
-  - SO number,
-  - PO/BOL/POD,
-  - stop rows with scheduled/ETA,
-  - driver and vehicle.
+### B) Mapbox + ETA estimation
+- Uses geocoding + routing for stop chains including vehicle home base.
+- Stores leg distance/time and map links.
+- Supports ETA sequencing and lead-level aggregate totals.
 
-## 9) Multi-country accounting logic
-- For US customers:
-  - prefers USA company,
-  - USA sales journal,
-  - USD currency.
-- For non-US customers:
-  - prefers Canada company,
-  - Canada sales journal,
-  - CAD currency.
-- Invoice prep mirrors the same company/journal selection intent.
+### C) Pricing engine and rule handling
+- Calculates estimated operating cost and suggested rate.
+- Applies rule-based decision outputs (for example overload rejection paths).
+- Tracks historical pricing artifacts.
 
-## 10) Key dependency modules
-- `crm`
-- `sale_management`
-- `account`
-- `mail`
-- `fleet`
-- `hr`
-- `calendar`
+### D) Sales + accounting handoff
+- Creates Sales Orders directly from CRM lead context.
+- Maps stop data into order lines and pushes discount logic.
+- Extends account move behavior for region/company/journal choices.
 
-## 11) Odoo 18 view type compatibility note
-- Odoo 18 no longer accepts `<tree>` as a view root tag for list views.
-- Use `<list>...</list>` instead.
-- For this module, `premafirm_ai_engine/views/premafirm_load_view.xml` was updated from tree to list view syntax.
-- Team rule: **do not introduce new `<tree>` views**; always define list views with `<list>` in Odoo 18.
+### E) Run planning + booking
+- Dispatch run model supports lifecycle status and metrics.
+- Planner updates run metrics and calendar events.
+- Booking model computes duration and validates scheduling overlap behavior.
 
-## Odoo 18 Report Inheritance Rule
+### F) AI extraction/logging support
+- Provides AI extraction service integration path.
+- Stores AI log records and AI-related helper models.
 
-When inheriting QWeb reports:
+---
 
-DO NOT use class-based XPath expressions such as:
+## 3) Installation and dependencies
 
-    //div[@class='row mt32 mb32']
+Defined in manifest:
+- Required modules: `crm`, `sale_management`, `account`, `mail`, `fleet`, `hr`, `calendar`.
+- Data loaded: security ACL, product seeds, sequence data, CRM/dispatch/sale/account/report views.
 
-Reason:
-- CSS classes change between Odoo versions.
-- Report structure is not guaranteed stable.
-- Causes registry load failures.
-- Breaks module upgrades.
+Install as a standard custom module in Odoo 18 and update apps list.
 
-Instead, always target stable IDs:
+---
 
-Examples:
+## 4) Developer workflow
 
-    //div[@id='informations']
-    //div[@id='total']
-    //div[@id='payment_term']
+### Run Python tests in this repository
+- Root-level unit-style tests:
+  - `pytest tests/test_dispatch_service.py`
+  - `pytest tests/test_booking_requirements.py`
+  - `pytest tests/test_ai_dispatch_requirements.py`
+- Odoo TransactionCase tests are located under `premafirm_ai_engine/tests/` and are intended to run in an Odoo test environment.
 
-ID-based targeting is stable across Odoo 18 updates.
+### Odoo 18 compatibility conventions
+- Use `<list>` for list views (not `<tree>`).
+- Prefer stable ID-based XPath targets in report inheritance.
 
-If unsure:
-1. Open Odoo shell
-2. Inspect parent view:
-       env.ref('sale.report_saleorder_document').arch_db
-3. Verify real structure before writing XPath.
+---
 
-This rule is mandatory for all future report inheritance work.
+## 5) File-by-file reference (what each file is for)
+
+### Root
+- `README.md` — This manual and repository reference.
+- `tests/test_ai_dispatch_requirements.py` — Unit tests for AI/dispatch requirement behavior and helper extraction logic.
+- `tests/test_dispatch_service.py` — Unit tests for dispatch service lead total computations and rule outcomes.
+- `tests/test_booking_requirements.py` — Unit tests for booking onchange/duration logic and lightweight Odoo stubs.
+
+### Module package: `premafirm_ai_engine/`
+- `premafirm_ai_engine/__init__.py` — Initializes module Python packages (`models`, `services`).
+- `premafirm_ai_engine/__manifest__.py` — Odoo addon metadata, dependencies, and loaded XML/CSV data.
+
+### Module tests: `premafirm_ai_engine/tests/`
+- `premafirm_ai_engine/tests/__init__.py` — Registers Odoo test modules.
+- `premafirm_ai_engine/tests/test_run_planner_service.py` — TransactionCase tests for run updates and calendar event creation.
+- `premafirm_ai_engine/tests/test_crm_lead_product_assignment.py` — TransactionCase tests for stop product assignment (FTL/LTL by scenario).
+
+### Models: `premafirm_ai_engine/models/`
+- `models/__init__.py` — Imports model extensions and model-layer service bridge.
+- `models/dispatch_stop.py` — Dispatch stop model (sequence, stop type, scheduling, routing/pallet fields, product/service mapping).
+- `models/dispatch_run.py` — Dispatch run header model (vehicle, run date, status, timing, metrics, calendar link).
+- `models/pricing_history.py` — Persists pricing calculation snapshots/history.
+- `models/crm_lead_extension.py` — Extends `crm.lead` with dispatch, pricing, scheduling, and sales-order orchestration logic.
+- `models/fleet_vehicle_extension.py` — Extends fleet vehicle fields used by routing/service/load planning.
+- `models/sale_order_extension.py` — Extends sales order behavior/fields used by PremaFirm handoff and POD flow.
+- `models/account_move_extension.py` — Extends invoice/account move defaults and regional handling.
+- `models/mail_compose_message.py` — Extends mail compose behavior for load/document communication flows.
+- `models/ai_engine.py` — AI engine model/controller layer for extraction/automation entry points.
+- `models/ai_log.py` — AI logging model for request/response tracking and auditability.
+- `models/premafirm_load.py` — Load-level model for dispatch planning and operational state.
+- `models/premafirm_booking.py` — Booking model for driver/vehicle scheduling and duration calculations.
+- `models/res_partner_extension.py` — Partner/customer extensions used in dispatch/accounting decisions.
+
+### Services: `premafirm_ai_engine/services/`
+- `services/__init__.py` — Service package exports.
+- `services/dispatch_service.py` — Core dispatch totals engine (distance, pallets, weight, cost/rate, decision helpers).
+- `services/crm_dispatch_service.py` — CRM-facing scheduling/ETA/business-rule orchestration.
+- `services/mapbox_service.py` — Geocoding/routing helpers and map link generation using Mapbox APIs.
+- `services/pricing_engine.py` — Pricing calculations and strategy helpers.
+- `services/dispatch_rules_engine.py` — Structured dispatch rule evaluation.
+- `services/ai_extraction_service.py` — AI document/email extraction service logic.
+- `services/run_planner_service.py` — Run planning and run/calendar update routines.
+
+### Security: `premafirm_ai_engine/security/`
+- `security/ir.model.access.csv` — Access control list entries for custom models.
+
+### Data seeds/config: `premafirm_ai_engine/data/`
+- `data/product_data.xml` — Product/service seed data for dispatch billing lines.
+- `data/load_sequence.xml` — Sequence definitions for load/run identifiers.
+- `data/dispatch_rules.yaml` — Human-editable dispatch rule definitions.
+- `data/dispatch_rules.json` — JSON-form dispatch rules (runtime/compatibility source).
+
+### Views/reports: `premafirm_ai_engine/views/`
+- `views/crm_view.xml` — CRM lead UI extensions (dispatch, pricing, actions).
+- `views/dispatch_stop_views.xml` — Dispatch stop list/form views and interactions.
+- `views/sale_order_view.xml` — Sales order UI customizations for PremaFirm workflow.
+- `views/premafirm_load_view.xml` — PremaFirm load model list/form/search views.
+- `views/premafirm_booking_views.xml` — Booking UI views and scheduling interactions.
+- `views/account_move_view.xml` — Invoice/account move UI customizations.
+- `views/report_premafirm_pod.xml` — POD QWeb report template.
+- `views/report_company_header_inherit.xml` — Company header/report inheritance customization.
+
+---
+
+## 6) Suggested maintenance checklist
+
+- Keep tests in `tests/` runnable without full Odoo boot for service/model utility logic.
+- Keep Odoo TransactionCase tests in `premafirm_ai_engine/tests/` for integration behavior.
+- When adding new features, update:
+  1) model/service code,
+  2) view XML,
+  3) security ACL if new model,
+  4) this README file map/manual.

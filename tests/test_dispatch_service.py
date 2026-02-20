@@ -58,3 +58,53 @@ def test_compute_lead_totals_basic():
     assert result["service_type"] == "dry"
     assert result["load_type"] == "FTL"
     assert result["suggested_rate"] > result["estimated_cost"]
+
+
+def test_compute_lead_totals_applies_dispatcher_rules_for_overweight_load():
+    vehicle = SimpleNamespace(
+        home_location="5585 McAdam Rd, Mississauga, ON",
+        service_type="dry",
+        load_type="FTL",
+        payload_limit_lbs=13000,
+        max_pallets=12,
+    )
+    stops = _StopList(
+        [
+            SimpleNamespace(
+                sequence=1,
+                address="Toronto, ON",
+                pallets=8,
+                weight_lbs=10000,
+                service_type=False,
+                load_type=False,
+                stop_type="pickup",
+                country="CA",
+            ),
+            SimpleNamespace(
+                sequence=2,
+                address="Montreal, QC",
+                pallets=8,
+                weight_lbs=7000,
+                service_type=False,
+                load_type=False,
+                stop_type="delivery",
+                country="CA",
+            ),
+        ]
+    )
+
+    lead = SimpleNamespace(
+        dispatch_stop_ids=stops,
+        assigned_vehicle_id=vehicle,
+        total_weight_lbs=17000,
+        total_pallets=16,
+        deadhead_km=20,
+        billing_mode="per_km",
+    )
+    service = DispatchService(env=None)
+
+    result = service.compute_lead_totals(lead)
+
+    assert result["decision"] == "REJECT_OVER_PAYLOAD"
+    assert result["deadhead_km"] == 20.0
+    assert result["total_km"] == 270.0

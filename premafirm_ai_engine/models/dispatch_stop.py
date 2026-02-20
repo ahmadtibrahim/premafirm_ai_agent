@@ -1,5 +1,4 @@
 from odoo import api, fields, models
-from odoo.exceptions import ValidationError
 
 
 class PremafirmDispatchStop(models.Model):
@@ -7,21 +6,23 @@ class PremafirmDispatchStop(models.Model):
     _description = "Premafirm Dispatch Stop"
     _order = "sequence asc, id asc"
 
-    ALLOWED_SERVICE_TEMPLATES = {
-        "FTL Freight Service - Canada",
-        "LTL Freight Service - Canada",
-        "FTL - Freight Service - USA",
-        "LTL - Freight Service - USA",
-        "Liftgate",
-        "Inside Delivery",
-    }
-
     lead_id = fields.Many2one("crm.lead", required=True, ondelete="cascade")
+    sale_order_id = fields.Many2one("sale.order", ondelete="cascade")
     sequence = fields.Integer(default=1)
     name = fields.Char()
 
     stop_type = fields.Selection([("pickup", "Pickup"), ("delivery", "Delivery")], required=True)
     pickup_drop = fields.Selection(related="stop_type", store=True, readonly=False)
+    delivery_status = fields.Selection(
+        [("pending", "Pending"), ("out", "Out for Delivery"), ("delivered", "Delivered")],
+        default="pending",
+    )
+    receiver_signature = fields.Binary()
+    receiver_signed_at = fields.Datetime()
+    no_signature_approved = fields.Boolean(default=False)
+    damage_notes = fields.Text()
+    drop_photo = fields.Binary()
+
     address = fields.Char(required=True)
     address_link_html = fields.Html(compute="_compute_address_link_html", store=True)
     full_address = fields.Char()
@@ -109,11 +110,7 @@ class PremafirmDispatchStop(models.Model):
             elif stop.address:
                 stop.country = "Canada"
 
-    @api.constrains("product_id")
-    def _constrain_allowed_products(self):
-        for stop in self:
-            if not stop.product_id:
-                continue
-            tmpl_name = stop.product_id.product_tmpl_id.name
-            if tmpl_name not in self.ALLOWED_SERVICE_TEMPLATES:
-                raise ValidationError("Service product must be one of the approved freight/accessorial templates.")
+    @api.model
+    def get_structure_type(self, stops):
+        deliveries = stops.filtered(lambda s: s.stop_type == "delivery")
+        return "FTL" if len(deliveries) <= 1 else "LTL"

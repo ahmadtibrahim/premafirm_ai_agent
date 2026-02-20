@@ -226,3 +226,27 @@ def test_ai_override_command_updates_mode_equipment_and_rate():
     assert lead.billing_mode == "flat"
     assert lead.equipment_type == "reefer"
     assert lead.final_rate == 800.0
+
+
+def test_dispatch_rules_json_includes_required_2026_sections():
+    import json
+
+    rules = json.loads((ROOT / "premafirm_ai_engine/data/dispatch_rules.json").read_text())
+    for key in [
+        "routing_engine",
+        "email_intake_engine",
+        "product_selection_engine",
+        "time_window_scheduler",
+        "hos_engine",
+        "weather_integration",
+        "booking_decision_output",
+    ]:
+        assert key in rules
+
+
+def test_dispatch_rules_engine_uses_product_and_accessorial_mapping_from_json():
+    mod = _load_module("dispatch_rules_engine_test", "premafirm_ai_engine/services/dispatch_rules_engine.py")
+    rules = mod.DispatchRulesEngine(env=None)
+    assert rules.select_product("United States", "FTL", "dry") == 266
+    assert rules.select_product("Canada", "LTL", "reefer") == 273
+    assert rules.accessorial_product_ids(liftgate=True, inside_delivery=True) == [269, 270]

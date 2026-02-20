@@ -29,7 +29,11 @@
     "max_pallets": 12,
     "heavy_load_threshold_lbs": 11500,
     "deadhead_reject_percent": 0.4,
-    "deadhead_score_thresholds": [0.15, 0.25, 0.35],
+    "deadhead_score_thresholds": [
+      0.15,
+      0.25,
+      0.35
+    ],
     "deadhead_unpaid_km_limit": 150,
     "overnight_cost_per_night": 130,
     "local_min_profit": 250,
@@ -47,5 +51,33 @@
       "18:30"
     ],
     "traffic_buffer_percent": 0.18
+  },
+  "product_selection_engine": {
+    "mapping_by_customer_country": {
+      "USA": {
+        "FTL": {
+          "Dry": 266,
+          "Reefer": 264
+        },
+        "LTL": {
+          "Dry": 278,
+          "Reefer": 276
+        }
+      },
+      "Canada": {
+        "FTL": {
+          "Dry": 262,
+          "Reefer": 259
+        },
+        "LTL": {
+          "Dry": 274,
+          "Reefer": 273
+        }
+      }
+    },
+    "accessorials": {
+      "Liftgate": 269,
+      "Inside_Delivery": 270
+    }
   }
 }

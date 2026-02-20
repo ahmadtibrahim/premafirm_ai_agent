@@ -26,6 +26,7 @@ class DispatchRulesEngine:
         return self.rules.get(section, default if default is not None else {})
 
     def select_product(self, customer_country, structure, equipment):
+
         mapping = {
             "USA": {
                 "FTL": {"Dry": 266, "Reefer": 264},
@@ -47,3 +48,4 @@ class DispatchRulesEngine:
         if inside_delivery:
             products.append(270)
         return products
+

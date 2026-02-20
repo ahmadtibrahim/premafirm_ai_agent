@@ -17,6 +17,7 @@
         "security/ir.model.access.csv",
         "data/product_data.xml",
         "data/load_sequence.xml",
+        "data/dispatch_rules.json",
         "views/crm_view.xml",
         "views/dispatch_stop_views.xml",
         "views/sale_order_view.xml",

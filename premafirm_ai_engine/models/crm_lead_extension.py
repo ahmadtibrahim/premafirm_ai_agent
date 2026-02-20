@@ -496,7 +496,9 @@ class CrmLead(models.Model):
                 "price_unit": self.final_rate,
             }
         )
+
         for accessorial_id in DispatchRulesEngine.accessorial_product_ids(self.liftgate, self.inside_delivery):
+
             self.env["sale.order.line"].create(
                 {
                     "order_id": order.id,
@@ -520,7 +522,9 @@ class CrmLead(models.Model):
             self.delivery_date = self.pickup_date
         self._assign_stop_products()
         self.selected_service_product_id = self._get_service_product_id()
+
         self.selected_accessorial_product_ids = ",".join(str(x) for x in DispatchRulesEngine.accessorial_product_ids(self.liftgate, self.inside_delivery))
+
         order = self.env["sale.order"].create(self._prepare_order_values())
 
         if self.assigned_vehicle_id and self.dispatch_stop_ids and not self.dispatch_run_id:

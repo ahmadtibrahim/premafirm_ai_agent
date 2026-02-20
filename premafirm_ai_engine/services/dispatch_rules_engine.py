@@ -22,6 +22,12 @@ class DispatchRulesEngine:
     def rules(self):
         return self._cache or {}
 
+    @classmethod
+    def _rules(cls):
+        if cls._cache is None:
+            cls._cache = cls._load_rules()
+        return cls._cache or {}
+
     def get(self, section, default=None):
         return self.rules.get(section, default if default is not None else {})
 
@@ -34,8 +40,9 @@ class DispatchRulesEngine:
         equipment_key = "Reefer" if (equipment or "").strip().lower() == "reefer" else "Dry"
         return structure_map.get(equipment_key)
 
-    def accessorial_product_ids(self, liftgate=False, inside_delivery=False):
-        accessorials = self.get("product_selection_engine", {}).get("accessorials", {})
+    @classmethod
+    def accessorial_product_ids(cls, liftgate=False, inside_delivery=False):
+        accessorials = cls._rules().get("product_selection_engine", {}).get("accessorials", {})
         products = []
         if liftgate:
             product_id = accessorials.get("Liftgate")

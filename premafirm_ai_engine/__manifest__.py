@@ -18,6 +18,7 @@
         "data/product_data.xml",
         "data/load_sequence.xml",
         "views/crm_view.xml",
+        "views/dispatch_stop_views.xml",
         "views/sale_order_view.xml",
         "views/premafirm_load_view.xml",
         "views/premafirm_booking_views.xml",

@@ -1,6 +1,7 @@
 import base64
 
 from odoo import api, fields, models
+from odoo.exceptions import UserError
 
 
 class SaleOrder(models.Model):
@@ -80,6 +81,21 @@ class SaleOrder(models.Model):
                     }
                 )
         return result
+
+
+    def _validate_pod_before_invoice(self):
+        self.ensure_one()
+        stops = self.opportunity_id.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery")
+        for stop in stops:
+            if stop.delivery_status != "delivered":
+                raise UserError("Invoice blocked: all delivery stops must be delivered.")
+            if not stop.receiver_signature and not stop.no_signature_approved:
+                raise UserError("Invoice blocked: delivery signature missing and not approved.")
+
+    def _create_invoices(self, grouped=False, final=False, date=None):
+        for order in self:
+            order._validate_pod_before_invoice()
+        return super()._create_invoices(grouped=grouped, final=final, date=date)
 
     def _prepare_invoice(self):
         vals = super()._prepare_invoice()

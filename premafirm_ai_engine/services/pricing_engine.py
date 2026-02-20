@@ -24,14 +24,34 @@ class PricingEngine:
                 "overload_per_pallet": 12,
             },
             "costing": {
-                "fuel_cost_per_km": 0.55,
-                "maintenance_cost_per_km": 0.2,
-                "insurance_daily": 95,
-                "target_net_profit_per_day": 400,
-                "overhead_daily": 60,
+                "fuel_cost_per_km": 0.5,
+                "maintenance_monthly": 1000,
+                "default_monthly_km": 12000,
+                "safety_cost_per_km": 0.6,
             },
             "traffic_rules": {"traffic_buffer_percent": 0.18},
-            "hos_rules": {"max_drive_hours": 13},
+            "hos_rules": {
+                "canada_max_drive_hours": 13,
+                "cross_border_max_drive_hours": 11,
+                "max_on_duty_hours": 14,
+                "pickup_hours": 1.0,
+                "delivery_hours": 1.0,
+                "extra_stop_hours": 0.75,
+                "cross_border_buffer_hours": 2.0,
+            },
+            "dispatcher_limits": {
+                "max_payload_lbs": 13000,
+                "max_pallets": 12,
+                "heavy_load_threshold_lbs": 11500,
+                "deadhead_reject_percent": 0.4,
+                "deadhead_score_thresholds": [0.15, 0.25, 0.35],
+                "deadhead_unpaid_km_limit": 150,
+                "overnight_cost_per_night": 130,
+                "local_min_profit": 250,
+                "regional_min_profit": 500,
+                "longhaul_min_profit": 1200,
+                "cross_border_min_rate_per_mile": 1.30,
+            },
         }
         try:
             with rules_path.open("r", encoding="utf-8") as rules_file:
@@ -120,70 +140,146 @@ class PricingEngine:
     def calculate_pricing(self, lead):
         pricing_rules = self.rules["pricing"]
         costing_rules = self.rules["costing"]
-        traffic_buffer_percent = float(self.rules.get("traffic_rules", {}).get("traffic_buffer_percent", 0.0))
+        hos_rules = self.rules.get("hos_rules", {})
+        limits = self.rules.get("dispatcher_limits", {})
+
+        dispatch_stops = list(getattr(lead, "dispatch_stop_ids", []) or [])
+        pickup_stops = [s for s in dispatch_stops if getattr(s, "stop_type", "") == "pickup"]
+        delivery_stops = [s for s in dispatch_stops if getattr(s, "stop_type", "") == "delivery"]
+        stop_count = len(dispatch_stops)
+        extra_stops = max(0, stop_count - 2)
+
+        loaded_km = float(getattr(lead, "total_distance_km", 0.0) or 0.0)
+        deadhead_km = float(getattr(lead, "deadhead_km", 0.0) or 0.0)
+        total_km = loaded_km + deadhead_km
+        deadhead_percent = (deadhead_km / loaded_km) if loaded_km > 0 else 0.0
+
+        fuel_cost_per_km = float(costing_rules.get("fuel_cost_per_km", 0.5))
+        maintenance_monthly = float(costing_rules.get("maintenance_monthly", 1000))
+        default_monthly_km = float(costing_rules.get("default_monthly_km", 12000))
+        safety_cost_per_km = float(costing_rules.get("safety_cost_per_km", 0.6))
+        maintenance_cost_per_km = maintenance_monthly / default_monthly_km if default_monthly_km else 0.0
+        true_cost_per_km = max(fuel_cost_per_km + maintenance_cost_per_km, safety_cost_per_km)
+        base_cost = total_km * true_cost_per_km
+
+        vehicle = getattr(lead, "assigned_vehicle_id", None)
+        max_payload_lbs = float(getattr(vehicle, "payload_limit_lbs", 0.0) or limits.get("max_payload_lbs", 13000))
+        max_pallets = int(getattr(vehicle, "max_pallets", 0) or limits.get("max_pallets", 12))
+        heavy_load_threshold_lbs = float(limits.get("heavy_load_threshold_lbs", 11500))
+        load_weight_lbs = float(getattr(lead, "total_weight_lbs", 0.0) or 0.0)
+        pallet_count = int(getattr(lead, "total_pallets", 0) or 0)
+        heavy_load_flag = load_weight_lbs >= heavy_load_threshold_lbs
+
+        cross_border = any((getattr(s, "country", "") or "").upper() in {"US", "USA", "UNITED STATES"} for s in dispatch_stops)
+        drive_hours = total_km / 85.0 if total_km else 0.0
+        non_drive_time = float(hos_rules.get("pickup_hours", 1.0)) + float(hos_rules.get("delivery_hours", 1.0))
+        non_drive_time += float(hos_rules.get("extra_stop_hours", 0.75)) * extra_stops
+        if cross_border:
+            max_drive_hours = float(hos_rules.get("cross_border_max_drive_hours", 11))
+            non_drive_time += float(hos_rules.get("cross_border_buffer_hours", 2.0))
+        else:
+            max_drive_hours = float(hos_rules.get("canada_max_drive_hours", 13))
+        total_on_duty = drive_hours + non_drive_time
+        max_on_duty_hours = float(hos_rules.get("max_on_duty_hours", 14))
+        overnight_required = drive_hours > max_drive_hours or total_on_duty > max_on_duty_hours
+        nights_required = int(drive_hours // max_drive_hours) if max_drive_hours else 0
+        overnight_cost = nights_required * float(limits.get("overnight_cost_per_night", 130))
 
         product_category = self._resolve_product_category_key(lead)
-        base_rate = self._resolve_base_rate(pricing_rules, product_category)
+        base_rate_per_km = self._resolve_base_rate(pricing_rules, product_category)
+        pricing_model = (getattr(lead, "billing_mode", "per_km") or "per_km").upper()
+        flat_rate = float(getattr(lead, "final_rate", 0.0) or getattr(lead, "suggested_rate", 0.0) or 0.0)
+        rate_per_km = flat_rate if pricing_model == "PER_KM" and flat_rate else base_rate_per_km
 
-        buffered_distance = float(lead.total_distance_km or 0.0) * (1.0 + traffic_buffer_percent)
-        base_price = buffered_distance * base_rate
-        base_price = max(base_price, pricing_rules["min_load_charge"])
+        if pricing_model == "FLAT":
+            gross_revenue = flat_rate or max(loaded_km * base_rate_per_km, pricing_rules["min_load_charge"])
+        elif pricing_model == "PER_STOP":
+            gross_revenue = float(pricing_rules.get("min_load_charge", 450)) + (float(pricing_rules.get("extra_stop_fee", 75)) * stop_count)
+        else:
+            gross_revenue = loaded_km * rate_per_km
 
-        operating_cost = (
-            (costing_rules["fuel_cost_per_km"] + costing_rules["maintenance_cost_per_km"]) * buffered_distance
-            + costing_rules["insurance_daily"]
-            + costing_rules["overhead_daily"]
-        )
+        loaded_miles = loaded_km * 0.621371
+        rate_per_mile = rate_per_km / 1.60934 if rate_per_km else 0.0
+        if cross_border:
+            gross_revenue = loaded_miles * rate_per_mile
 
-        pickup_stops = len([s for s in lead.dispatch_stop_ids if s.stop_type == "pickup"])
-        delivery_stops = len([s for s in lead.dispatch_stop_ids if s.stop_type == "delivery"])
-        extra_stop_count = max(0, pickup_stops + delivery_stops - 2)
-        if extra_stop_count:
-            base_price += extra_stop_count * pricing_rules["extra_stop_fee"]
+        detention_hours = float(getattr(lead, "detention_hours", 0.0) or (1.0 if getattr(lead, "detention_requested", False) else 0.0))
+        free_hours_per_stop = 2.0
+        detention_rate_per_hour = float(pricing_rules.get("detention_per_hour", 75))
+        detention_cost = max(0.0, detention_hours - free_hours_per_stop) * detention_rate_per_hour
+        net_profit = gross_revenue - base_cost - overnight_cost - detention_cost
 
-        if (lead.total_pallets or 0) > 12:
-            base_price += (lead.total_pallets - 12) * pricing_rules["overload_per_pallet"]
+        zone = getattr(lead, "zone", False)
+        if not zone:
+            zone = "CROSS_BORDER" if cross_border else "GTA" if loaded_km <= 120 else "REGIONAL" if loaded_km <= 700 else "CROSS_COUNTRY"
 
-        if lead.liftgate:
-            base_price += pricing_rules["liftgate_fee"]
-        if lead.inside_delivery:
-            base_price += pricing_rules["inside_delivery_fee"]
-        if lead.detention_requested:
-            base_price += pricing_rules["detention_per_hour"]
+        decision = None
+        if load_weight_lbs > max_payload_lbs:
+            decision = "REJECT_OVER_PAYLOAD"
+        elif pallet_count > max_pallets:
+            decision = "REJECT_OVER_PALLETS"
+        elif deadhead_percent > float(limits.get("deadhead_reject_percent", 0.4)):
+            decision = "REJECT_HIGH_DEADHEAD"
+        elif deadhead_km > float(limits.get("deadhead_unpaid_km_limit", 150)) and bool(getattr(lead, "unpaid_deadhead", False)):
+            decision = "REJECT_UNPAID_RETURN"
+        elif net_profit < 0:
+            decision = "REJECT_LOSS"
+        elif zone == "GTA" and net_profit < float(limits.get("local_min_profit", 250)):
+            decision = "REJECT_LOW_LOCAL"
+        elif zone == "REGIONAL" and net_profit < float(limits.get("regional_min_profit", 500)):
+            decision = "REJECT_LOW_REGIONAL"
+        elif zone == "CROSS_COUNTRY" and net_profit < float(limits.get("longhaul_min_profit", 1200)):
+            decision = "REJECT_LOW_LONGHAUL"
+        elif zone == "CROSS_BORDER" and rate_per_mile < float(limits.get("cross_border_min_rate_per_mile", 1.3)):
+            decision = "REJECT_LOW_RATE"
 
-        target_profit = costing_rules["target_net_profit_per_day"]
-        if base_price - operating_cost < target_profit:
-            base_price = operating_cost + target_profit
+        score = 100
+        if zone == "GTA" and rate_per_km < 1.55:
+            score -= 25
+        if deadhead_percent > 0.35:
+            score -= 25
+        elif deadhead_percent > 0.25:
+            score -= 15
+        elif deadhead_percent > 0.15:
+            score -= 5
+        if overnight_required:
+            score -= 15
+        if heavy_load_flag:
+            score -= 10
+        if stop_count > 5:
+            score -= 10
+        if net_profit > 1000:
+            score += 5
+        elif net_profit < 400:
+            score -= 20
 
-        history_rate = self._history_rate_adjustment(lead)
-        if history_rate:
-            # Blend AI/rule output with accepted historical pricing for consistency.
-            base_price = (base_price * 0.35) + (history_rate * 0.65)
+        if not decision:
+            decision = "ACCEPT" if score >= 75 else "REVIEW" if score >= 60 else "REJECT"
 
-        suggested_rate = round(base_price, 0)
-        estimated_cost = round(operating_cost, 0)
-
-        hos_limit = float(self.rules.get("hos_rules", {}).get("max_drive_hours", 13))
-        warnings = []
-        if float(lead.total_drive_hours or 0.0) > hos_limit:
-            warnings.append(
-                f"Estimated drive time {lead.total_drive_hours:.2f}h exceeds {hos_limit:.0f}h HOS limit; consider team or relay planning."
-            )
+        target_min_profit = float(limits.get("regional_min_profit", 500)) if zone != "GTA" else float(limits.get("local_min_profit", 250))
+        suggested_rate = round(max(gross_revenue, base_cost + overnight_cost + detention_cost + target_min_profit), 0)
+        estimated_cost = round(base_cost + overnight_cost + detention_cost, 0)
 
         recommendation = (
-            f"Distance {lead.total_distance_km:.1f} km (+{traffic_buffer_percent*100:.0f}% traffic buffer -> {buffered_distance:.1f} km). "
-            f"Estimated drive {lead.total_drive_hours:.2f} hrs. Estimated operating cost ${estimated_cost:.0f}. "
-            f"Recommended sell rate ${suggested_rate:.0f} to protect minimum ${target_profit:.0f} daily net target."
+            f"Start-to-load deadhead {deadhead_km:.1f} km, loaded {loaded_km:.1f} km (total {total_km:.1f} km). "
+            f"Gross ${gross_revenue:.0f}, cost ${estimated_cost:.0f}, net ${net_profit:.0f}. "
+            f"Score {score} => {decision}."
         )
-        if history_rate:
-            recommendation += f" Historical average for similar customer/route: ${history_rate:.0f}."
-        if warnings:
-            recommendation += " " + " ".join(warnings)
 
         return {
             "estimated_cost": estimated_cost,
             "suggested_rate": suggested_rate,
             "recommendation": recommendation,
-            "warnings": warnings,
+            "warnings": [],
             "service_type": product_category,
+            "start_location": getattr(vehicle, "home_location", False) if vehicle else getattr(lead, "manual_origin", False),
+            "deadhead_km": round(deadhead_km, 2),
+            "total_km": round(total_km, 2),
+            "gross_revenue": round(gross_revenue, 2),
+            "base_cost": round(base_cost, 2),
+            "overnight_cost": round(overnight_cost, 2),
+            "detention_cost": round(detention_cost, 2),
+            "NET_profit": round(net_profit, 2),
+            "score": score,
+            "decision": decision,
         }

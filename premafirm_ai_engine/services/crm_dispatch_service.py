@@ -327,7 +327,10 @@ class CRMDispatchService:
                 "booking_hos_status": "near limit" if (lead.total_drive_hours or 0.0) >= 10.5 else "ok",
                 "recommended_schedule": "auto-generated",
                 "selected_service_product_id": lead.product_id.id if lead.product_id else False,
-                "selected_accessorial_product_ids": ",".join(str(x) for x in DispatchRulesEngine.accessorial_product_ids(lead.liftgate, lead.inside_delivery)),
+                "selected_accessorial_product_ids": ",".join(
+                    str(x)
+                    for x in DispatchRulesEngine(self.env).accessorial_product_ids(lead.liftgate, lead.inside_delivery)
+                ),
             }
         )
         return {"warnings": warnings, "pricing": pricing_result}

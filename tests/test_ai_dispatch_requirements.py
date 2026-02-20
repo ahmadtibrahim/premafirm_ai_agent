@@ -250,3 +250,8 @@ def test_dispatch_rules_engine_uses_product_and_accessorial_mapping_from_json():
     assert rules.select_product("United States", "FTL", "dry") == 266
     assert rules.select_product("Canada", "LTL", "reefer") == 273
     assert rules.accessorial_product_ids(liftgate=True, inside_delivery=True) == [269, 270]
+
+
+def test_dispatch_rules_engine_accessorial_lookup_supports_class_invocation():
+    mod = _load_module("dispatch_rules_engine_test_class_call", "premafirm_ai_engine/services/dispatch_rules_engine.py")
+    assert mod.DispatchRulesEngine.accessorial_product_ids(liftgate=True, inside_delivery=True) == [269, 270]

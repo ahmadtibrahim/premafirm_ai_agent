@@ -9,8 +9,7 @@ class DispatchRulesEngine:
 
     def __init__(self, env=None):
         self.env = env
-        if DispatchRulesEngine._cache is None:
-            DispatchRulesEngine._cache = self._load_rules()
+        DispatchRulesEngine._ensure_cache()
 
     @classmethod
     def _load_rules(cls):
@@ -18,9 +17,19 @@ class DispatchRulesEngine:
         with rules_path.open("r", encoding="utf-8") as fh:
             return json.load(fh)
 
+    @classmethod
+    def _ensure_cache(cls):
+        if cls._cache is None:
+            cls._cache = cls._load_rules()
+
+    @classmethod
+    def _rules_dict(cls):
+        cls._ensure_cache()
+        return cls._cache or {}
+
     @property
     def rules(self):
-        return self._cache or {}
+        return self._rules_dict()
 
     def get(self, section, default=None):
         return self.rules.get(section, default if default is not None else {})
@@ -34,8 +43,9 @@ class DispatchRulesEngine:
         equipment_key = "Reefer" if (equipment or "").strip().lower() == "reefer" else "Dry"
         return structure_map.get(equipment_key)
 
-    def accessorial_product_ids(self, liftgate=False, inside_delivery=False):
-        accessorials = self.get("product_selection_engine", {}).get("accessorials", {})
+    @classmethod
+    def accessorial_product_ids(cls, liftgate=False, inside_delivery=False):
+        accessorials = cls._rules_dict().get("product_selection_engine", {}).get("accessorials", {})
         products = []
         if liftgate:
             product_id = accessorials.get("Liftgate")

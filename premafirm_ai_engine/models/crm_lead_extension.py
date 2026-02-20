@@ -7,6 +7,16 @@ from zoneinfo import ZoneInfo
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 
+try:
+    from ..services.dispatch_rules_engine import DispatchRulesEngine
+except Exception:
+    from importlib.util import module_from_spec, spec_from_file_location
+    from pathlib import Path
+    _module_path = Path(__file__).resolve().parents[1] / "services" / "dispatch_rules_engine.py"
+    _spec = spec_from_file_location("dispatch_rules_engine", _module_path)
+    _module = module_from_spec(_spec)
+    _spec.loader.exec_module(_module)
+    DispatchRulesEngine = _module.DispatchRulesEngine
 
 
 class CrmLead(models.Model):
@@ -71,8 +81,6 @@ class CrmLead(models.Model):
         default="flat",
         required=True,
     )
-    equipment_type = fields.Selection([("dry", "Dry"), ("reefer", "Reefer")], default="dry")
-    service_type = fields.Selection([("ftl", "FTL"), ("ltl", "LTL")], default="ftl")
     ai_override_command = fields.Text()
     ai_locked = fields.Boolean(default=False)
     load_status = fields.Selection(
@@ -106,6 +114,13 @@ class CrmLead(models.Model):
     schedule_locked = fields.Boolean(default=False)
     schedule_conflict = fields.Boolean(default=False)
     ai_optimization_suggestion = fields.Text()
+
+    recommended_schedule = fields.Text()
+    booking_hos_status = fields.Text()
+    weather_risk = fields.Selection([("low", "LOW"), ("moderate", "MODERATE"), ("high", "HIGH"), ("severe", "SEVERE")])
+    profit_estimate = fields.Float()
+    selected_service_product_id = fields.Integer()
+    selected_accessorial_product_ids = fields.Char()
 
 
     @api.depends("suggested_rate", "final_rate")
@@ -171,32 +186,46 @@ class CrmLead(models.Model):
         address = (stop.address or "").upper()
         return "USA" in address or "UNITED STATES" in address or ", US" in address
 
-    def _get_service_product(self):
+    def get_home_base(self):
         self.ensure_one()
-        country_code = (self.partner_id.country_id.code or "").upper()
-        region = "usa" if country_code == "US" else "canada"
-        service_label = "FTL" if (self.service_type or "ftl") == "ftl" else "LTL"
-        region_label = "USA" if region == "usa" else "Canada"
-        equipment = (self.equipment_type or "dry").lower()
+        company = self.env.company
+        return company.partner_id
 
-        template = self.env["product.template"].search(
-            [
-                ("name", "ilike", service_label),
-                ("name", "ilike", "Freight Service"),
-                ("name", "ilike", region_label),
-            ],
-            limit=1,
-        )
-        if not template:
-            template = self.env["product.template"].search([("name", "ilike", "Freight Service")], limit=1)
-        if not template:
-            return False
+    def _get_leave_yard_field_name(self):
+        self.ensure_one()
+        if "x_leave_yard_at" in self._fields:
+            return "x_leave_yard_at"
+        if "leave_yard_at" in self._fields:
+            return "leave_yard_at"
+        return False
 
-        if equipment == "reefer":
-            reefer_variant = template.product_variant_ids.filtered(lambda p: "reefer" in (p.display_name or "").lower())[:1]
-            if reefer_variant:
-                return reefer_variant
-        return template.product_variant_id
+    def _resolve_equipment(self):
+        self.ensure_one()
+        if self.reefer_required:
+            return "Reefer"
+        return "Dry"
+
+    def _resolve_structure(self):
+        self.ensure_one()
+        multiple_bol = bool(self.bol_number and "," in self.bol_number)
+        if multiple_bol:
+            return "LTL"
+        if self.billing_mode == "per_stop":
+            return "LTL"
+        pallets = int(self.total_pallets or 0)
+        delivery_stops = len(self.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery"))
+        dedicated_truck = bool(self.assigned_vehicle_id)
+        if pallets >= 8 and dedicated_truck:
+            return "FTL"
+        if pallets < 8 and delivery_stops > 1:
+            return "LTL"
+        return "FTL"
+
+    def _get_service_product_id(self):
+        self.ensure_one()
+        rules = DispatchRulesEngine(self.env)
+        customer_country = (self.partner_id.country_id.name or "") if self.partner_id and self.partner_id.country_id else ""
+        return rules.select_product(customer_country, self._resolve_structure(), self._resolve_equipment())
 
     def _create_ai_log(self, user_modified=False):
         self.ensure_one()
@@ -267,7 +296,7 @@ class CrmLead(models.Model):
 
             bullets = [
                 f"• Billing mode: {lead.billing_mode}",
-                f"• Service type: {lead.service_type.upper()} | Equipment: {lead.equipment_type.upper()}",
+                f"• Structure: {lead._resolve_structure()} | Equipment: {lead._resolve_equipment().upper()}",
                 f"• Total distance: {total_km:.2f} km",
                 f"• Final rate basis: {rate:.2f}",
             ]
@@ -311,8 +340,10 @@ class CrmLead(models.Model):
 
             if "reefer" in lowered:
                 vals["equipment_type"] = "reefer"
+                vals["reefer_required"] = True
             elif "dry" in lowered:
                 vals["equipment_type"] = "dry"
+                vals["reefer_required"] = False
 
             if "usa" in lowered:
                 country = lead.env.ref("base.us", raise_if_not_found=False)
@@ -335,11 +366,10 @@ class CrmLead(models.Model):
         for lead in self:
             if lead.ai_locked:
                 continue
+            lead.dispatch_stop_ids.unlink()
             lead.write(
                 {
                     "billing_mode": "flat",
-                    "service_type": "ftl",
-                    "equipment_type": "dry",
                     "final_rate": 0.0,
                     "ai_override_command": False,
                     "ai_internal_summary": False,
@@ -368,8 +398,9 @@ class CrmLead(models.Model):
             if (lead.final_rate or 0.0) < 0.0:
                 raise UserError("Final rate cannot be negative.")
 
-    def _default_pickup_datetime_toronto(self):
-        tz = ZoneInfo("America/Toronto")
+    def _default_pickup_datetime_company_tz(self):
+        tz_name = self.env.user.tz or self.env.company.partner_id.tz or "UTC"
+        tz = ZoneInfo(tz_name)
         now_utc = fields.Datetime.now()
         if getattr(now_utc, "tzinfo", None) is None:
             now_utc = now_utc.replace(tzinfo=ZoneInfo("UTC"))
@@ -381,84 +412,43 @@ class CrmLead(models.Model):
 
     def classify_load(self, email_text=None, extracted_data=None):
         data = extracted_data or {}
-        pickups = int(data.get("pickup_locations_count") or 0)
-        deliveries = int(data.get("delivery_locations_count") or 0)
-        additional_stops = bool(data.get("additional_stops_planned"))
-        combining = bool(data.get("combining_multiple_customers"))
-        multiple_bols = bool(data.get("multiple_bols_detected"))
-        exclusive = bool(data.get("exclusive_language_detected"))
-        appointment = bool(data.get("appointment_constraints_present"))
-        is_same_day = bool(data.get("is_same_day"))
-        multi_pick = pickups > 1
-        multi_drop = deliveries > 1
-        consolidation = combining or (multiple_bols and multi_pick)
+        multiple_bol = bool(data.get("multiple_bol", False))
+        rate_type = data.get("rate_type") or self.billing_mode
+        pallet_count = int(data.get("pallet_count") or self.total_pallets or 0)
+        inferred_stops = int(data.get("delivery_locations_count") or 0)
+        if not inferred_stops and getattr(self, "dispatch_stop_ids", None):
+            inferred_stops = len(self.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery"))
+        number_of_stops = int(data.get("number_of_stops") or inferred_stops)
+        dedicated_truck = bool(data.get("dedicated_truck", self.assigned_vehicle_id))
+        if data.get("additional_stops_planned"):
+            return {"classification": "LTL", "confidence": "HIGH"}
 
-        reasoning = []
-        confidence = "MEDIUM"
-        if exclusive:
-            classification = "ftl"
-            confidence = "HIGH"
-            reasoning.append("Exclusive-use language detected")
-        elif pickups == 1 and deliveries == 1 and not additional_stops and not consolidation:
-            classification = "ftl"
-            confidence = "HIGH"
-            reasoning.append("Single pickup and delivery without consolidation")
-        elif multi_pick or multi_drop or consolidation or combining or additional_stops:
-            classification = "ltl"
-            confidence = "HIGH"
-            reasoning.append("Multi-stop or consolidation pattern detected")
-        elif appointment and is_same_day and not additional_stops:
-            classification = "ftl"
-            confidence = "MEDIUM"
-            reasoning.append("Same-day appointment-constrained lane")
+        if multiple_bol is True:
+            classification = "LTL"
+        elif rate_type == "per_stop":
+            classification = "LTL"
+        elif pallet_count >= 8 and dedicated_truck is True:
+            classification = "FTL"
+        elif pallet_count < 8 and number_of_stops > 1:
+            classification = "LTL"
         else:
-            classification = "ftl"
-            confidence = "MEDIUM"
-            reasoning.append("Defaulted to FTL due to limited constraints")
+            classification = "FTL"
 
-        return {
-            "classification": classification.upper(),
-            "confidence": confidence,
-            "reasoning": reasoning,
-            "route_structure": {
-                "pickup_count": pickups,
-                "delivery_count": deliveries,
-                "consolidated": consolidation,
-                "exclusive_detected": exclusive,
-            },
-        }
+        return {"classification": classification, "confidence": "HIGH" if classification == "LTL" else "MEDIUM"}
 
     def _assign_stop_products(self):
         for lead in self:
             stops = lead.dispatch_stop_ids.sorted("sequence")
             if not stops:
                 continue
-
-            pickup_count = len(stops.filtered(lambda s: s.stop_type == "pickup"))
-            delivery_count = len(stops.filtered(lambda s: s.stop_type == "delivery"))
-            classification = lead.classify_load(
-                extracted_data={
-                    "pickup_locations_count": pickup_count,
-                    "delivery_locations_count": delivery_count,
-                    "additional_stops_planned": len(stops) > 2,
-                }
-            )
-            is_ftl = classification["classification"] == "FTL"
-            lead.ai_classification = "ftl" if is_ftl else "ltl"
-            max_capacity = (lead.assigned_vehicle_id.payload_capacity_lbs if lead.assigned_vehicle_id else 40000.0) or 40000.0
-            if not is_ftl and sum(stops.mapped("weight_lbs")) > max_capacity:
-                raise UserError("LTL consolidation exceeds vehicle payload capacity.")
-
+            product_id = lead._get_service_product_id()
+            structure = lead._resolve_structure()
+            lead.ai_classification = "ftl" if structure == "FTL" else "ltl"
             for stop in stops:
-                stop.is_ftl = bool(is_ftl)
-                product = lead._get_service_product()
-                if product:
-                    stop.product_id = product.id
-                    stop.freight_product_id = product.id
-
-            first_product = stops[:1].product_id
-            if first_product:
-                lead.product_id = first_product.id
+                stop.is_ftl = structure == "FTL"
+                stop.product_id = product_id
+                stop.freight_product_id = product_id
+            lead.product_id = product_id
 
     def _prepare_order_values(self):
         self.ensure_one()
@@ -496,47 +486,25 @@ class CrmLead(models.Model):
         return order_vals
 
     def _create_order_lines(self, order):
-        pricing_payload = []
-        if self.pricing_payload_json:
-            pricing_payload = json.loads(self.pricing_payload_json)
-        payload_by_stop = {item.get("stop_id"): item for item in pricing_payload}
-        base_rate = self.final_rate or self.suggested_rate or 0.0
-        stops = self.dispatch_stop_ids.sorted("sequence")
-        rate_per_stop = base_rate / len(stops) if stops else 0.0
-        for stop in stops:
-            product = stop.product_id or stop.freight_product_id
-            if not product:
-                raise UserError("Each stop requires a service product.")
-            payload_line = payload_by_stop.get(stop.id, {})
-            segment_rate = payload_line.get("segment_rate", rate_per_stop)
+        self.ensure_one()
+        product_id = self._get_service_product_id()
+        self.env["sale.order.line"].create(
+            {
+                "order_id": order.id,
+                "product_id": product_id,
+                "product_uom_qty": 1,
+                "price_unit": self.final_rate,
+            }
+        )
+        for accessorial_id in DispatchRulesEngine.accessorial_product_ids(self.liftgate, self.inside_delivery):
             self.env["sale.order.line"].create(
                 {
                     "order_id": order.id,
-                    "product_id": product.id,
-                    "name": stop.address or product.display_name,
+                    "product_id": accessorial_id,
                     "product_uom_qty": 1,
-                    "price_unit": max(segment_rate, 0.0),
-                    "discount": self.discount_percent or 0.0,
-                    "scheduled_date": stop.scheduled_datetime,
-                    "stop_type": stop.stop_type,
-                    "stop_address": stop.address,
-                    "stop_map_url": stop.map_url,
-                    "eta_datetime": stop.estimated_arrival,
-                    "stop_distance_km": stop.distance_km,
-                    "stop_drive_hours": stop.drive_hours,
+                    "price_unit": 0.0,
                 }
             )
-
-        if self.liftgate:
-            liftgate_tmpl = self.env.ref("premafirm_ai_engine.product_liftgate", raise_if_not_found=False)
-            liftgate_product = liftgate_tmpl.product_variant_id if liftgate_tmpl else False
-            if liftgate_product:
-                self.env["sale.order.line"].create({"order_id": order.id, "product_id": liftgate_product.id, "name": "Liftgate", "product_uom_qty": 1, "price_unit": liftgate_product.list_price})
-        if self.inside_delivery:
-            inside_tmpl = self.env.ref("premafirm_ai_engine.product_inside_delivery", raise_if_not_found=False)
-            inside_product = inside_tmpl.product_variant_id if inside_tmpl else False
-            if inside_product:
-                self.env["sale.order.line"].create({"order_id": order.id, "product_id": inside_product.id, "name": "Inside Delivery", "product_uom_qty": 1, "price_unit": inside_product.list_price})
 
     def action_create_sales_order(self):
         self.ensure_one()
@@ -547,11 +515,12 @@ class CrmLead(models.Model):
             raise UserError("Add dispatch stops before creating a sales order.")
 
         if not self.pickup_date:
-            self.pickup_date = fields.Date.to_date(self._default_pickup_datetime_toronto())
+            self.pickup_date = fields.Date.to_date(self._default_pickup_datetime_company_tz())
         if not self.delivery_date:
             self.delivery_date = self.pickup_date
         self._assign_stop_products()
-        self.compute_pricing()
+        self.selected_service_product_id = self._get_service_product_id()
+        self.selected_accessorial_product_ids = ",".join(str(x) for x in DispatchRulesEngine.accessorial_product_ids(self.liftgate, self.inside_delivery))
         order = self.env["sale.order"].create(self._prepare_order_values())
 
         if self.assigned_vehicle_id and self.dispatch_stop_ids and not self.dispatch_run_id:

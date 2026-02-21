@@ -202,19 +202,9 @@ class CRMDispatchService:
         lead.schedule_conflict = bool(run.calendar_event_id and run.calendar_event_id.start and run.calendar_event_id.stop and (run.calendar_event_id.start < last_eta and run.calendar_event_id.stop > lead.departure_time))
 
     def _apply_routes(self, lead):
-        warnings = []
-        ordered_stops = lead.dispatch_stop_ids.sorted("sequence")
-        if not ordered_stops:
-            return warnings
-        origin = lead.assigned_vehicle_id.home_location if lead.assigned_vehicle_id else None
-        segments = self.mapbox_service.calculate_trip_segments(ordered_stops, origin_address=origin)
-        leave_yard_at, total_distance, total_hours = self._compute_stop_schedule(ordered_stops, segments)
-        lead.write({"departure_time": leave_yard_at, "total_distance_km": total_distance, "total_drive_hours": total_hours})
+        lead.with_context(skip_schedule_recompute=True)._compute_schedule()
         self._create_calendar_booking(lead)
-        for segment in segments:
-            if segment.get("warning"):
-                warnings.append(segment["warning"])
-        return warnings
+        return [lead.schedule_api_warning] if lead.schedule_api_warning else []
 
     def _extract_po_details(self, email_text):
         text = email_text or ""

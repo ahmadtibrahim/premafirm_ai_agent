@@ -133,8 +133,17 @@ class MapboxService:
 
         distance_km = float(sum(float(leg.get("distance") or 0.0) for leg in legs)) / 1000.0
         drive_hours = float(sum(float(leg.get("duration") or 0.0) for leg in legs)) / 3600.0
-        drive_hours *= 1.2
         return {"distance_km": distance_km, "drive_hours": drive_hours, "map_url": map_url}
+
+
+    def get_travel_time(self, origin, destination):
+        route = self.get_route(origin, destination)
+        return {
+            "distance_km": float(route.get("distance_km") or 0.0),
+            "drive_minutes": float(route.get("drive_hours") or 0.0) * 60.0,
+            "map_url": route.get("map_url"),
+            "warning": route.get("warning"),
+        }
 
     def calculate_trip_segments(self, stops, origin_address=None):
         origin_address = self._normalize_address(origin_address) or self.ORIGIN_YARD
@@ -193,8 +202,6 @@ class MapboxService:
                 map_url = self._google_maps_url(origin, destination)
 
             drive_hours = float(leg.get("duration") or 0.0) / 3600.0
-            if drive_hours:
-                drive_hours *= 1.2
 
             warning = point.get("warning")
             if not leg and not warning:

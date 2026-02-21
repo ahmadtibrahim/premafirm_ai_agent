@@ -7,9 +7,10 @@ class PremafirmDispatchStop(models.Model):
     _order = "sequence asc, id asc"
 
     lead_id = fields.Many2one("crm.lead", required=True, ondelete="cascade")
+    load_id = fields.Many2one("premafirm.load", index=True)
     sale_order_id = fields.Many2one("sale.order", ondelete="cascade")
     sequence = fields.Integer(default=1)
-    load_number = fields.Integer(compute="_compute_load_number", store=True, readonly=False, default=1)
+    load_number = fields.Char(compute="_compute_load_number", store=True, readonly=False)
     name = fields.Char()
 
     stop_type = fields.Selection([("pickup", "Pickup"), ("delivery", "Delivery")], required=True)
@@ -102,32 +103,51 @@ class PremafirmDispatchStop(models.Model):
         for stop in self:
             stop.cargo_delta = 1 if stop.stop_type == "pickup" else -1
 
-    @api.depends(
-        "sequence",
-        "stop_type",
-        "lead_id",
-        "lead_id.dispatch_stop_ids.sequence",
-        "lead_id.dispatch_stop_ids.stop_type",
-    )
+    @api.depends("load_id", "load_id.name")
     def _compute_load_number(self):
         for stop in self:
+            stop.load_number = stop.load_id.name if stop.load_id else False
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super().create(vals_list)
+        for stop in records:
+            if stop.lead_id and not stop.load_id:
+                stop._assign_default_load()
+        return records
+
+    def write(self, vals):
+        old_loads = {stop.id: stop.load_id.id for stop in self}
+        result = super().write(vals)
+        if "load_id" in vals:
+            correction_model = self.env["premafirm.ai.correction"]
+            for stop in self:
+                old_load_id = old_loads.get(stop.id)
+                new_load_id = stop.load_id.id
+                if old_load_id != new_load_id:
+                    correction_model.create(
+                        {
+                            "lead_id": stop.lead_id.id,
+                            "stop_id": stop.id,
+                            "old_load_id": old_load_id,
+                            "new_load_id": new_load_id,
+                        }
+                    )
+        return result
+
+    def _assign_default_load(self):
+        for stop in self:
             if not stop.lead_id:
-                stop.load_number = 1
                 continue
-
-            current_load = 0
-            assigned_load = 1
-            ordered_stops = stop.lead_id.dispatch_stop_ids.sorted(lambda s: (s.sequence, s.id))
-            for ordered_stop in ordered_stops:
-                if ordered_stop.stop_type == "pickup":
-                    current_load += 1
-                if current_load == 0:
-                    current_load = 1
-                if ordered_stop.id == stop.id:
-                    assigned_load = current_load
-                    break
-
-            stop.load_number = assigned_load
+            if stop.load_id:
+                continue
+            ordered = stop.lead_id.dispatch_stop_ids.sorted(lambda s: (s.sequence, s.id))
+            current_load = self.env["premafirm.load"]
+            for current_stop in ordered:
+                if current_stop.stop_type == "pickup" or not current_load:
+                    current_load = self.env["premafirm.load"].create({"lead_id": stop.lead_id.id})
+                if not current_stop.load_id:
+                    current_stop.load_id = current_load
 
     @api.onchange("address")
     def _onchange_address_country(self):

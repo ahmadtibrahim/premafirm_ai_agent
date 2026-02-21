@@ -11,6 +11,8 @@ class PremafirmDispatchStop(models.Model):
     sale_order_id = fields.Many2one("sale.order", ondelete="cascade")
     sequence = fields.Integer(default=1)
     load_number = fields.Char(compute="_compute_load_number", store=True, readonly=False)
+    load_key = fields.Char(index=True)
+    extracted_load_name = fields.Char()
     name = fields.Char()
 
     stop_type = fields.Selection([("pickup", "Pickup"), ("delivery", "Delivery")], required=True)

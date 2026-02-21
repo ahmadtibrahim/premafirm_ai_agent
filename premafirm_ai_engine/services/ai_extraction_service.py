@@ -45,9 +45,36 @@ class AIExtractionService:
     def _contains_reefer_terms(self, text):
         return bool(re.search(r"reefer|refrigerated|frozen|temperature|temp\s*controlled", text or "", re.I))
 
+    def _normalize_load_label(self, marker, fallback_index):
+        marker = marker or ""
+        match = re.search(r"(\d+)", marker)
+        if match:
+            return f"LOAD #{int(match.group(1))}"
+        return f"LOAD #{fallback_index}"
+
+    def _extract_load_markers(self, text):
+        pattern = re.compile(r"(?im)^\s*(LOAD\s*#\s*\d+|LOAD\s*\d+|LOAD\s*NO\.?\s*\d+)\b")
+        return list(pattern.finditer(text or ""))
+
     def _load_sections(self, text):
-        sections = re.split(r"(?=\bLOAD\s*#)", text or "", flags=re.I)
-        return [s.strip() for s in sections if re.search(r"\bLOAD\s*#", s, re.I)]
+        raw = text or ""
+        markers = self._extract_load_markers(raw)
+        if not markers:
+            return []
+
+        sections = []
+        for idx, marker in enumerate(markers, 1):
+            start = marker.start()
+            end = markers[idx].start() if idx < len(markers) else len(raw)
+            block = raw[start:end].strip()
+            sections.append(
+                {
+                    "label": self._normalize_load_label(marker.group(1), idx),
+                    "key": f"section_{idx}",
+                    "text": block,
+                }
+            )
+        return sections
 
     def _extract_value(self, text, patterns):
         for pattern in patterns:
@@ -101,23 +128,29 @@ class AIExtractionService:
         pallet_labels = [r"#\s*of\s*Pallets", r"Pallets"]
         weight_labels = [r"Total\s*Weight", r"Weight"]
 
-        for idx, section in enumerate(self._load_sections(raw_text), 1):
-            pallets_raw = self._extract_labeled_value(section, pallet_labels)
-            size_raw = self._extract_labeled_value(section, [r"Pallet\s*Size"])
-            weight_raw = self._extract_labeled_value(section, weight_labels)
-            pickup = self._extract_labeled_value(section, pickup_labels)
-            delivery = self._extract_labeled_value(section, delivery_labels)
-            delivery_date = self._extract_labeled_value(section, delivery_date_labels)
+        sections = self._load_sections(raw_text)
+        if not sections and raw_text.strip():
+            sections = [{"label": None, "key": "section_1", "text": raw_text.strip()}]
+
+        for idx, section in enumerate(sections, 1):
+            label = section.get("label")
+            section_text = section.get("text") or ""
+            pallets_raw = self._extract_labeled_value(section_text, pallet_labels)
+            size_raw = self._extract_labeled_value(section_text, [r"Pallet\s*Size"])
+            weight_raw = self._extract_labeled_value(section_text, weight_labels)
+            pickup = self._extract_labeled_value(section_text, pickup_labels)
+            delivery = self._extract_labeled_value(section_text, delivery_labels)
+            delivery_date = self._extract_labeled_value(section_text, delivery_date_labels)
 
             pallets_val = self._coerce_number(pallets_raw)
             weight_val = self._coerce_number(weight_raw)
             if pallets_raw and pallets_val is None:
-                errors.append(f"LOAD #{idx}: invalid pallet count '{pallets_raw}'.")
+                errors.append(f"{label or f'LOAD #{idx}'}: invalid pallet count '{pallets_raw}'.")
             if weight_raw and weight_val is None:
-                errors.append(f"LOAD #{idx}: invalid weight '{weight_raw}'.")
+                errors.append(f"{label or f'LOAD #{idx}'}: invalid weight '{weight_raw}'.")
 
             if not pickup or not delivery:
-                errors.append(f"LOAD #{idx}: missing pickup or delivery location.")
+                errors.append(f"{label or f'LOAD #{idx}'}: missing pickup or delivery location.")
                 continue
 
             sched = None
@@ -126,15 +159,19 @@ class AIExtractionService:
                     sched = datetime.fromisoformat(delivery_date.replace("/", "-")).isoformat()
                 except Exception:
                     sched = None
-                    warnings.append(f"LOAD #{idx}: could not parse delivery date '{delivery_date}'.")
+                    warnings.append(f"{label or f'LOAD #{idx}'}: could not parse delivery date '{delivery_date}'.")
 
             notes = []
             if size_raw:
                 notes.append(f"Pallet size: {size_raw}")
 
+            load_key = section.get("key") or f"section_{idx}"
+
             stops.append(
                 {
                     "sequence": (idx * 2) - 1,
+                    "load_name": label,
+                    "load_key": load_key,
                     "stop_type": "pickup",
                     "address": pickup,
                     "pallets": int(pallets_val or 0),
@@ -146,6 +183,8 @@ class AIExtractionService:
             stops.append(
                 {
                     "sequence": idx * 2,
+                    "load_name": label,
+                    "load_key": load_key,
                     "stop_type": "delivery",
                     "address": delivery,
                     "pallets": int(pallets_val or 0),
@@ -212,10 +251,13 @@ class AIExtractionService:
             elif not delivery and any(k in low for k in ("delivery", "drop", "receiver", "consignee")):
                 delivery = cleaned.split(":", 1)[-1].strip()
         stops = []
+        load_matches = self._extract_load_markers(email_text)
+        load_label = self._normalize_load_label(load_matches[0].group(1), 1) if load_matches else None
+        load_key = "section_1"
         if pickup:
-            stops.append({"stop_type": "pickup", "address": pickup})
+            stops.append({"stop_type": "pickup", "address": pickup, "load_name": load_label, "load_key": load_key})
         if delivery:
-            stops.append({"stop_type": "delivery", "address": delivery})
+            stops.append({"stop_type": "delivery", "address": delivery, "load_name": load_label, "load_key": load_key})
         return {
             "stops": stops,
             "inside_delivery": "inside delivery" in (email_text or "").lower(),
@@ -294,6 +336,7 @@ CONTENT:
                             "detention_requested": bool(structured.get("detention_requested")),
                             "reefer_required": bool(structured.get("reefer_required") or self._contains_reefer_terms(raw_text)),
                             "source": "attachment",
+                            "email_loads_detected": bool(self._extract_load_markers(email_text)),
                             "notes": "Attachment data used as primary source; email body ignored.",
                         }
                     )
@@ -307,6 +350,7 @@ CONTENT:
                         "detention_requested": "detention" in raw_text.lower(),
                         "reefer_required": self._contains_reefer_terms(raw_text),
                         "source": "attachment",
+                        "email_loads_detected": bool(self._extract_load_markers(email_text)),
                         "notes": "Attachment data used as primary source; email body ignored.",
                     }
                 )

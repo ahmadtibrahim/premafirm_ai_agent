@@ -65,9 +65,8 @@ class CRMDispatchService:
                 continue
             requested = stop.get("scheduled_datetime")
             if stop_type == "pickup" and not requested:
-                now_local = self._now_company_tz()
-                pickup_day = now_local.date() + timedelta(days=1) if now_local.hour >= 12 else now_local.date()
-                requested = datetime.combine(pickup_day, time(9, 0)).isoformat()
+                # Keep pickup unscheduled so _compute_stop_schedule anchors it to vehicle work start hour.
+                requested = None
             stops.append(
                 {
                     "sequence": int(stop.get("sequence") or seq),

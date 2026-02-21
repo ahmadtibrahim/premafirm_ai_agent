@@ -7,3 +7,4 @@ access_premafirm_dispatch_run_user,access_premafirm_dispatch_run_user,model_prem
 access_premafirm_ai_log_user,access_premafirm_ai_log_user,model_premafirm_ai_log,base.group_user,1,1,1,1
 access_premafirm_load_user,access_premafirm_load_user,model_premafirm_load,base.group_user,1,1,1,1
 access_premafirm_booking_user,access_premafirm_booking_user,model_premafirm_booking,base.group_user,1,1,1,1
+access_premafirm_ai_correction_user,access_premafirm_ai_correction_user,model_premafirm_ai_correction,base.group_user,1,1,1,1

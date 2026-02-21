@@ -86,8 +86,8 @@ class AIExtractionService:
     def _extract_labeled_value(self, text, labels):
         escaped = "|".join(labels)
         patterns = [
-            rf"(?:{escaped})\s*[:\-]?\s*([^\n]+)",
-            rf"(?:{escaped})\s*\n\s*([^\n]+)",
+            rf"(?:{escaped})\s*(?:\([^)]*\))?\s*(?::|\-)?\s*\n\s*([^\n]+)",
+            rf"(?:{escaped})\s*(?:\([^)]*\))?\s*[:\-]?\s*([^\n]+)",
         ]
         return self._extract_value(text, patterns)
 
@@ -124,7 +124,7 @@ class AIExtractionService:
             r"Consignee",
             r"Drop",
         ]
-        delivery_date_labels = [r"Delivery\s*Date", r"Delivery", r"Due\s*Date"]
+        delivery_date_labels = [r"Delivery\s*Date", r"Due\s*Date", r"Drop\s*Date"]
         pallet_labels = [r"#\s*of\s*Pallets", r"Pallets"]
         weight_labels = [r"Total\s*Weight", r"Weight"]
 

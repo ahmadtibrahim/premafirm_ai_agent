@@ -488,14 +488,25 @@ class CrmLead(models.Model):
     def _create_order_lines(self, order):
         self.ensure_one()
         product_id = self._get_service_product_id()
-        self.env["sale.order.line"].create(
-            {
-                "order_id": order.id,
-                "product_id": product_id,
-                "product_uom_qty": 1,
-                "price_unit": self.final_rate,
-            }
-        )
+        delivery_stops = self.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery")
+        load_count = max(int(max(delivery_stops.mapped("load_number"), default=0)), 1)
+        total_rate = max(self.final_rate or 0.0, 0.0)
+        per_load_rate = round(total_rate / load_count, 2) if load_count else total_rate
+
+        for load_idx in range(1, load_count + 1):
+            price_unit = per_load_rate
+            if load_idx == load_count:
+                price_unit = round(total_rate - (per_load_rate * (load_count - 1)), 2)
+            self.env["sale.order.line"].create(
+                {
+                    "order_id": order.id,
+                    "product_id": product_id,
+                    "name": f"Load #{load_idx}",
+                    "product_uom_qty": 1,
+                    "price_unit": price_unit,
+                }
+            )
+
         for accessorial_id in DispatchRulesEngine(self.env).accessorial_product_ids(self.liftgate, self.inside_delivery):
             self.env["sale.order.line"].create(
                 {

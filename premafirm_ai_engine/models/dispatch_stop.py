@@ -9,6 +9,7 @@ class PremafirmDispatchStop(models.Model):
     lead_id = fields.Many2one("crm.lead", required=True, ondelete="cascade")
     sale_order_id = fields.Many2one("sale.order", ondelete="cascade")
     sequence = fields.Integer(default=1)
+    load_number = fields.Integer(compute="_compute_load_number", store=True, readonly=False, default=1)
     name = fields.Char()
 
     stop_type = fields.Selection([("pickup", "Pickup"), ("delivery", "Delivery")], required=True)
@@ -100,6 +101,33 @@ class PremafirmDispatchStop(models.Model):
     def _compute_cargo_delta(self):
         for stop in self:
             stop.cargo_delta = 1 if stop.stop_type == "pickup" else -1
+
+    @api.depends(
+        "sequence",
+        "stop_type",
+        "lead_id",
+        "lead_id.dispatch_stop_ids.sequence",
+        "lead_id.dispatch_stop_ids.stop_type",
+    )
+    def _compute_load_number(self):
+        for stop in self:
+            if not stop.lead_id:
+                stop.load_number = 1
+                continue
+
+            current_load = 0
+            assigned_load = 1
+            ordered_stops = stop.lead_id.dispatch_stop_ids.sorted(lambda s: (s.sequence, s.id))
+            for ordered_stop in ordered_stops:
+                if ordered_stop.stop_type == "pickup":
+                    current_load += 1
+                if current_load == 0:
+                    current_load = 1
+                if ordered_stop.id == stop.id:
+                    assigned_load = current_load
+                    break
+
+            stop.load_number = assigned_load
 
     @api.onchange("address")
     def _onchange_address_country(self):

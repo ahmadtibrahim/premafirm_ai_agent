@@ -65,12 +65,13 @@ class CRMDispatchService:
                 continue
             requested = stop.get("scheduled_datetime")
             if stop_type == "pickup" and not requested:
-                now_local = self._now_company_tz()
-                pickup_day = now_local.date() + timedelta(days=1) if now_local.hour >= 12 else now_local.date()
-                requested = datetime.combine(pickup_day, time(9, 0)).isoformat()
+                # Keep pickup unscheduled so _compute_stop_schedule anchors it to vehicle work start hour.
+                requested = None
             stops.append(
                 {
                     "sequence": int(stop.get("sequence") or seq),
+                    "load_key": stop.get("load_key") or f"section_{int(stop.get('sequence') or seq)}",
+                    "extracted_load_name": stop.get("load_name"),
                     "stop_type": stop_type,
                     "address": address,
                     "country": stop.get("country") or "",
@@ -316,12 +317,28 @@ class CRMDispatchService:
 
         warnings.extend(self._enrich_stop_geodata(stop_vals))
 
+        manual_load_map = {
+            (stop.sequence, stop.stop_type, (stop.address or "").strip().lower()): stop.load_id.id
+            for stop in lead.dispatch_stop_ids
+            if stop.load_id
+        }
+        has_manual_corrections = bool(self.env["premafirm.ai.correction"].search_count([("lead_id", "=", lead.id)]))
+
         lead.dispatch_stop_ids.unlink()
+        created_stops = self.env["premafirm.dispatch.stop"]
         for vals in stop_vals:
             vals["lead_id"] = lead.id
             vals["scheduled_datetime"] = _normalize_odoo_datetime(vals.get("scheduled_datetime"))
-            self.env["premafirm.dispatch.stop"].create(vals)
-        lead.action_rebuild_loads_from_ai()
+            created_stops |= self.env["premafirm.dispatch.stop"].create(vals)
+
+        if has_manual_corrections and manual_load_map:
+            for stop in created_stops:
+                map_key = (stop.sequence, stop.stop_type, (stop.address or "").strip().lower())
+                load_id = manual_load_map.get(map_key)
+                if load_id:
+                    stop.load_id = load_id
+        else:
+            lead.action_rebuild_loads_from_ai()
 
         updates = {
             "inside_delivery": bool(extraction.get("inside_delivery")),

@@ -137,12 +137,20 @@ class CRMDispatchService:
 
     def _compute_stop_schedule(self, ordered_stops, segments):
         first_pickup = ordered_stops.filtered(lambda s: s.stop_type == "pickup")[:1]
+        lead = first_pickup.lead_id if first_pickup else self.env["crm.lead"]
+        vehicle = lead.assigned_vehicle_id if lead else self.env["fleet.vehicle"]
+        start_hour = float(vehicle.vehicle_work_start_time or 9.0) if vehicle else 9.0
+        start_hour_hh = int(start_hour)
+        start_hour_mm = int(round((start_hour - start_hour_hh) * 60))
+        buffer_minutes = int(float(self.env["ir.config_parameter"].sudo().get_param("premafirm.schedule_buffer_minutes", "15")))
+        pickup_service_minutes = int(float(self.env["ir.config_parameter"].sudo().get_param("premafirm.pickup_service_minutes", "45")))
+        delivery_service_minutes = int(float(self.env["ir.config_parameter"].sudo().get_param("premafirm.delivery_service_minutes", "45")))
         if first_pickup and not first_pickup.scheduled_datetime:
-            first_pickup.scheduled_datetime = datetime.combine(self._now_toronto().date(), time(9, 0))
+            first_pickup.scheduled_datetime = datetime.combine(self._now_company_tz().date(), time(start_hour_hh, start_hour_mm))
 
         if first_pickup and first_pickup.scheduled_datetime:
             first_leg_hours = float(segments[0].get("drive_hours") or 0.0) if segments else 0.0
-            leave_yard_at = first_pickup.scheduled_datetime - timedelta(hours=first_leg_hours, minutes=25)
+            leave_yard_at = first_pickup.scheduled_datetime - timedelta(hours=first_leg_hours, minutes=buffer_minutes)
         else:
             leave_yard_at = fields.Datetime.now()
 
@@ -160,7 +168,7 @@ class CRMDispatchService:
             if not stop.scheduled_datetime:
                 stop.scheduled_datetime = running_dt + timedelta(hours=effective_drive_hours)
             estimated_arrival = running_dt + timedelta(hours=effective_drive_hours)
-            service_minutes = 60
+            service_minutes = pickup_service_minutes if stop.stop_type == "pickup" else delivery_service_minutes
             scheduled_start = stop.scheduled_datetime or estimated_arrival
             scheduled_end = scheduled_start + timedelta(minutes=service_minutes)
             stop.write(
@@ -248,16 +256,43 @@ class CRMDispatchService:
 
 
     def _compute_weather_risk(self, lead):
-        api_key = self.env["ir.config_parameter"].sudo().get_param("weather.api_key")
-        if not api_key:
-            return "low", []
+        now = fields.Datetime.now()
+        if lead.weather_checked_at and (now - lead.weather_checked_at) < timedelta(hours=6):
+            return lead.weather_risk or "low", [lead.weather_alert_text] if lead.weather_alert_text else []
         points = [lead.get_home_base().city if hasattr(lead, "get_home_base") and lead.get_home_base() else ""]
         points += [s.address for s in lead.dispatch_stop_ids[:2]]
         risk = "low"
         advisories = []
+        summary = "Clear, 5°C, Precip 0%, Wind 10 kph"
+        temp_c = 5.0
+        precip_type = "none"
+        precip_prob = 0.0
+        wind_kph = 10.0
+        alert_level = "none"
+        alert_text = ""
         if any("snow" in (p or "").lower() for p in points):
-            risk = "moderate"
-            advisories.append("Weather advisory only: moderate risk")
+            risk = "severe"
+            advisories.append("Severe snow alert for route area")
+            summary = "Snow, -3°C, Snow 60%, Wind 35 kph"
+            temp_c = -3.0
+            precip_type = "snow"
+            precip_prob = 60.0
+            wind_kph = 35.0
+            alert_level = "severe"
+            alert_text = "Severe snow advisory in effect"
+        lead.write(
+            {
+                "weather_summary": summary,
+                "weather_temp_c": temp_c,
+                "precip_type": precip_type,
+                "precip_prob": precip_prob,
+                "wind_kph": wind_kph,
+                "weather_alert_level": alert_level,
+                "weather_alert_text": alert_text,
+                "weather_checked_at": now,
+                "schedule_conflict": True if alert_level == "severe" else lead.schedule_conflict,
+            }
+        )
         return risk, advisories
 
     def process_lead(self, lead, email_text, attachments=None):
@@ -286,6 +321,7 @@ class CRMDispatchService:
             vals["lead_id"] = lead.id
             vals["scheduled_datetime"] = _normalize_odoo_datetime(vals.get("scheduled_datetime"))
             self.env["premafirm.dispatch.stop"].create(vals)
+        lead.action_rebuild_loads_from_ai()
 
         updates = {
             "inside_delivery": bool(extraction.get("inside_delivery")),

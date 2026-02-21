@@ -9,7 +9,8 @@ class PremafirmLoad(models.Model):
     _description = "PremaFirm Load"
 
     name = fields.Char(required=True, default="New")
-    sale_order_id = fields.Many2one("sale.order", required=True, ondelete="cascade")
+    sale_order_id = fields.Many2one("sale.order", required=False, ondelete="cascade")
+    lead_id = fields.Many2one("crm.lead", ondelete="cascade", index=True)
     company_id = fields.Many2one(related="sale_order_id.company_id", store=True, readonly=True)
     vehicle_id = fields.Many2one("fleet.vehicle", string="Vehicle")
     driver_id = fields.Many2one(
@@ -44,6 +45,19 @@ class PremafirmLoad(models.Model):
     reefer_required = fields.Boolean(related="sale_order_id.opportunity_id.reefer_required", readonly=True)
     reefer_setpoint_c = fields.Float(related="sale_order_id.opportunity_id.reefer_setpoint_c", readonly=True)
     hos_warning_text = fields.Char(related="sale_order_id.opportunity_id.hos_warning_text", readonly=True)
+    distance_km = fields.Float(compute="_compute_distance_and_drive", store=True)
+    drive_hours = fields.Float(compute="_compute_distance_and_drive", store=True)
+
+    @api.depends("lead_id.dispatch_stop_ids.load_id", "lead_id.dispatch_stop_ids.distance_km", "lead_id.dispatch_stop_ids.drive_hours")
+    def _compute_distance_and_drive(self):
+        for load in self:
+            if not load.lead_id:
+                load.distance_km = 0.0
+                load.drive_hours = 0.0
+                continue
+            stops = load.lead_id.dispatch_stop_ids.filtered(lambda s: s.load_id == load)
+            load.distance_km = sum(stops.mapped("distance_km"))
+            load.drive_hours = sum(stops.mapped("drive_hours"))
 
     @api.depends("billing_mode", "sale_order_id.amount_total")
     def _compute_total_amount(self):

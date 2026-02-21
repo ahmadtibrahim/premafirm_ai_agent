@@ -40,6 +40,7 @@ class CrmLead(models.Model):
     estimated_cost = fields.Monetary(currency_field="company_currency_id")
     suggested_rate = fields.Monetary(currency_field="company_currency_id")
     final_rate = fields.Monetary(currency_field="company_currency_id")
+    final_rate_total = fields.Monetary(currency_field="company_currency_id")
     ai_recommendation = fields.Text()
     discount_percent = fields.Float()
     discount_amount = fields.Monetary(currency_field="company_currency_id")
@@ -57,7 +58,7 @@ class CrmLead(models.Model):
     premafirm_bol = fields.Char(related="bol_number", store=True, readonly=False)
     premafirm_pod = fields.Char(related="pod_reference", store=True, readonly=False)
 
-    leave_yard_at = fields.Datetime("Leave Yard At")
+    leave_yard_at = fields.Datetime("Leave Yard At", compute="_compute_leave_yard_at", store=True)
     departure_time = fields.Datetime(related="leave_yard_at", store=True, readonly=False)
 
     inside_delivery = fields.Boolean()
@@ -118,9 +119,26 @@ class CrmLead(models.Model):
     recommended_schedule = fields.Text()
     booking_hos_status = fields.Text()
     weather_risk = fields.Selection([("low", "LOW"), ("moderate", "MODERATE"), ("high", "HIGH"), ("severe", "SEVERE")])
+    weather_summary = fields.Text()
+    weather_temp_c = fields.Float()
+    precip_type = fields.Selection([("none", "None"), ("rain", "Rain"), ("snow", "Snow"), ("sleet", "Sleet"), ("mixed", "Mixed")], default="none")
+    precip_prob = fields.Float()
+    wind_kph = fields.Float()
+    weather_alert_level = fields.Selection([("none", "None"), ("info", "Info"), ("warn", "Warn"), ("severe", "Severe")], default="none")
+    weather_alert_text = fields.Text()
+    weather_checked_at = fields.Datetime()
     profit_estimate = fields.Float()
     selected_service_product_id = fields.Integer()
     selected_accessorial_product_ids = fields.Char()
+
+    @api.depends("dispatch_stop_ids.scheduled_datetime", "dispatch_stop_ids.drive_hours")
+    def _compute_leave_yard_at(self):
+        for lead in self:
+            first_stop = lead.dispatch_stop_ids.sorted("sequence")[:1]
+            if first_stop and first_stop.scheduled_datetime:
+                lead.leave_yard_at = first_stop.scheduled_datetime - timedelta(hours=float(first_stop.drive_hours or 0.0))
+            else:
+                lead.leave_yard_at = False
 
 
     @api.depends("suggested_rate", "final_rate")
@@ -390,7 +408,30 @@ class CrmLead(models.Model):
         self.write({"ai_locked": False})
 
     def action_mark_quoted(self):
+        self._validate_load_structure()
         self.write({"load_status": "quoted"})
+
+    def _validate_load_structure(self):
+        for lead in self:
+            loads = self.env["premafirm.load"].search([("lead_id", "=", lead.id)])
+            for load in loads:
+                load_stops = lead.dispatch_stop_ids.filtered(lambda s: s.load_id == load)
+                pickups = len(load_stops.filtered(lambda s: s.stop_type == "pickup"))
+                deliveries = len(load_stops.filtered(lambda s: s.stop_type == "delivery"))
+                if pickups != 1 or deliveries != 1:
+                    raise UserError("Each load must have exactly one pickup and one delivery before quoting or creating Sales Orders.")
+
+    def action_rebuild_loads_from_ai(self):
+        for lead in self:
+            lead.dispatch_stop_ids.write({"load_id": False})
+            loads = self.env["premafirm.load"].search([("lead_id", "=", lead.id)])
+            loads.unlink()
+            current_load = self.env["premafirm.load"]
+            for stop in lead.dispatch_stop_ids.sorted("sequence"):
+                if stop.stop_type == "pickup" or not current_load:
+                    current_load = self.env["premafirm.load"].create({"lead_id": lead.id})
+                stop.load_id = current_load
+        return True
 
     @api.constrains("final_rate")
     def _check_non_negative_final_rate(self):
@@ -488,22 +529,30 @@ class CrmLead(models.Model):
     def _create_order_lines(self, order):
         self.ensure_one()
         product_id = self._get_service_product_id()
-        delivery_stops = self.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery")
-        load_count = max(int(max(delivery_stops.mapped("load_number"), default=0)), 1)
-        total_rate = max(self.final_rate or 0.0, 0.0)
-        per_load_rate = round(total_rate / load_count, 2) if load_count else total_rate
+        loads = self.env["premafirm.load"].search([("lead_id", "=", self.id)], order="id asc")
+        total_rate = max(self.final_rate_total or self.final_rate or 0.0, 0.0)
+        total_km = sum(max(load.distance_km or 0.0, 0.0) for load in loads)
+        running_total = 0.0
 
-        for load_idx in range(1, load_count + 1):
-            price_unit = per_load_rate
-            if load_idx == load_count:
-                price_unit = round(total_rate - (per_load_rate * (load_count - 1)), 2)
+        for idx, load in enumerate(loads, start=1):
+            if idx < len(loads):
+                ratio = (max(load.distance_km or 0.0, 0.0) / total_km) if total_km else (1.0 / len(loads))
+                price_unit = round(total_rate * ratio, 2)
+                running_total += price_unit
+            else:
+                price_unit = round(total_rate - running_total, 2)
+            load_stops = self.dispatch_stop_ids.filtered(lambda s: s.load_id == load)
+            pickup = load_stops.filtered(lambda s: s.stop_type == "pickup")[:1]
+            delivery = load_stops.filtered(lambda s: s.stop_type == "delivery")[:1]
+            line_name = f"{load.name} — {self._extract_city(pickup.address)} -> {self._extract_city(delivery.address)}"
             self.env["sale.order.line"].create(
                 {
                     "order_id": order.id,
                     "product_id": product_id,
-                    "name": f"Load #{load_idx}",
+                    "name": line_name,
                     "product_uom_qty": 1,
                     "price_unit": price_unit,
+                    "load_id": load.id,
                 }
             )
 
@@ -519,6 +568,7 @@ class CrmLead(models.Model):
 
     def action_create_sales_order(self):
         self.ensure_one()
+        self._validate_load_structure()
 
         if not self.partner_id:
             raise UserError("A customer must be selected before creating a sales order.")
@@ -530,6 +580,8 @@ class CrmLead(models.Model):
         if not self.delivery_date:
             self.delivery_date = self.pickup_date
         self._assign_stop_products()
+        if not self.env["premafirm.load"].search_count([("lead_id", "=", self.id)]):
+            self.action_rebuild_loads_from_ai()
         self.selected_service_product_id = self._get_service_product_id()
         self.selected_accessorial_product_ids = ",".join(str(x) for x in DispatchRulesEngine(self.env).accessorial_product_ids(self.liftgate, self.inside_delivery))
         order = self.env["sale.order"].create(self._prepare_order_values())

@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from zoneinfo import ZoneInfo
 
@@ -9,6 +9,8 @@ from odoo.exceptions import UserError
 
 try:
     from ..services.dispatch_rules_engine import DispatchRulesEngine
+    from ..services.mapbox_service import MapboxService
+    from ..services.weather_service import WeatherService
 except Exception:
     from importlib.util import module_from_spec, spec_from_file_location
     from pathlib import Path
@@ -17,6 +19,16 @@ except Exception:
     _module = module_from_spec(_spec)
     _spec.loader.exec_module(_module)
     DispatchRulesEngine = _module.DispatchRulesEngine
+    _map_module_path = Path(__file__).resolve().parents[1] / "services" / "mapbox_service.py"
+    _map_spec = spec_from_file_location("mapbox_service", _map_module_path)
+    _map_module = module_from_spec(_map_spec)
+    _map_spec.loader.exec_module(_map_module)
+    MapboxService = _map_module.MapboxService
+    _weather_module_path = Path(__file__).resolve().parents[1] / "services" / "weather_service.py"
+    _weather_spec = spec_from_file_location("weather_service", _weather_module_path)
+    _weather_module = module_from_spec(_weather_spec)
+    _weather_spec.loader.exec_module(_weather_module)
+    WeatherService = _weather_module.WeatherService
 
 
 class CrmLead(models.Model):
@@ -114,6 +126,8 @@ class CrmLead(models.Model):
     dispatch_run_id = fields.Many2one("premafirm.dispatch.run")
     schedule_locked = fields.Boolean(default=False)
     schedule_conflict = fields.Boolean(default=False)
+    schedule_mode = fields.Selection([("forward", "Forward"), ("backward", "Backward"), ("mixed", "Mixed")], default="forward", required=True)
+    schedule_api_warning = fields.Text(readonly=True)
     ai_optimization_suggestion = fields.Text()
 
     recommended_schedule = fields.Text()
@@ -131,14 +145,171 @@ class CrmLead(models.Model):
     selected_service_product_id = fields.Integer()
     selected_accessorial_product_ids = fields.Char()
 
-    @api.depends("dispatch_stop_ids.scheduled_datetime", "dispatch_stop_ids.drive_hours")
+    @api.depends("dispatch_stop_ids.scheduled_datetime", "dispatch_stop_ids.drive_minutes", "assigned_vehicle_id", "assigned_vehicle_id.work_start_hour")
     def _compute_leave_yard_at(self):
         for lead in self:
+            if lead.leave_yard_at:
+                continue
             first_stop = lead.dispatch_stop_ids.sorted("sequence")[:1]
             if first_stop and first_stop.scheduled_datetime:
-                lead.leave_yard_at = first_stop.scheduled_datetime - timedelta(hours=float(first_stop.drive_hours or 0.0))
+                lead.leave_yard_at = first_stop.scheduled_datetime - timedelta(minutes=float(first_stop.drive_minutes or 0.0))
             else:
                 lead.leave_yard_at = False
+
+    def _vehicle_start_datetime(self):
+        self.ensure_one()
+        reference = self.leave_yard_at or (self.dispatch_stop_ids and self.dispatch_stop_ids.sorted("sequence")[:1].scheduled_datetime) or fields.Datetime.now()
+        if isinstance(reference, str):
+            reference = fields.Datetime.to_datetime(reference)
+        if not reference:
+            reference = fields.Datetime.now()
+        hour_float = float((self.assigned_vehicle_id.work_start_hour if self.assigned_vehicle_id else 8.0) or 8.0)
+        hh = int(hour_float)
+        mm = int(round((hour_float - hh) * 60))
+        return datetime.combine(reference.date(), time(hh, mm))
+
+    def _stop_window(self, stop):
+        start = stop.time_window_start or (stop.pickup_window_start if stop.stop_type == "pickup" else stop.delivery_window_start)
+        end = stop.time_window_end or (stop.pickup_window_end if stop.stop_type == "pickup" else stop.delivery_window_end)
+        return start, end
+
+    def _compute_schedule(self, manual_stop=False):
+        mapbox = MapboxService(self.env)
+        weather = WeatherService(self.env)
+        for lead in self:
+            if lead.schedule_locked:
+                continue
+            ordered = lead.dispatch_stop_ids.sorted("sequence")
+            if not ordered:
+                lead.write({"leave_yard_at": False, "schedule_conflict": False, "schedule_api_warning": False})
+                continue
+            vehicle = lead.assigned_vehicle_id
+            yard_location = (vehicle.home_location if vehicle else False) or mapbox.ORIGIN_YARD
+            vehicle_start = lead._vehicle_start_datetime()
+            has_window = any(bool(lead._stop_window(stop)[0]) for stop in ordered)
+            mode = "mixed" if (has_window and manual_stop) else ("backward" if has_window else "forward")
+            warnings = []
+            conflict = False
+
+            segment_data = []
+            prev_loc = yard_location
+            for stop in ordered:
+                travel = mapbox.get_travel_time(prev_loc, stop.address)
+                fallback_minutes = float(stop.drive_minutes or stop.drive_hours * 60.0 or 0.0)
+                drive_minutes = float(travel.get("drive_minutes") or fallback_minutes)
+                distance_km = float(travel.get("distance_km") or stop.distance_km or 0.0)
+                weather_info = weather.get_weather_factor(stop.latitude, stop.longitude, when_dt=fields.Datetime.now(), alert_level=lead.weather_alert_level or "none")
+                adjusted_minutes = drive_minutes * float(weather_info.get("factor") or 1.0)
+                if travel.get("warning") or weather_info.get("api_failed"):
+                    warnings.append(travel.get("warning") or "Weather API failed; using fallback travel time.")
+                segment_data.append({
+                    "stop": stop,
+                    "distance_km": distance_km,
+                    "base_drive_minutes": drive_minutes,
+                    "drive_minutes": adjusted_minutes,
+                    "map_url": travel.get("map_url"),
+                })
+                prev_loc = stop.address
+
+            updates = {}
+            if manual_stop:
+                manual_idx = next((idx for idx, seg in enumerate(segment_data) if seg["stop"].id == manual_stop.id), 0)
+                current_time = manual_stop.estimated_arrival or manual_stop.scheduled_datetime or vehicle_start
+                current_time = current_time + timedelta(minutes=float(manual_stop.service_duration or 30.0))
+                for idx in range(manual_idx + 1, len(segment_data)):
+                    seg = segment_data[idx]
+                    eta = current_time + timedelta(minutes=seg["drive_minutes"])
+                    start, end = lead._stop_window(seg["stop"])
+                    if start and eta < start:
+                        eta = start
+                    if end and eta > end:
+                        conflict = True
+                    updates[seg["stop"].id] = {
+                        "estimated_arrival": eta,
+                        "scheduled_datetime": eta,
+                        "scheduled_start_datetime": eta,
+                        "scheduled_end_datetime": eta + timedelta(minutes=float(seg["stop"].service_duration or 30.0)),
+                        "distance_km": seg["distance_km"],
+                        "drive_minutes": seg["drive_minutes"],
+                        "map_url": seg["map_url"],
+                        "auto_scheduled": True,
+                    }
+                    current_time = eta + timedelta(minutes=float(seg["stop"].service_duration or 30.0))
+                lead_leave_yard = lead.leave_yard_at or vehicle_start
+            elif has_window:
+                first_window_idx = next((idx for idx, seg in enumerate(segment_data) if lead._stop_window(seg["stop"])[0]), 0)
+                arrival_times = {}
+                target = lead._stop_window(segment_data[first_window_idx]["stop"])[0]
+                arrival_times[first_window_idx] = target
+                for idx in range(first_window_idx, -1, -1):
+                    seg = segment_data[idx]
+                    arrival = arrival_times[idx]
+                    depart_prev = arrival - timedelta(minutes=seg["drive_minutes"])
+                    if idx == 0:
+                        lead_leave_yard = depart_prev
+                    else:
+                        prev_service = float(segment_data[idx - 1]["stop"].service_duration or 30.0)
+                        arrival_times[idx - 1] = depart_prev - timedelta(minutes=prev_service)
+                if lead_leave_yard < vehicle_start:
+                    conflict = True
+                current_time = lead_leave_yard
+                for idx, seg in enumerate(segment_data):
+                    eta = arrival_times.get(idx) or (current_time + timedelta(minutes=seg["drive_minutes"]))
+                    start, end = lead._stop_window(seg["stop"])
+                    if start and eta < start:
+                        eta = start
+                    if end and eta > end:
+                        conflict = True
+                    service = float(seg["stop"].service_duration or 30.0)
+                    updates[seg["stop"].id] = {
+                        "estimated_arrival": eta,
+                        "scheduled_datetime": eta,
+                        "scheduled_start_datetime": eta,
+                        "scheduled_end_datetime": eta + timedelta(minutes=service),
+                        "distance_km": seg["distance_km"],
+                        "drive_minutes": seg["drive_minutes"],
+                        "map_url": seg["map_url"],
+                        "auto_scheduled": True,
+                    }
+                    current_time = eta + timedelta(minutes=service)
+            else:
+                lead_leave_yard = vehicle_start
+                current_time = vehicle_start
+                for seg in segment_data:
+                    eta = current_time + timedelta(minutes=seg["drive_minutes"])
+                    service = float(seg["stop"].service_duration or 30.0)
+                    updates[seg["stop"].id] = {
+                        "estimated_arrival": eta,
+                        "scheduled_datetime": eta,
+                        "scheduled_start_datetime": eta,
+                        "scheduled_end_datetime": eta + timedelta(minutes=service),
+                        "distance_km": seg["distance_km"],
+                        "drive_minutes": seg["drive_minutes"],
+                        "map_url": seg["map_url"],
+                        "auto_scheduled": True,
+                    }
+                    current_time = eta + timedelta(minutes=service)
+
+            total_weight = sum(ordered.mapped("weight_lbs"))
+            payload_limit = float(vehicle.payload_capacity_lbs or 0.0) if vehicle else 0.0
+            if payload_limit and total_weight > payload_limit:
+                conflict = True
+            prev_end = False
+            for stop in ordered:
+                vals = updates.get(stop.id)
+                if vals:
+                    stop.with_context(skip_schedule_recompute=True).write(vals)
+                start_dt = (vals or {}).get("scheduled_start_datetime") or stop.scheduled_start_datetime
+                end_dt = (vals or {}).get("scheduled_end_datetime") or stop.scheduled_end_datetime
+                if prev_end and start_dt and start_dt < prev_end:
+                    conflict = True
+                prev_end = end_dt or prev_end
+            lead.write({
+                "leave_yard_at": lead_leave_yard,
+                "schedule_mode": mode,
+                "schedule_conflict": conflict or bool(lead_leave_yard and lead_leave_yard < vehicle_start),
+                "schedule_api_warning": " | ".join(dict.fromkeys([w for w in warnings if w])) if warnings else False,
+            })
 
 
     @api.depends("suggested_rate", "final_rate")
@@ -173,6 +344,14 @@ class CrmLead(models.Model):
         res = super().write(vals)
         if any(k in vals for k in ("final_rate", "suggested_rate")):
             self._compute_discounts_from_final_rate()
+        schedule_triggers = {
+            "assigned_vehicle_id",
+            "weather_alert_level",
+            "weather_checked_at",
+            "schedule_mode",
+        }
+        if not self.env.context.get("skip_schedule_recompute") and any(k in vals for k in schedule_triggers):
+            self.with_context(skip_schedule_recompute=True)._compute_schedule()
         return res
 
 

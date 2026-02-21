@@ -1,5 +1,6 @@
 from odoo import fields, models
 
+
 class FleetVehicle(models.Model):
     _inherit = "fleet.vehicle"
 
@@ -21,16 +22,12 @@ class FleetVehicle(models.Model):
         string="Load Type",
     )
 
-    home_location = fields.Char(
-        string="Home Location",
-    )
+    home_location = fields.Char(string="Home Location")
 
     payload_capacity_lbs = fields.Float(default=40000.0)
     driver_id = fields.Many2one("res.partner", domain=[("is_driver", "=", True)])
     home_latitude = fields.Float()
     home_longitude = fields.Float()
 
-    vehicle_work_start_time = fields.Float(
-        string="Work Start Hour",
-        default=8.0,
-    )
+    work_start_hour = fields.Float(string="Work Start Hour", default=8.0)
+    vehicle_work_start_time = fields.Float(related="work_start_hour", readonly=False)

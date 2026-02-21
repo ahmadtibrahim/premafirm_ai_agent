@@ -55,10 +55,16 @@ class PremafirmDispatchStop(models.Model):
     pickup_datetime_est = fields.Datetime()
     delivery_datetime_est = fields.Datetime()
 
+    service_duration = fields.Float(default=30.0, help="Service duration at this stop in minutes")
+    time_window_start = fields.Datetime()
+    time_window_end = fields.Datetime()
+
     pickup_window_start = fields.Datetime()
     pickup_window_end = fields.Datetime()
     delivery_window_start = fields.Datetime()
     delivery_window_end = fields.Datetime()
+
+    auto_scheduled = fields.Boolean(default=True)
 
     special_instructions = fields.Char()
     equipment_required = fields.Selection(
@@ -74,7 +80,8 @@ class PremafirmDispatchStop(models.Model):
     cross_dock = fields.Boolean(default=False)
 
     distance_km = fields.Float()
-    drive_hours = fields.Float()
+    drive_minutes = fields.Float()
+    drive_hours = fields.Float(compute="_compute_drive_hours", inverse="_inverse_drive_hours", store=True)
     map_url = fields.Char()
 
     run_id = fields.Many2one("premafirm.dispatch.run")
@@ -86,6 +93,15 @@ class PremafirmDispatchStop(models.Model):
     product_id = fields.Many2one("product.product", string="Service")
     freight_product_id = fields.Many2one(related="product_id", store=True, readonly=False)
 
+    @api.depends("drive_minutes")
+    def _compute_drive_hours(self):
+        for stop in self:
+            stop.drive_hours = (stop.drive_minutes or 0.0) / 60.0
+
+    def _inverse_drive_hours(self):
+        for stop in self:
+            stop.drive_minutes = (stop.drive_hours or 0.0) * 60.0
+
     @api.depends("map_url", "address")
     def _compute_address_link_html(self):
         for stop in self:
@@ -95,10 +111,10 @@ class PremafirmDispatchStop(models.Model):
             else:
                 stop.address_link_html = address
 
-    @api.depends("stop_type")
+    @api.depends("stop_type", "service_duration")
     def _compute_stop_service_mins(self):
         for stop in self:
-            stop.stop_service_mins = 60 if stop.stop_type == "pickup" else 45
+            stop.stop_service_mins = int(stop.service_duration or (60 if stop.stop_type == "pickup" else 45))
 
     @api.depends("stop_type")
     def _compute_cargo_delta(self):
@@ -116,10 +132,14 @@ class PremafirmDispatchStop(models.Model):
         for stop in records:
             if stop.lead_id and not stop.load_id:
                 stop._assign_default_load()
+        leads = records.mapped("lead_id")
+        if leads and not self.env.context.get("skip_schedule_recompute"):
+            leads.with_context(skip_schedule_recompute=True)._compute_schedule()
         return records
 
     def write(self, vals):
         old_loads = {stop.id: stop.load_id.id for stop in self}
+        manual_eta_change = "estimated_arrival" in vals
         result = super().write(vals)
         if "load_id" in vals:
             correction_model = self.env["premafirm.ai.correction"]
@@ -135,6 +155,18 @@ class PremafirmDispatchStop(models.Model):
                             "new_load_id": new_load_id,
                         }
                     )
+        if not self.env.context.get("skip_schedule_recompute"):
+            leads = self.mapped("lead_id")
+            for lead in leads:
+                manual_stop = self.filtered(lambda s: s.lead_id == lead)[:1] if manual_eta_change else False
+                lead.with_context(skip_schedule_recompute=True)._compute_schedule(manual_stop=manual_stop)
+        return result
+
+    def unlink(self):
+        leads = self.mapped("lead_id")
+        result = super().unlink()
+        if leads and not self.env.context.get("skip_schedule_recompute"):
+            leads.with_context(skip_schedule_recompute=True)._compute_schedule()
         return result
 
     def _assign_default_load(self):

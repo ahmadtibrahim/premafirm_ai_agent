@@ -426,10 +426,24 @@ class CrmLead(models.Model):
             lead.dispatch_stop_ids.write({"load_id": False})
             loads = self.env["premafirm.load"].search([("lead_id", "=", lead.id)])
             loads.unlink()
+            grouped_loads = {}
             current_load = self.env["premafirm.load"]
             for stop in lead.dispatch_stop_ids.sorted("sequence"):
+                section_key = stop.load_key or (stop.extracted_load_name or "").strip().lower() or False
+                if section_key:
+                    if section_key not in grouped_loads:
+                        vals = {"lead_id": lead.id}
+                        if stop.extracted_load_name:
+                            vals["name"] = stop.extracted_load_name
+                        grouped_loads[section_key] = self.env["premafirm.load"].create(vals)
+                    stop.load_id = grouped_loads[section_key]
+                    continue
+
                 if stop.stop_type == "pickup" or not current_load:
-                    current_load = self.env["premafirm.load"].create({"lead_id": lead.id})
+                    vals = {"lead_id": lead.id}
+                    if stop.extracted_load_name:
+                        vals["name"] = stop.extracted_load_name
+                    current_load = self.env["premafirm.load"].create(vals)
                 stop.load_id = current_load
         return True
 

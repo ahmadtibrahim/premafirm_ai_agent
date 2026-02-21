@@ -255,3 +255,46 @@ def test_dispatch_rules_engine_uses_product_and_accessorial_mapping_from_json():
 def test_crm_dispatch_service_instantiates_rules_engine_for_accessorial_selection():
     source = (ROOT / "premafirm_ai_engine/services/crm_dispatch_service.py").read_text()
     assert "DispatchRulesEngine(self.env).accessorial_product_ids" in source
+
+
+def test_load_section_parser_supports_multiple_load_marker_formats():
+    mod = _load_module("ai_extraction_load_markers_test", "premafirm_ai_engine/services/ai_extraction_service.py")
+    svc = mod.AIExtractionService(env=None)
+    raw_text = """
+Load No. 1
+Pickup Address: A St, Toronto, ON
+Delivery Address: B St, Ottawa, ON
+Pallets: 4
+Total Weight: 4500 lbs
+
+LOAD 2
+Pickup Address: C St, Barrie, ON
+Delivery Address: D St, Mississauga, ON
+Pallets: 5
+Total Weight: 5100 lbs
+"""
+    parsed = svc._parse_load_sections(raw_text)
+    assert len(parsed["stops"]) == 4
+    assert parsed["stops"][0]["load_name"] == "LOAD #1"
+    assert parsed["stops"][2]["load_name"] == "LOAD #2"
+
+
+def test_load_section_parser_treats_attachment_without_load_markers_as_single_load():
+    mod = _load_module("ai_extraction_single_load_test", "premafirm_ai_engine/services/ai_extraction_service.py")
+    svc = mod.AIExtractionService(env=None)
+    raw_text = """
+Purchase Order
+Pickup Address: 55 Commerce Park Dr, Barrie, ON
+Delivery Address: 6350 Tomken Rd, Mississauga, ON
+Pallets: 8
+Total Weight: 9115 lbs
+"""
+    parsed = svc._parse_load_sections(raw_text)
+    assert len(parsed["stops"]) == 2
+    assert parsed["stops"][0]["load_name"] is None
+
+
+def test_crm_load_info_grid_keeps_single_load_column_editable():
+    view_text = (ROOT / "premafirm_ai_engine/views/crm_view.xml").read_text()
+    assert 'name="load_id" string="Load #"' in view_text
+    assert 'name="load_number"' not in view_text

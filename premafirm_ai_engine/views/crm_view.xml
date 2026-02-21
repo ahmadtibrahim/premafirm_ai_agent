@@ -33,6 +33,7 @@
                             <field name="discount_amount"/>
                             <field name="final_rate"/>
                             <field name="departure_time" readonly="1"/>
+                            <field name="schedule_mode"/>
                             <field name="inside_delivery"/>
                             <field name="liftgate"/>
                             <field name="detention_requested"/>
@@ -44,6 +45,7 @@
                             <field name="dispatch_run_id" readonly="1"/>
                             <field name="schedule_locked"/>
                             <field name="schedule_conflict" readonly="1"/>
+                            <field name="schedule_api_warning" readonly="1"/>
                         </group>
                     </group>
 
@@ -63,9 +65,14 @@
                             <field name="pallets"/>
                             <field name="weight_lbs"/>
                             <field name="scheduled_datetime"/>
-                            <field name="estimated_arrival" readonly="1"/>
+                            <field name="service_duration"/>
+                            <field name="time_window_start" optional="show"/>
+                            <field name="time_window_end" optional="show"/>
+                            <field name="auto_scheduled"/>
+                            <field name="estimated_arrival"/>
                             <field name="distance_km"/>
-                            <field name="drive_hours"/>
+                            <field name="drive_minutes"/>
+                            <field name="drive_hours" readonly="1"/>
                             <field name="equipment_required" optional="hide"/>
                             <field name="pickup_window_start" optional="hide"/>
                             <field name="pickup_window_end" optional="hide"/>

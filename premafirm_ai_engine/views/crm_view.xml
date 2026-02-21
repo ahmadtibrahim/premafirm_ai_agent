@@ -50,6 +50,7 @@
                     <field name="dispatch_stop_ids">
                         <list editable="bottom">
                             <field name="sequence"/>
+                            <field name="load_number" string="Load #" readonly="1"/>
                             <field name="stop_type"/>
                             <field name="product_id" string="Service"/>
                             <field name="address_link_html" widget="html" string="Address"/>

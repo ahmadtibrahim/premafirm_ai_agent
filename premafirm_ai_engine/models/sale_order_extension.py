@@ -132,6 +132,7 @@ class SaleOrder(models.Model):
 class SaleOrderLine(models.Model):
     _inherit = "sale.order.line"
 
+    load_id = fields.Many2one("premafirm.load")
     stop_type = fields.Selection([("pickup", "Pickup"), ("delivery", "Delivery")])
     stop_address = fields.Char()
     stop_map_url = fields.Char()

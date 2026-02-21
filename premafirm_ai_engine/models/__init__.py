@@ -9,6 +9,7 @@ from . import account_move_extension
 from . import mail_compose_message
 from . import ai_engine
 from . import ai_log
+from . import ai_correction
 from . import premafirm_load
 from . import premafirm_booking
 

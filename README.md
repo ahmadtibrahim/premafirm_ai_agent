@@ -62,6 +62,9 @@ Defined in manifest:
 
 Install as a standard custom module in Odoo 18 and update apps list.
 
+Timezone note:
+- Python `zoneinfo` is used for schedule calculations. On minimal Linux images, install timezone data with `pip install tzdata` if system tzdata is unavailable.
+
 ---
 
 ## 4) Developer workflow

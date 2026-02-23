@@ -51,7 +51,11 @@ class CrmLead(models.Model):
     estimated_cost = fields.Monetary(currency_field="company_currency_id")
     suggested_rate = fields.Monetary(currency_field="company_currency_id")
     final_rate = fields.Monetary(currency_field="company_currency_id", required=True)
-    final_rate_total = fields.Monetary(currency_field="company_currency_id")
+    final_rate_total = fields.Monetary(
+        currency_field="company_currency_id",
+        compute="_compute_final_rate_total",
+        store=True,
+    )
     ai_recommendation = fields.Text()
 
     # Kept for compatibility with previous versions; stop-level product now drives pricing.
@@ -380,6 +384,12 @@ class CrmLead(models.Model):
             lead.total_weight_lbs = sum(lead.dispatch_stop_ids.mapped("weight_lbs"))
             lead.total_distance_km = sum(lead.dispatch_stop_ids.mapped("distance_km"))
             lead.total_drive_hours = sum(lead.dispatch_stop_ids.mapped("drive_hours"))
+
+    @api.depends("final_rate", "suggested_rate")
+    def _compute_final_rate_total(self):
+        """Keep pricing total centralized and independent from legacy pricing adjustments."""
+        for lead in self:
+            lead.final_rate_total = max(lead.final_rate or lead.suggested_rate or 0.0, 0.0)
 
     def _extract_city(self, address):
         return (address.split(",", 1)[0] or "").strip() if address else ""

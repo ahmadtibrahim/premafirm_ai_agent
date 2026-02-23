@@ -150,6 +150,22 @@ class PremafirmDispatchStop(models.Model):
     def write(self, vals):
         old_loads = {stop.id: stop.load_id.id for stop in self}
         manual_eta_change = "estimated_arrival" in vals
+        schedule_relevant_fields = {
+            "estimated_arrival",
+            "scheduled_datetime",
+            "service_duration",
+            "time_window_start",
+            "time_window_end",
+            "pickup_window_start",
+            "pickup_window_end",
+            "delivery_window_start",
+            "delivery_window_end",
+            "drive_minutes",
+            "address",
+            "sequence",
+            "stop_type",
+        }
+        should_recompute_schedule = bool(schedule_relevant_fields.intersection(vals))
         result = super().write(vals)
         if "load_id" in vals:
             correction_model = self.env["premafirm.ai.correction"]
@@ -165,7 +181,7 @@ class PremafirmDispatchStop(models.Model):
                             "new_load_id": new_load_id,
                         }
                     )
-        if not self.env.context.get("skip_schedule_recompute"):
+        if should_recompute_schedule and not self.env.context.get("skip_schedule_recompute"):
             leads = self.mapped("lead_id")
             for lead in leads:
                 manual_stop = self.filtered(lambda s: s.lead_id == lead)[:1] if manual_eta_change else False

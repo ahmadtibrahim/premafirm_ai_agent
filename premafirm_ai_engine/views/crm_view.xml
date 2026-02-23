@@ -29,11 +29,13 @@
                             <field name="bol_number"/>
                             <field name="pod_reference"/>
                             <field name="payment_terms"/>
-                            <field name="discount_percent"/>
-                            <field name="discount_amount"/>
                             <field name="final_rate"/>
                             <field name="departure_time" readonly="1"/>
-                            <field name="schedule_mode"/>
+                            <field name="strict_pickup_start"/>
+                            <field name="strict_pickup_end"/>
+                            <field name="strict_delivery_start"/>
+                            <field name="strict_delivery_end"/>
+                            <field name="notify_driver"/>
                             <field name="inside_delivery"/>
                             <field name="liftgate"/>
                             <field name="detention_requested"/>

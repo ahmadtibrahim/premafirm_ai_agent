@@ -6,6 +6,10 @@ class PremafirmDispatchStop(models.Model):
     _description = "Premafirm Dispatch Stop"
     _order = "sequence asc, id asc"
 
+    _sql_constraints = [
+        ("premafirm_stop_unique_sequence", "unique(lead_id, sequence)", "Duplicate stop sequence is not allowed for the same lead."),
+    ]
+
     lead_id = fields.Many2one("crm.lead", required=True, ondelete="cascade")
     load_id = fields.Many2one("premafirm.load", index=True)
     sale_order_id = fields.Many2one("sale.order", ondelete="cascade")
@@ -40,8 +44,8 @@ class PremafirmDispatchStop(models.Model):
     needs_manual_review = fields.Boolean(default=False)
     liftgate_needed = fields.Boolean(default=False)
 
-    pallets = fields.Integer()
-    weight_lbs = fields.Float()
+    pallets = fields.Integer(required=True)
+    weight_lbs = fields.Float(required=True)
     weight = fields.Float(related="weight_lbs", store=True, readonly=False)
 
     service_type = fields.Selection([("dry", "Dry"), ("reefer", "Reefer")], default="dry")
@@ -83,6 +87,8 @@ class PremafirmDispatchStop(models.Model):
     drive_minutes = fields.Float()
     drive_hours = fields.Float(compute="_compute_drive_hours", inverse="_inverse_drive_hours", store=True)
     map_url = fields.Char()
+    forecast_json = fields.Text()
+    home_location = fields.Char(related="lead_id.assigned_vehicle_id.home_location", store=True, readonly=True)
 
     run_id = fields.Many2one("premafirm.dispatch.run")
     run_sequence = fields.Integer()
@@ -128,6 +134,10 @@ class PremafirmDispatchStop(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        for vals in vals_list:
+            if vals.get("lead_id") and not vals.get("sequence"):
+                sibling = self.search([("lead_id", "=", vals["lead_id"])], order="sequence desc", limit=1)
+                vals["sequence"] = (sibling.sequence + 1) if sibling else 1
         records = super().create(vals_list)
         for stop in records:
             if stop.lead_id and not stop.load_id:

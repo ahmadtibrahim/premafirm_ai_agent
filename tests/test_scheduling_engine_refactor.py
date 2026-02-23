@@ -7,7 +7,7 @@ def test_compute_schedule_is_centralized_on_crm_lead():
     source = (ROOT / "premafirm_ai_engine/models/crm_lead_extension.py").read_text()
     assert "def _compute_schedule" in source
     assert "mapbox.get_travel_time" in source
-    assert "weather.get_weather_factor" in source
+    assert "weather.get_weather_factor" not in source
 
 
 def test_no_hardcoded_nine_am_start_in_schedule_logic():

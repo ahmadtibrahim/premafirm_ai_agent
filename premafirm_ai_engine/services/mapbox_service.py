@@ -13,6 +13,76 @@ class MapboxService:
 
     def __init__(self, env):
         self.env = env
+        self._memory_cache = {}
+
+
+    def _get_cache_model(self):
+        try:
+            return self.env["premafirm.mapbox.cache"]
+        except Exception:
+            return None
+
+    def _cache_lookup(self, origin, destination, waypoints_hash="", departure_dt=None):
+        departure_dt = departure_dt or datetime.utcnow()
+        rounded_hour = departure_dt.replace(minute=0, second=0, microsecond=0)
+        memory_key = (origin, destination, waypoints_hash or "", rounded_hour.isoformat())
+        if memory_key in self._memory_cache:
+            return self._memory_cache[memory_key]
+
+        cache_model = self._get_cache_model()
+        if not cache_model:
+            return None
+        rec = cache_model.search([
+            ("origin", "=", origin),
+            ("destination", "=", destination),
+            ("waypoints_hash", "=", waypoints_hash or ""),
+            ("departure_date", "=", rounded_hour),
+        ], limit=1)
+        if not rec:
+            return None
+        payload = {
+            "distance_km": rec.distance_km,
+            "drive_minutes": rec.duration_minutes,
+            "polyline": rec.polyline,
+            "warning": False,
+        }
+        self._memory_cache[memory_key] = payload
+        return payload
+
+    def _cache_store(self, origin, destination, waypoints_hash, departure_dt, distance_km, duration_minutes, polyline):
+        departure_dt = departure_dt or datetime.utcnow()
+        rounded_hour = departure_dt.replace(minute=0, second=0, microsecond=0)
+        memory_key = (origin, destination, waypoints_hash or "", rounded_hour.isoformat())
+        payload = {
+            "distance_km": float(distance_km or 0.0),
+            "drive_minutes": float(duration_minutes or 0.0),
+            "polyline": polyline or "",
+            "warning": False,
+        }
+        self._memory_cache[memory_key] = payload
+
+        cache_model = self._get_cache_model()
+        if not cache_model:
+            return
+        vals = {
+            "origin": origin,
+            "destination": destination,
+            "waypoints_hash": waypoints_hash or "",
+            "departure_date": rounded_hour,
+            "distance_km": payload["distance_km"],
+            "duration_minutes": payload["drive_minutes"],
+            "polyline": payload["polyline"],
+        }
+        rec = cache_model.search([
+            ("origin", "=", origin),
+            ("destination", "=", destination),
+            ("waypoints_hash", "=", vals["waypoints_hash"]),
+            ("departure_date", "=", vals["departure_date"]),
+        ], limit=1)
+        if rec:
+            rec.write(vals)
+        else:
+            cache_model.create(vals)
 
 
     def _get_cache_model(self):
@@ -158,6 +228,16 @@ class MapboxService:
             "&travelmode=driving"
         )
 
+    @staticmethod
+    def _haversine_km(lat1, lon1, lat2, lon2):
+        r = 6371.0
+        p1 = math.radians(lat1)
+        p2 = math.radians(lat2)
+        d1 = math.radians(lat2 - lat1)
+        d2 = math.radians(lon2 - lon1)
+        a = math.sin(d1 / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(d2 / 2) ** 2
+        return r * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
+
     def get_route(self, origin_address, destination_address):
         api_key = self._get_api_key()
         origin = self.geocode_address(origin_address)
@@ -177,7 +257,11 @@ class MapboxService:
         data = self._safe_get(url)
         routes = data.get("routes") or []
         if not routes:
-            return {"distance_km": 0.0, "drive_hours": 0.0, "map_url": map_url, "warning": "No route found."}
+            try:
+                distance_km = self._haversine_km(origin["latitude"], origin["longitude"], destination["latitude"], destination["longitude"])
+                return {"distance_km": distance_km, "drive_hours": max(distance_km / 60.0, 0.0), "map_url": map_url, "warning": "Mapbox route unavailable; used fallback estimate."}
+            except Exception:
+                return {"distance_km": 0.0, "drive_hours": 0.0, "map_url": map_url, "warning": "No route found."}
 
         route = routes[0]
         legs = route.get("legs") or []

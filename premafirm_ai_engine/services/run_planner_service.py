@@ -105,12 +105,17 @@ class RunPlannerService:
         n = len(base_stops)
         pu = new_stops[0]
         dl = new_stops[1]
+        simulation_cache = {}
         for i in range(0, n + 1):
             for j in range(i + 1, n + 2):
                 candidate = list(base_stops)
                 candidate.insert(i, pu)
                 candidate.insert(j, dl)
-                sim = self.simulate_run(run, candidate)
+                key = tuple(stop.id for stop in candidate)
+                sim = simulation_cache.get(key)
+                if sim is None:
+                    sim = self.simulate_run(run, candidate)
+                    simulation_cache[key] = sim
                 score, inc_profit, dh = self._score_option(base_sim, sim, lead)
                 options.append(
                     {

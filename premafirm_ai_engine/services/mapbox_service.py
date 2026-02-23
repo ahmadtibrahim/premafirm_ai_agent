@@ -1,6 +1,8 @@
 import hashlib
 import logging
+import math
 import time
+from datetime import datetime
 from urllib.parse import quote
 
 import requests
@@ -14,75 +16,6 @@ class MapboxService:
     def __init__(self, env):
         self.env = env
         self._memory_cache = {}
-
-
-    def _get_cache_model(self):
-        try:
-            return self.env["premafirm.mapbox.cache"]
-        except Exception:
-            return None
-
-    def _cache_lookup(self, origin, destination, waypoints_hash="", departure_dt=None):
-        departure_dt = departure_dt or datetime.utcnow()
-        rounded_hour = departure_dt.replace(minute=0, second=0, microsecond=0)
-        memory_key = (origin, destination, waypoints_hash or "", rounded_hour.isoformat())
-        if memory_key in self._memory_cache:
-            return self._memory_cache[memory_key]
-
-        cache_model = self._get_cache_model()
-        if not cache_model:
-            return None
-        rec = cache_model.search([
-            ("origin", "=", origin),
-            ("destination", "=", destination),
-            ("waypoints_hash", "=", waypoints_hash or ""),
-            ("departure_date", "=", rounded_hour),
-        ], limit=1)
-        if not rec:
-            return None
-        payload = {
-            "distance_km": rec.distance_km,
-            "drive_minutes": rec.duration_minutes,
-            "polyline": rec.polyline,
-            "warning": False,
-        }
-        self._memory_cache[memory_key] = payload
-        return payload
-
-    def _cache_store(self, origin, destination, waypoints_hash, departure_dt, distance_km, duration_minutes, polyline):
-        departure_dt = departure_dt or datetime.utcnow()
-        rounded_hour = departure_dt.replace(minute=0, second=0, microsecond=0)
-        memory_key = (origin, destination, waypoints_hash or "", rounded_hour.isoformat())
-        payload = {
-            "distance_km": float(distance_km or 0.0),
-            "drive_minutes": float(duration_minutes or 0.0),
-            "polyline": polyline or "",
-            "warning": False,
-        }
-        self._memory_cache[memory_key] = payload
-
-        cache_model = self._get_cache_model()
-        if not cache_model:
-            return
-        vals = {
-            "origin": origin,
-            "destination": destination,
-            "waypoints_hash": waypoints_hash or "",
-            "departure_date": rounded_hour,
-            "distance_km": payload["distance_km"],
-            "duration_minutes": payload["drive_minutes"],
-            "polyline": payload["polyline"],
-        }
-        rec = cache_model.search([
-            ("origin", "=", origin),
-            ("destination", "=", destination),
-            ("waypoints_hash", "=", vals["waypoints_hash"]),
-            ("departure_date", "=", vals["departure_date"]),
-        ], limit=1)
-        if rec:
-            rec.write(vals)
-        else:
-            cache_model.create(vals)
 
 
     def _get_cache_model(self):

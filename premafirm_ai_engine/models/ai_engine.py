@@ -1,8 +1,11 @@
+import logging
 from odoo import models
 from odoo.exceptions import UserError
 from odoo.tools import html2plaintext
 
 from ..services.crm_dispatch_service import CRMDispatchService
+
+_logger = logging.getLogger(__name__)
 
 
 class CrmLeadAI(models.Model):
@@ -53,15 +56,21 @@ class CrmLeadAI(models.Model):
         return ""
 
     def action_ai_calculate(self):
-        self.ensure_one()
-        if not self.billing_mode:
-            raise UserError("Billing mode is required before AI Auto Calculate.")
-        if (self.final_rate or 0.0) <= 0.0:
-            raise UserError("Final rate is required before AI Auto Calculate.")
-        msg = self._get_latest_email_message()
-        email_text = self._clean_body()
-        attachments = self._get_ai_attachments(msg)
-        if not email_text and not attachments:
-            raise UserError("No email content or attachments found.")
-        CRMDispatchService(self.env).process_lead(self, email_text, attachments=attachments)
+        for lead in self:
+            if not lead.billing_mode:
+                raise UserError("Billing mode is required before AI Auto Calculate.")
+            if (lead.final_rate or 0.0) <= 0.0:
+                raise UserError("Final rate is required before AI Auto Calculate.")
+            msg = lead._get_latest_email_message()
+            email_text = lead._clean_body()
+            attachments = lead._get_ai_attachments(msg)
+            if not email_text and not attachments:
+                raise UserError("No email content or attachments found.")
+            try:
+                CRMDispatchService(self.env).process_lead(lead, email_text, attachments=attachments)
+            except UserError:
+                raise
+            except Exception:
+                _logger.exception("AI scheduling failed for lead %s", lead.id)
+                continue
         return True

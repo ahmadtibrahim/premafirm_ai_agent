@@ -65,6 +65,12 @@ Install as a standard custom module in Odoo 18 and update apps list.
 Timezone note:
 - Python `zoneinfo` is used for schedule calculations. On minimal Linux images, install timezone data with `pip install tzdata` if system tzdata is unavailable.
 
+
+Deployment notes:
+- Validate Python timezone support in the target environment before go-live, e.g. `python -c "from zoneinfo import ZoneInfo; ZoneInfo('America/Toronto')"`.
+- Keep production Odoo settings at `log_level = info` and ensure no `debug=True` flags are enabled.
+- Store external API keys (Mapbox and Weather provider) in `ir.config_parameter` and verify they are present during deployment checks.
+
 ---
 
 ## 4) Developer workflow

@@ -217,6 +217,7 @@ class CrmLead(models.Model):
                 fallback_minutes = float(stop.drive_minutes or stop.drive_hours * 60.0 or 0.0)
                 drive_minutes = float(travel.get("drive_minutes") or fallback_minutes)
                 distance_km = float(travel.get("distance_km") or stop.distance_km or 0.0)
+                weather_info = weather.get_weather_factor(stop.latitude, stop.longitude, when_dt=fields.Datetime.now(), alert_level=lead.weather_alert_level or "none")
                 adjusted_minutes = drive_minutes
                 if travel.get("warning"):
                     warnings.append(travel.get("warning"))

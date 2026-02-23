@@ -1,8 +1,6 @@
 import hashlib
 import logging
-import math
 import time
-from datetime import datetime
 from urllib.parse import quote
 
 import requests
@@ -81,6 +79,51 @@ class MapboxService:
             ("waypoints_hash", "=", vals["waypoints_hash"]),
             ("departure_date", "=", vals["departure_date"]),
         ], limit=1)
+        if rec:
+            rec.write(vals)
+        else:
+            cache_model.create(vals)
+
+
+    def _get_cache_model(self):
+        try:
+            return self.env["premafirm.mapbox.cache"]
+        except Exception:
+            return None
+
+    def _cache_lookup(self, origin, destination, waypoint_hash="", departure_hour=0):
+        cache_model = self._get_cache_model()
+        if not cache_model:
+            return None
+        rec = cache_model.search([
+            ("origin", "=", origin),
+            ("destination", "=", destination),
+            ("waypoint_hash", "=", waypoint_hash),
+            ("departure_hour", "=", int(departure_hour or 0)),
+        ], limit=1)
+        if not rec:
+            return None
+        return {
+            "distance_km": rec.distance_km,
+            "drive_minutes": rec.duration_minutes,
+            "polyline": rec.polyline,
+            "warning": False,
+        }
+
+    def _cache_store(self, origin, destination, waypoint_hash, departure_hour, distance_km, duration_minutes, polyline):
+        cache_model = self._get_cache_model()
+        if not cache_model:
+            return
+        vals = {
+            "origin": origin,
+            "destination": destination,
+            "waypoint_hash": waypoint_hash or "",
+            "departure_hour": int(departure_hour or 0),
+            "distance_km": float(distance_km or 0.0),
+            "duration_minutes": float(duration_minutes or 0.0),
+            "polyline": polyline or "",
+        }
+        rec = cache_model.search([("origin", "=", origin), ("destination", "=", destination), ("waypoint_hash", "=", vals["waypoint_hash"]), ("departure_hour", "=", vals["departure_hour"])], limit=1)
         if rec:
             rec.write(vals)
         else:
@@ -233,7 +276,7 @@ class MapboxService:
     def get_travel_time(self, origin, destination):
         origin_n = self._normalize_address(origin)
         destination_n = self._normalize_address(destination)
-        cached = self._cache_lookup(origin_n, destination_n, waypoints_hash="", departure_dt=datetime.utcnow())
+        cached = self._cache_lookup(origin_n, destination_n)
         if cached:
             return {
                 "distance_km": float(cached.get("distance_km") or 0.0),
@@ -245,7 +288,7 @@ class MapboxService:
         distance_km = float(route.get("distance_km") or 0.0)
         drive_minutes = float(route.get("drive_hours") or 0.0) * 60.0
         if distance_km or drive_minutes:
-            self._cache_store(origin_n, destination_n, "", datetime.utcnow(), distance_km, drive_minutes, "")
+            self._cache_store(origin_n, destination_n, "", 0, distance_km, drive_minutes, "")
         return {
             "distance_km": distance_km,
             "drive_minutes": drive_minutes,
@@ -266,9 +309,9 @@ class MapboxService:
             from_addr = addresses[idx]
             to_addr = addresses[idx + 1]
             travel = self.get_travel_time(from_addr, to_addr)
-            waypoints_hash = hashlib.sha1(f"{from_addr}|{to_addr}".encode("utf-8")).hexdigest()
+            waypoint_hash = hashlib.sha1(f"{from_addr}|{to_addr}".encode("utf-8")).hexdigest()
             if travel.get("distance_km") or travel.get("drive_minutes"):
-                self._cache_store(from_addr, to_addr, waypoints_hash, datetime.utcnow(), travel.get("distance_km"), travel.get("drive_minutes"), "")
+                self._cache_store(from_addr, to_addr, waypoint_hash, 0, travel.get("distance_km"), travel.get("drive_minutes"), "")
             segments.append(
                 {
                     "sequence": idx + 1,

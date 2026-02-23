@@ -50,7 +50,7 @@ class CrmLead(models.Model):
 
     estimated_cost = fields.Monetary(currency_field="company_currency_id")
     suggested_rate = fields.Monetary(currency_field="company_currency_id")
-    final_rate = fields.Monetary(currency_field="company_currency_id", required=True)
+    final_rate = fields.Monetary(currency_field="company_currency_id", required=True, default=0.0)
     final_rate_total = fields.Monetary(
         currency_field="company_currency_id",
         compute="_compute_final_rate_total",
@@ -78,6 +78,18 @@ class CrmLead(models.Model):
     liftgate = fields.Boolean()
     detention_requested = fields.Boolean()
     reefer_required = fields.Boolean()
+    service_type = fields.Selection(
+        [("dry", "Dry"), ("reefer", "Reefer")],
+        compute="_compute_equipment_fields",
+        store=True,
+        readonly=False,
+    )
+    equipment_type = fields.Selection(
+        [("dry", "Dry"), ("reefer", "Reefer")],
+        compute="_compute_equipment_fields",
+        store=True,
+        readonly=False,
+    )
     reefer_setpoint_c = fields.Float("Reefer Setpoint (°C)")
     pump_truck_required = fields.Boolean()
     ai_warning_text = fields.Text()
@@ -153,13 +165,18 @@ class CrmLead(models.Model):
     @api.depends("dispatch_stop_ids.scheduled_datetime", "dispatch_stop_ids.drive_minutes", "assigned_vehicle_id", "assigned_vehicle_id.work_start_hour")
     def _compute_leave_yard_at(self):
         for lead in self:
-            if lead.leave_yard_at:
-                continue
             first_stop = lead.dispatch_stop_ids.sorted("sequence")[:1]
             if first_stop and first_stop.scheduled_datetime:
                 lead.leave_yard_at = first_stop.scheduled_datetime - timedelta(minutes=float(first_stop.drive_minutes or 0.0))
             else:
                 lead.leave_yard_at = False
+
+    @api.depends("reefer_required")
+    def _compute_equipment_fields(self):
+        for lead in self:
+            value = "reefer" if lead.reefer_required else "dry"
+            lead.service_type = value
+            lead.equipment_type = value
 
     def _vehicle_start_datetime(self):
         self.ensure_one()
@@ -356,6 +373,11 @@ class CrmLead(models.Model):
 
 
     def write(self, vals):
+        pricing_fields = {"final_rate", "billing_mode", "suggested_rate", "estimated_cost"}
+        if pricing_fields.intersection(vals) and not (
+            self.env.user.has_group("sales_team.group_sale_manager") or self.env.user.has_group("base.group_system")
+        ):
+            raise UserError("Only Sales Managers or Administrators can modify pricing fields.")
         res = super().write(vals)
         schedule_triggers = {
             "assigned_vehicle_id",
@@ -756,6 +778,14 @@ class CrmLead(models.Model):
         total_rate = max(self.final_rate_total or self.final_rate or 0.0, 0.0)
         if total_rate <= 0.0:
             raise UserError("Final rate must be greater than zero before generating quotation lines.")
+
+        if order.currency_id and self.company_currency_id and order.currency_id != self.company_currency_id:
+            total_rate = self.company_currency_id._convert(
+                total_rate,
+                order.currency_id,
+                order.company_id,
+                fields.Date.context_today(self),
+            )
 
         load_metrics = []
         total_distance = 0.0

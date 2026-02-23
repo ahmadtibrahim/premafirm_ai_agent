@@ -12,5 +12,6 @@ from . import ai_log
 from . import ai_correction
 from . import premafirm_load
 from . import premafirm_booking
+from . import mapbox_cache
 
 from . import res_partner_extension

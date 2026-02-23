@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 from datetime import datetime, time, timedelta
 
 
@@ -37,7 +38,7 @@ class CRMDispatchService:
         self.pricing_engine = PricingEngine(env)
 
     def _now_company_tz(self):
-        tz_name = (self.env.user.tz or self.env.company.partner_id.tz or "UTC")
+        tz_name = (self.env.company.partner_id.tz or "America/Toronto")
         tz = pytz.timezone(tz_name)
         return datetime.now(tz)
 
@@ -287,7 +288,9 @@ class CRMDispatchService:
         return risk, advisories
 
     def process_lead(self, lead, email_text, attachments=None):
+        t0 = time.perf_counter()
         extraction = self.ai_service.extract_load(email_text, attachments=attachments)
+        _logger.info("AI extraction took %.3fs", time.perf_counter() - t0)
         po_data = self._extract_po_details(email_text)
         stop_vals = self._normalize_stop_values(extraction.get("stops", []))
         warnings = list(extraction.get("warnings") or [])
@@ -305,7 +308,9 @@ class CRMDispatchService:
             lead.write({"ai_recommendation": "\n".join(warnings)})
             return {"warnings": warnings, "pricing": {"estimated_cost": 0.0, "suggested_rate": 0.0}}
 
+        t_geo = time.perf_counter()
         warnings.extend(self._enrich_stop_geodata(stop_vals))
+        _logger.info("Map/geodata enrichment took %.3fs", time.perf_counter() - t_geo)
 
         manual_load_map = {
             (stop.sequence, stop.stop_type, (stop.address or "").strip().lower()): stop.load_id.id

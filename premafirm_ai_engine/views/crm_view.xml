@@ -29,11 +29,13 @@
                             <field name="bol_number"/>
                             <field name="pod_reference"/>
                             <field name="payment_terms"/>
-                            <field name="discount_percent"/>
-                            <field name="discount_amount"/>
                             <field name="final_rate"/>
                             <field name="departure_time" readonly="1"/>
-                            <field name="schedule_mode"/>
+                            <field name="strict_pickup_start"/>
+                            <field name="strict_pickup_end"/>
+                            <field name="strict_delivery_start"/>
+                            <field name="strict_delivery_end"/>
+                            <field name="notify_driver"/>
                             <field name="inside_delivery"/>
                             <field name="liftgate"/>
                             <field name="detention_requested"/>
@@ -91,12 +93,6 @@
                         <field name="ai_customer_email" readonly="1" nolabel="1"/>
                         <field name="ai_recommendation" readonly="1" nolabel="1"/>
                         <field name="ai_warning_text" readonly="1" nolabel="1"/>
-                        <field name="weather_summary" readonly="1"/>
-                        <field name="weather_temp_c" readonly="1"/>
-                        <field name="precip_type" readonly="1"/>
-                        <field name="precip_prob" readonly="1"/>
-                        <field name="wind_kph" readonly="1"/>
-                        <field name="weather_alert_text" readonly="1" class="text-danger fw-bold" invisible="weather_alert_level == 'none'"/>
                         <field name="hos_warning_text" readonly="1"/>
                         <field name="ai_optimization_suggestion" readonly="1" nolabel="1"/>
                         <button name="action_rebuild_loads_from_ai" type="object" string="Rebuild from AI" class="btn-secondary"/>

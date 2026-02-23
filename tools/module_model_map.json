@@ -1,0 +1,8 @@
+{
+  "mappings": [
+    {"model": "premafirm.dispatch.run", "alias": "dispatch_plan", "fields": ["name", "vehicle_id", "start_datetime", "end_datetime"]},
+    {"model": "premafirm.dispatch.stop", "alias": "dispatch_stop", "fields": ["lead_id", "sequence", "address", "pallets", "weight_lbs"]},
+    {"model": "premafirm.dispatch.run", "alias": "route_plan", "fields": ["stop_ids", "total_distance_km", "total_drive_hours"]},
+    {"model": "premafirm.mapbox.cache", "alias": "mapbox_cache", "fields": ["origin", "destination", "waypoints_hash", "departure_date", "distance_km", "duration_minutes", "polyline"]}
+  ]
+}

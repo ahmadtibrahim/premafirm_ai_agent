@@ -54,6 +54,10 @@ class CrmLeadAI(models.Model):
 
     def action_ai_calculate(self):
         self.ensure_one()
+        if not self.billing_mode:
+            raise UserError("Billing mode is required before AI Auto Calculate.")
+        if (self.final_rate or 0.0) <= 0.0:
+            raise UserError("Final rate is required before AI Auto Calculate.")
         msg = self._get_latest_email_message()
         email_text = self._clean_body()
         attachments = self._get_ai_attachments(msg)

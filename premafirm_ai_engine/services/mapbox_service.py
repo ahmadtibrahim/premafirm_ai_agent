@@ -1,4 +1,8 @@
+import hashlib
 import logging
+import math
+import time
+from datetime import datetime
 from urllib.parse import quote
 
 import requests
@@ -11,6 +15,76 @@ class MapboxService:
 
     def __init__(self, env):
         self.env = env
+        self._memory_cache = {}
+
+
+    def _get_cache_model(self):
+        try:
+            return self.env["premafirm.mapbox.cache"]
+        except Exception:
+            return None
+
+    def _cache_lookup(self, origin, destination, waypoints_hash="", departure_dt=None):
+        departure_dt = departure_dt or datetime.utcnow()
+        rounded_hour = departure_dt.replace(minute=0, second=0, microsecond=0)
+        memory_key = (origin, destination, waypoints_hash or "", rounded_hour.isoformat())
+        if memory_key in self._memory_cache:
+            return self._memory_cache[memory_key]
+
+        cache_model = self._get_cache_model()
+        if not cache_model:
+            return None
+        rec = cache_model.search([
+            ("origin", "=", origin),
+            ("destination", "=", destination),
+            ("waypoints_hash", "=", waypoints_hash or ""),
+            ("departure_date", "=", rounded_hour),
+        ], limit=1)
+        if not rec:
+            return None
+        payload = {
+            "distance_km": rec.distance_km,
+            "drive_minutes": rec.duration_minutes,
+            "polyline": rec.polyline,
+            "warning": False,
+        }
+        self._memory_cache[memory_key] = payload
+        return payload
+
+    def _cache_store(self, origin, destination, waypoints_hash, departure_dt, distance_km, duration_minutes, polyline):
+        departure_dt = departure_dt or datetime.utcnow()
+        rounded_hour = departure_dt.replace(minute=0, second=0, microsecond=0)
+        memory_key = (origin, destination, waypoints_hash or "", rounded_hour.isoformat())
+        payload = {
+            "distance_km": float(distance_km or 0.0),
+            "drive_minutes": float(duration_minutes or 0.0),
+            "polyline": polyline or "",
+            "warning": False,
+        }
+        self._memory_cache[memory_key] = payload
+
+        cache_model = self._get_cache_model()
+        if not cache_model:
+            return
+        vals = {
+            "origin": origin,
+            "destination": destination,
+            "waypoints_hash": waypoints_hash or "",
+            "departure_date": rounded_hour,
+            "distance_km": payload["distance_km"],
+            "duration_minutes": payload["drive_minutes"],
+            "polyline": payload["polyline"],
+        }
+        rec = cache_model.search([
+            ("origin", "=", origin),
+            ("destination", "=", destination),
+            ("waypoints_hash", "=", vals["waypoints_hash"]),
+            ("departure_date", "=", vals["departure_date"]),
+        ], limit=1)
+        if rec:
+            rec.write(vals)
+        else:
+            cache_model.create(vals)
 
     def _get_api_key(self):
         params = self.env["ir.config_parameter"].sudo()
@@ -21,13 +95,19 @@ class MapboxService:
         )
 
     def _safe_get(self, url, timeout=20):
-        try:
-            response = requests.get(url, timeout=timeout)
-            response.raise_for_status()
-            return response.json()
-        except Exception:
-            _logger.exception("Geocoding/routing request failed: %s", url)
-            return {}
+        wait = 0.5
+        for attempt in range(3):
+            try:
+                response = requests.get(url, timeout=timeout)
+                response.raise_for_status()
+                return response.json()
+            except Exception:
+                if attempt == 2:
+                    _logger.exception("Geocoding/routing request failed: %s", url)
+                    return {}
+                time.sleep(wait)
+                wait *= 2
+        return {}
 
     def _normalize_address(self, address):
         return (address or "").strip()
@@ -105,6 +185,16 @@ class MapboxService:
             "&travelmode=driving"
         )
 
+    @staticmethod
+    def _haversine_km(lat1, lon1, lat2, lon2):
+        r = 6371.0
+        p1 = math.radians(lat1)
+        p2 = math.radians(lat2)
+        d1 = math.radians(lat2 - lat1)
+        d2 = math.radians(lon2 - lon1)
+        a = math.sin(d1 / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(d2 / 2) ** 2
+        return r * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
+
     def get_route(self, origin_address, destination_address):
         api_key = self._get_api_key()
         origin = self.geocode_address(origin_address)
@@ -124,7 +214,11 @@ class MapboxService:
         data = self._safe_get(url)
         routes = data.get("routes") or []
         if not routes:
-            return {"distance_km": 0.0, "drive_hours": 0.0, "map_url": map_url, "warning": "No route found."}
+            try:
+                distance_km = self._haversine_km(origin["latitude"], origin["longitude"], destination["latitude"], destination["longitude"])
+                return {"distance_km": distance_km, "drive_hours": max(distance_km / 60.0, 0.0), "map_url": map_url, "warning": "Mapbox route unavailable; used fallback estimate."}
+            except Exception:
+                return {"distance_km": 0.0, "drive_hours": 0.0, "map_url": map_url, "warning": "No route found."}
 
         route = routes[0]
         legs = route.get("legs") or []
@@ -137,86 +231,55 @@ class MapboxService:
 
 
     def get_travel_time(self, origin, destination):
-        route = self.get_route(origin, destination)
+        origin_n = self._normalize_address(origin)
+        destination_n = self._normalize_address(destination)
+        cached = self._cache_lookup(origin_n, destination_n, waypoints_hash="", departure_dt=datetime.utcnow())
+        if cached:
+            return {
+                "distance_km": float(cached.get("distance_km") or 0.0),
+                "drive_minutes": float(cached.get("drive_minutes") or 0.0),
+                "map_url": None,
+                "warning": False,
+            }
+        route = self.get_route(origin_n, destination_n)
+        distance_km = float(route.get("distance_km") or 0.0)
+        drive_minutes = float(route.get("drive_hours") or 0.0) * 60.0
+        if distance_km or drive_minutes:
+            self._cache_store(origin_n, destination_n, "", datetime.utcnow(), distance_km, drive_minutes, "")
         return {
-            "distance_km": float(route.get("distance_km") or 0.0),
-            "drive_minutes": float(route.get("drive_hours") or 0.0) * 60.0,
+            "distance_km": distance_km,
+            "drive_minutes": drive_minutes,
             "map_url": route.get("map_url"),
             "warning": route.get("warning"),
         }
 
-    def calculate_trip_segments(self, stops, origin_address=None):
-        origin_address = self._normalize_address(origin_address) or self.ORIGIN_YARD
-        origin_geo = self.geocode_address(origin_address)
-
-        stop_points = []
-        for stop in (stops or []):
-            if hasattr(stop, "latitude") and hasattr(stop, "longitude") and stop.latitude and stop.longitude:
-                stop_points.append(
-                    {
-                        "address": self._normalize_address(getattr(stop, "full_address", False) or getattr(stop, "address", "")),
-                        "latitude": float(stop.latitude),
-                        "longitude": float(stop.longitude),
-                    }
-                )
-                continue
-
-            address = self._normalize_address(getattr(stop, "full_address", False) or getattr(stop, "address", stop))
-            geo = self.geocode_address(address)
-            stop_points.append(
-                {
-                    "address": address,
-                    "latitude": geo.get("latitude"),
-                    "longitude": geo.get("longitude"),
-                    "warning": geo.get("warning"),
-                }
-            )
-
-        if not stop_points:
-            return []
-
-        coordinates = []
-        if origin_geo.get("latitude") and origin_geo.get("longitude"):
-            coordinates.append((origin_geo["longitude"], origin_geo["latitude"]))
-        else:
-            coordinates.append((None, None))
-        coordinates.extend((pt.get("longitude"), pt.get("latitude")) for pt in stop_points)
-
-        directions = self._directions_for_coordinates(coordinates)
-        legs = ((directions.get("routes") or [{}])[0].get("legs") or []) if directions else []
+    def calculate_trip_segments(self, origin, stops, return_home=True):
+        origin_address = self._normalize_address(origin) or self.ORIGIN_YARD
+        stop_list = list(stops or [])
+        addresses = [origin_address]
+        addresses.extend(self._normalize_address(getattr(stop, "full_address", False) or getattr(stop, "address", stop)) for stop in stop_list)
+        if return_home:
+            addresses.append(origin_address)
 
         segments = []
-        previous_label = origin_address
-        for idx, point in enumerate(stop_points):
-            leg = legs[idx] if idx < len(legs) else {}
-            origin = {
-                "latitude": coordinates[idx][1],
-                "longitude": coordinates[idx][0],
-            }
-            destination = {
-                "latitude": point.get("latitude"),
-                "longitude": point.get("longitude"),
-            }
-            map_url = None
-            if origin["latitude"] is not None and destination["latitude"] is not None:
-                map_url = self._google_maps_url(origin, destination)
-
-            drive_hours = float(leg.get("duration") or 0.0) / 3600.0
-
-            warning = point.get("warning")
-            if not leg and not warning:
-                warning = "No route found."
-
+        for idx in range(len(addresses) - 1):
+            from_addr = addresses[idx]
+            to_addr = addresses[idx + 1]
+            travel = self.get_travel_time(from_addr, to_addr)
+            waypoints_hash = hashlib.sha1(f"{from_addr}|{to_addr}".encode("utf-8")).hexdigest()
+            if travel.get("distance_km") or travel.get("drive_minutes"):
+                self._cache_store(from_addr, to_addr, waypoints_hash, datetime.utcnow(), travel.get("distance_km"), travel.get("drive_minutes"), "")
             segments.append(
                 {
                     "sequence": idx + 1,
-                    "from": previous_label,
-                    "to": point.get("address"),
-                    "distance_km": float(leg.get("distance") or 0.0) / 1000.0,
-                    "drive_hours": drive_hours,
-                    "warning": warning,
-                    "map_url": map_url,
+                    "from": from_addr,
+                    "to": to_addr,
+                    "distance_km": float(travel.get("distance_km") or 0.0),
+                    "duration_minutes": float(travel.get("drive_minutes") or 0.0),
+                    "drive_hours": float(travel.get("drive_minutes") or 0.0) / 60.0,
+                    "polyline": "",
+                    "warning": travel.get("warning"),
+                    "map_url": travel.get("map_url"),
                 }
             )
-            previous_label = point.get("address")
         return segments

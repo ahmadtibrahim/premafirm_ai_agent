@@ -1,0 +1,7 @@
+{
+  "models": {
+    "premafirm.dispatch.run": ["name", "vehicle_id", "start_datetime", "end_datetime", "stop_ids", "total_distance_km", "total_drive_hours"],
+    "premafirm.dispatch.stop": ["lead_id", "sequence", "address", "pallets", "weight_lbs", "distance_km", "drive_minutes", "forecast_json"],
+    "premafirm.mapbox.cache": ["origin", "destination", "waypoints_hash", "departure_date", "distance_km", "duration_minutes", "polyline", "cached_at"]
+  }
+}

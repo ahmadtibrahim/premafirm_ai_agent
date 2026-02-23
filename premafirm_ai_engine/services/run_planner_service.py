@@ -38,7 +38,11 @@ class RunPlannerService:
     def simulate_run(self, run, stops):
         ordered = list(stops)
         home = run.vehicle_id.home_location if run.vehicle_id else None
-        segments = self.map_service.calculate_trip_segments(ordered, origin_address=home)
+        try:
+            segments = self.map_service.calculate_trip_segments(home, ordered, return_home=False)
+        except TypeError:
+            segments = self.map_service.calculate_trip_segments(ordered, origin_address=home)
+
         cargo_count = 0
         empty_km = 0.0
         loaded_km = 0.0
@@ -161,17 +165,19 @@ class RunPlannerService:
 
 
         driver_partner = self._get_driver_partner(run.vehicle_id)
+        notify_driver = any(bool(stop.lead_id.notify_driver) for stop in run.stop_ids if stop.lead_id)
+        partner_ids = [driver_partner.id] if (notify_driver and driver_partner) else []
         vals = {
             "name": run.name,
             "start": run.start_datetime,
             "stop": run.end_datetime,
-            "partner_ids": [(6, 0, [driver_partner.id])] if driver_partner else [(6, 0, []),],
+            "partner_ids": [(6, 0, partner_ids)],
             "res_model": "premafirm.dispatch.run",
             "res_id": run.id,
         }
         if "vehicle_id" in self.env["calendar.event"]._fields:
             vals["vehicle_id"] = run.vehicle_id.id
         if run.calendar_event_id:
-            run.calendar_event_id.write(vals)
+            run.calendar_event_id.with_context(mail_notify_force_send=False, mail_auto_subscribe_no_notify=True).write(vals)
         else:
-            run.calendar_event_id = self.env["calendar.event"].create(vals)
+            run.calendar_event_id = self.env["calendar.event"].with_context(mail_notify_force_send=False, mail_auto_subscribe_no_notify=True).create(vals)

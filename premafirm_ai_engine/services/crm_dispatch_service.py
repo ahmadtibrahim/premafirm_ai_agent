@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 from datetime import datetime, time, timedelta
 
 
@@ -37,7 +38,7 @@ class CRMDispatchService:
         self.pricing_engine = PricingEngine(env)
 
     def _now_company_tz(self):
-        tz_name = (self.env.user.tz or self.env.company.partner_id.tz or "UTC")
+        tz_name = (self.env.company.partner_id.tz or "America/Toronto")
         tz = pytz.timezone(tz_name)
         return datetime.now(tz)
 
@@ -271,6 +272,7 @@ class CRMDispatchService:
             wind_kph = 35.0
             alert_level = "severe"
             alert_text = "Severe snow advisory in effect"
+        t_write = time.perf_counter()
         lead.write(
             {
                 "weather_summary": summary,
@@ -287,7 +289,9 @@ class CRMDispatchService:
         return risk, advisories
 
     def process_lead(self, lead, email_text, attachments=None):
+        t0 = time.perf_counter()
         extraction = self.ai_service.extract_load(email_text, attachments=attachments)
+        _logger.info("AI extraction took %.3fs", time.perf_counter() - t0)
         po_data = self._extract_po_details(email_text)
         stop_vals = self._normalize_stop_values(extraction.get("stops", []))
         warnings = list(extraction.get("warnings") or [])
@@ -305,7 +309,9 @@ class CRMDispatchService:
             lead.write({"ai_recommendation": "\n".join(warnings)})
             return {"warnings": warnings, "pricing": {"estimated_cost": 0.0, "suggested_rate": 0.0}}
 
+        t_geo = time.perf_counter()
         warnings.extend(self._enrich_stop_geodata(stop_vals))
+        _logger.info("Map/geodata enrichment took %.3fs", time.perf_counter() - t_geo)
 
         manual_load_map = {
             (stop.sequence, stop.stop_type, (stop.address or "").strip().lower()): stop.load_id.id
@@ -347,12 +353,16 @@ class CRMDispatchService:
         if lead.dispatch_stop_ids.filtered(lambda s: s.liftgate_needed):
             lead.message_post(body="Liftgate may be required based on address type; please confirm with broker.")
 
+        t_route = time.perf_counter()
         warnings.extend(self._apply_routes(lead))
+        _logger.info("Route calculation + scheduling took %.3fs", time.perf_counter() - t_route)
 
         if validation_errors:
             pricing_result = {"estimated_cost": 0.0, "suggested_rate": 0.0, "warnings": warnings, "recommendation": "Incomplete data."}
         else:
+            t_price = time.perf_counter()
             pricing_result = self.pricing_engine.calculate_pricing(lead)
+            _logger.info("Pricing engine took %.3fs", time.perf_counter() - t_price)
             warnings.extend(pricing_result.get("warnings", []))
 
         weather_risk, weather_advisories = self._compute_weather_risk(lead)
@@ -360,6 +370,7 @@ class CRMDispatchService:
         recommendation = pricing_result.get("recommendation", "Dispatch processed.") + " Please confirm: dock-level available (Y/N), liftgate required (Y/N), pump truck / pallet jack required (Y/N), and appointment times for pickup and delivery."
         if warnings:
             recommendation = f"{recommendation} Warnings: {' | '.join(dict.fromkeys(warnings))}"
+        t_write = time.perf_counter()
         lead.write(
             {
                 "estimated_cost": pricing_result.get("estimated_cost", 0.0),
@@ -376,4 +387,5 @@ class CRMDispatchService:
                 ),
             }
         )
+        _logger.info("Lead write/update took %.3fs", time.perf_counter() - t_write)
         return {"warnings": warnings, "pricing": pricing_result}

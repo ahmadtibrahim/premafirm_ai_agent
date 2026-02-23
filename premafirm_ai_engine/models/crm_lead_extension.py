@@ -10,7 +10,6 @@ from odoo.exceptions import UserError
 try:
     from ..services.dispatch_rules_engine import DispatchRulesEngine
     from ..services.mapbox_service import MapboxService
-    from ..services.weather_service import WeatherService
 except Exception:
     from importlib.util import module_from_spec, spec_from_file_location
     from pathlib import Path
@@ -24,11 +23,6 @@ except Exception:
     _map_module = module_from_spec(_map_spec)
     _map_spec.loader.exec_module(_map_module)
     MapboxService = _map_module.MapboxService
-    _weather_module_path = Path(__file__).resolve().parents[1] / "services" / "weather_service.py"
-    _weather_spec = spec_from_file_location("weather_service", _weather_module_path)
-    _weather_module = module_from_spec(_weather_spec)
-    _weather_spec.loader.exec_module(_weather_module)
-    WeatherService = _weather_module.WeatherService
 
 
 class CrmLead(models.Model):
@@ -192,11 +186,16 @@ class CrmLead(models.Model):
     def _stop_window(self, stop):
         start = stop.time_window_start or (stop.pickup_window_start if stop.stop_type == "pickup" else stop.delivery_window_start)
         end = stop.time_window_end or (stop.pickup_window_end if stop.stop_type == "pickup" else stop.delivery_window_end)
+        if stop.stop_type == "pickup":
+            start = self.strict_pickup_start or start
+            end = self.strict_pickup_end or end
+        else:
+            start = self.strict_delivery_start or start
+            end = self.strict_delivery_end or end
         return start, end
 
     def _compute_schedule(self, manual_stop=False):
         mapbox = MapboxService(self.env)
-        weather = WeatherService(self.env)
         for lead in self:
             if lead.schedule_locked:
                 continue
@@ -312,9 +311,13 @@ class CrmLead(models.Model):
                     current_time = eta + timedelta(minutes=service)
 
             total_weight = sum(ordered.mapped("weight_lbs"))
-            payload_limit = float(vehicle.payload_capacity_lbs or 0.0) if vehicle else 0.0
+            total_pallets = sum(ordered.mapped("pallets"))
+            payload_limit = float((getattr(vehicle, "max_weight", 0.0) or vehicle.payload_capacity_lbs or 0.0)) if vehicle else 0.0
+            pallet_limit = float(getattr(vehicle, "max_pallets", 0.0) or 0.0) if vehicle else 0.0
             if payload_limit and total_weight > payload_limit:
-                conflict = True
+                raise UserError(f"Vehicle capacity exceeded: weight {total_weight:.0f} lbs exceeds limit {payload_limit:.0f} lbs.")
+            if pallet_limit and total_pallets > pallet_limit:
+                raise UserError(f"Vehicle capacity exceeded: pallets {total_pallets:.0f} exceeds limit {pallet_limit:.0f}.")
             prev_end = False
             for stop in ordered:
                 vals = updates.get(stop.id)

@@ -39,7 +39,7 @@ class RunPlannerService:
         ordered = list(stops)
         home = run.vehicle_id.home_location if run.vehicle_id else None
         try:
-            segments = self.map_service.calculate_trip_segments(home, ordered, return_home=False)
+            segments = self.map_service.calculate_trip_segments(home, ordered, return_home=True)
         except TypeError:
             segments = self.map_service.calculate_trip_segments(ordered, origin_address=home)
 

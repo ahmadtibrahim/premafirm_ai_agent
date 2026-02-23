@@ -210,6 +210,15 @@ class CrmLead(models.Model):
             warnings = []
             conflict = False
 
+            total_weight = sum(ordered.mapped("weight_lbs"))
+            total_pallets = sum(ordered.mapped("pallets"))
+            payload_limit = float((getattr(vehicle, "max_weight", 0.0) or vehicle.payload_capacity_lbs or 0.0)) if vehicle else 0.0
+            pallet_limit = float(getattr(vehicle, "max_pallets", 0.0) or 0.0) if vehicle else 0.0
+            if payload_limit and total_weight > payload_limit:
+                raise UserError(f"Vehicle capacity exceeded: weight {total_weight:.0f} lbs exceeds limit {payload_limit:.0f} lbs.")
+            if pallet_limit and total_pallets > pallet_limit:
+                raise UserError(f"Vehicle capacity exceeded: pallets {total_pallets:.0f} exceeds limit {pallet_limit:.0f}.")
+
             segment_data = []
             prev_loc = yard_location
             for stop in ordered:
@@ -217,7 +226,6 @@ class CrmLead(models.Model):
                 fallback_minutes = float(stop.drive_minutes or stop.drive_hours * 60.0 or 0.0)
                 drive_minutes = float(travel.get("drive_minutes") or fallback_minutes)
                 distance_km = float(travel.get("distance_km") or stop.distance_km or 0.0)
-                weather_info = weather.get_weather_factor(stop.latitude, stop.longitude, when_dt=fields.Datetime.now(), alert_level=lead.weather_alert_level or "none")
                 adjusted_minutes = drive_minutes
                 if travel.get("warning"):
                     warnings.append(travel.get("warning"))
@@ -242,6 +250,10 @@ class CrmLead(models.Model):
                     if start and eta < start:
                         eta = start
                     if end and eta > end:
+                        if (seg["stop"].stop_type == "pickup" and (lead.strict_pickup_start or lead.strict_pickup_end)) or (
+                            seg["stop"].stop_type == "delivery" and (lead.strict_delivery_start or lead.strict_delivery_end)
+                        ):
+                            raise UserError("Pickup/Delivery window impossible within vehicle constraints.")
                         conflict = True
                     updates[seg["stop"].id] = {
                         "estimated_arrival": eta,
@@ -279,6 +291,10 @@ class CrmLead(models.Model):
                     if start and eta < start:
                         eta = start
                     if end and eta > end:
+                        if (seg["stop"].stop_type == "pickup" and (lead.strict_pickup_start or lead.strict_pickup_end)) or (
+                            seg["stop"].stop_type == "delivery" and (lead.strict_delivery_start or lead.strict_delivery_end)
+                        ):
+                            raise UserError("Pickup/Delivery window impossible within vehicle constraints.")
                         conflict = True
                     service = float(seg["stop"].service_duration or 30.0)
                     updates[seg["stop"].id] = {
@@ -310,17 +326,15 @@ class CrmLead(models.Model):
                     }
                     current_time = eta + timedelta(minutes=service)
 
-            total_weight = sum(ordered.mapped("weight_lbs"))
-            total_pallets = sum(ordered.mapped("pallets"))
-            payload_limit = float((getattr(vehicle, "max_weight", 0.0) or vehicle.payload_capacity_lbs or 0.0)) if vehicle else 0.0
-            pallet_limit = float(getattr(vehicle, "max_pallets", 0.0) or 0.0) if vehicle else 0.0
-            if payload_limit and total_weight > payload_limit:
-                raise UserError(f"Vehicle capacity exceeded: weight {total_weight:.0f} lbs exceeds limit {payload_limit:.0f} lbs.")
-            if pallet_limit and total_pallets > pallet_limit:
-                raise UserError(f"Vehicle capacity exceeded: pallets {total_pallets:.0f} exceeds limit {pallet_limit:.0f}.")
             prev_end = False
             for stop in ordered:
                 vals = updates.get(stop.id)
+                if vals and not vals.get("scheduled_datetime"):
+                    vals["scheduled_datetime"] = vehicle_start
+                    vals["scheduled_start_datetime"] = vals.get("scheduled_start_datetime") or vehicle_start
+                    vals["scheduled_end_datetime"] = vals.get("scheduled_end_datetime") or (
+                        vehicle_start + timedelta(minutes=float(stop.service_duration or 30.0))
+                    )
                 if vals:
                     stop.with_context(skip_schedule_recompute=True).write(vals)
                 start_dt = (vals or {}).get("scheduled_start_datetime") or stop.scheduled_start_datetime

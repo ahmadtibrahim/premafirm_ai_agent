@@ -41,8 +41,8 @@
                                 <strong>Load #:</strong> <span t-esc="o.name"/><br/>
                                 <strong>Customer PO:</strong> <span t-esc="o.sale_order_id.premafirm_po or ''"/><br/>
                                 <strong>BOL #:</strong> <span t-esc="o.bol_number or o.sale_order_id.premafirm_bol or ''"/><br/>
-                                <strong>Service type:</strong> <span t-esc="o.sale_order_id.opportunity_id.service_type or ''"/><br/>
-                                <strong>Equipment type:</strong> <span t-esc="o.sale_order_id.opportunity_id.equipment_type or ''"/><br/>
+                                <strong>Service type:</strong> <span t-esc="getattr(o.sale_order_id.opportunity_id, 'service_type', '') or ''"/><br/>
+                                <strong>Equipment type:</strong> <span t-esc="getattr(o.sale_order_id.opportunity_id, 'equipment_type', '') or ''"/><br/>
                                 <t t-if="o.reefer_required">
                                     <strong>Reefer setpoint (°C):</strong> <span t-esc="o.reefer_setpoint_c or ''"/><br/>
                                 </t>

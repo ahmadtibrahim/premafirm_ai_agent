@@ -6,6 +6,7 @@ from datetime import datetime
 from urllib.parse import quote
 
 import requests
+from psycopg2 import IntegrityError
 
 _logger = logging.getLogger(__name__)
 
@@ -56,11 +57,23 @@ class MapboxService:
             "duration_minutes": float(duration_minutes or 0.0),
             "polyline": polyline or "",
         }
-        rec = cache_model.search([("origin", "=", origin), ("destination", "=", destination), ("waypoint_hash", "=", vals["waypoint_hash"]), ("departure_hour", "=", vals["departure_hour"])], limit=1)
+        domain = [
+            ("origin", "=", origin),
+            ("destination", "=", destination),
+            ("waypoint_hash", "=", vals["waypoint_hash"]),
+            ("departure_hour", "=", vals["departure_hour"]),
+        ]
+        rec = cache_model.search(domain, limit=1)
         if rec:
             rec.write(vals)
         else:
-            cache_model.create(vals)
+            try:
+                cache_model.create(vals)
+            except IntegrityError:
+                self.env.cr.rollback()
+                rec = cache_model.search(domain, limit=1)
+                if rec:
+                    rec.write(vals)
 
     def _get_api_key(self):
         params = self.env["ir.config_parameter"].sudo()

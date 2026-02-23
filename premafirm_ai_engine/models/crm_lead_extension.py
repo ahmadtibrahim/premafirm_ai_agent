@@ -34,6 +34,11 @@ except Exception:
 class CrmLead(models.Model):
     _inherit = "crm.lead"
 
+    DRIVER_PREP_BUFFER = 30.0
+    INSPECTION_TIME = 15.0
+    ENGINE_WARMUP = 15.0
+    LOAD_UNLOAD_TIME = 30.0
+
     dispatch_stop_ids = fields.One2many("premafirm.dispatch.stop", "lead_id")
 
     total_pallets = fields.Integer(compute="_compute_dispatch_totals", store=True)
@@ -51,11 +56,9 @@ class CrmLead(models.Model):
 
     estimated_cost = fields.Monetary(currency_field="company_currency_id")
     suggested_rate = fields.Monetary(currency_field="company_currency_id")
-    final_rate = fields.Monetary(currency_field="company_currency_id")
+    final_rate = fields.Monetary(currency_field="company_currency_id", required=True)
     final_rate_total = fields.Monetary(currency_field="company_currency_id")
     ai_recommendation = fields.Text()
-    discount_percent = fields.Float()
-    discount_amount = fields.Monetary(currency_field="company_currency_id")
 
     # Kept for compatibility with previous versions; stop-level product now drives pricing.
     product_id = fields.Many2one("product.product", string="Freight Product")
@@ -126,7 +129,11 @@ class CrmLead(models.Model):
     dispatch_run_id = fields.Many2one("premafirm.dispatch.run")
     schedule_locked = fields.Boolean(default=False)
     schedule_conflict = fields.Boolean(default=False)
-    schedule_mode = fields.Selection([("forward", "Forward"), ("backward", "Backward"), ("mixed", "Mixed")], default="forward", required=True)
+    strict_pickup_start = fields.Datetime()
+    strict_pickup_end = fields.Datetime()
+    strict_delivery_start = fields.Datetime()
+    strict_delivery_end = fields.Datetime()
+    notify_driver = fields.Boolean(default=False)
     schedule_api_warning = fields.Text(readonly=True)
     ai_optimization_suggestion = fields.Text()
 
@@ -158,15 +165,29 @@ class CrmLead(models.Model):
 
     def _vehicle_start_datetime(self):
         self.ensure_one()
-        reference = self.leave_yard_at or (self.dispatch_stop_ids and self.dispatch_stop_ids.sorted("sequence")[:1].scheduled_datetime) or fields.Datetime.now()
-        if isinstance(reference, str):
-            reference = fields.Datetime.to_datetime(reference)
-        if not reference:
-            reference = fields.Datetime.now()
+        tz_name = self.env.company.partner_id.tz or "America/Toronto"
+        tz = ZoneInfo(tz_name)
+        now_utc = fields.Datetime.now()
+        if getattr(now_utc, "tzinfo", None) is None:
+            now_utc = now_utc.replace(tzinfo=ZoneInfo("UTC"))
+        now_local = now_utc.astimezone(tz)
+
         hour_float = float((self.assigned_vehicle_id.work_start_hour if self.assigned_vehicle_id else 8.0) or 8.0)
         hh = int(hour_float)
         mm = int(round((hour_float - hh) * 60))
-        return datetime.combine(reference.date(), time(hh, mm))
+
+        start_date = now_local.date()
+        if now_local.hour >= 13:
+            start_date = start_date + timedelta(days=1)
+        candidate_local = datetime.combine(start_date, time(hh, mm), tzinfo=tz)
+
+        if 8 <= now_local.hour < 13:
+            same_day_floor = datetime.combine(now_local.date(), time(hh, mm), tzinfo=tz)
+            candidate_local = max(now_local, same_day_floor)
+        elif now_local.hour < 8:
+            candidate_local = datetime.combine(now_local.date(), time(hh, mm), tzinfo=tz)
+
+        return candidate_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
 
     def _stop_window(self, stop):
         start = stop.time_window_start or (stop.pickup_window_start if stop.stop_type == "pickup" else stop.delivery_window_start)
@@ -187,7 +208,6 @@ class CrmLead(models.Model):
             yard_location = (vehicle.home_location if vehicle else False) or mapbox.ORIGIN_YARD
             vehicle_start = lead._vehicle_start_datetime()
             has_window = any(bool(lead._stop_window(stop)[0]) for stop in ordered)
-            mode = "mixed" if (has_window and manual_stop) else ("backward" if has_window else "forward")
             warnings = []
             conflict = False
 
@@ -199,9 +219,9 @@ class CrmLead(models.Model):
                 drive_minutes = float(travel.get("drive_minutes") or fallback_minutes)
                 distance_km = float(travel.get("distance_km") or stop.distance_km or 0.0)
                 weather_info = weather.get_weather_factor(stop.latitude, stop.longitude, when_dt=fields.Datetime.now(), alert_level=lead.weather_alert_level or "none")
-                adjusted_minutes = drive_minutes * float(weather_info.get("factor") or 1.0)
-                if travel.get("warning") or weather_info.get("api_failed"):
-                    warnings.append(travel.get("warning") or "Weather API failed; using fallback travel time.")
+                adjusted_minutes = drive_minutes
+                if travel.get("warning"):
+                    warnings.append(travel.get("warning"))
                 segment_data.append({
                     "stop": stop,
                     "distance_km": distance_km,
@@ -214,11 +234,11 @@ class CrmLead(models.Model):
             updates = {}
             if manual_stop:
                 manual_idx = next((idx for idx, seg in enumerate(segment_data) if seg["stop"].id == manual_stop.id), 0)
-                current_time = manual_stop.estimated_arrival or manual_stop.scheduled_datetime or vehicle_start
+                current_time = manual_stop.estimated_arrival or manual_stop.scheduled_datetime or (vehicle_start + timedelta(minutes=(lead.DRIVER_PREP_BUFFER + lead.INSPECTION_TIME + lead.ENGINE_WARMUP)))
                 current_time = current_time + timedelta(minutes=float(manual_stop.service_duration or 30.0))
                 for idx in range(manual_idx + 1, len(segment_data)):
                     seg = segment_data[idx]
-                    eta = current_time + timedelta(minutes=seg["drive_minutes"])
+                    eta = max(current_time + timedelta(minutes=seg["drive_minutes"]), vehicle_start)
                     start, end = lead._stop_window(seg["stop"])
                     if start and eta < start:
                         eta = start
@@ -252,6 +272,7 @@ class CrmLead(models.Model):
                         arrival_times[idx - 1] = depart_prev - timedelta(minutes=prev_service)
                 if lead_leave_yard < vehicle_start:
                     conflict = True
+                    lead_leave_yard = vehicle_start
                 current_time = lead_leave_yard
                 for idx, seg in enumerate(segment_data):
                     eta = arrival_times.get(idx) or (current_time + timedelta(minutes=seg["drive_minutes"]))
@@ -274,9 +295,9 @@ class CrmLead(models.Model):
                     current_time = eta + timedelta(minutes=service)
             else:
                 lead_leave_yard = vehicle_start
-                current_time = vehicle_start
+                current_time = vehicle_start + timedelta(minutes=(lead.DRIVER_PREP_BUFFER + lead.INSPECTION_TIME + lead.ENGINE_WARMUP))
                 for seg in segment_data:
-                    eta = current_time + timedelta(minutes=seg["drive_minutes"])
+                    eta = max(current_time + timedelta(minutes=seg["drive_minutes"]), vehicle_start)
                     service = float(seg["stop"].service_duration or 30.0)
                     updates[seg["stop"].id] = {
                         "estimated_arrival": eta,
@@ -306,49 +327,19 @@ class CrmLead(models.Model):
                 prev_end = end_dt or prev_end
             lead.write({
                 "leave_yard_at": lead_leave_yard,
-                "schedule_mode": mode,
                 "schedule_conflict": conflict or bool(lead_leave_yard and lead_leave_yard < vehicle_start),
                 "schedule_api_warning": " | ".join(dict.fromkeys([w for w in warnings if w])) if warnings else False,
             })
 
 
-    @api.depends("suggested_rate", "final_rate")
-    def _compute_discounts_from_final_rate(self):
-        for lead in self:
-            suggested = lead.suggested_rate or 0.0
-            final = lead.final_rate or 0.0
-            if not suggested:
-                lead.discount_amount = 0.0
-                lead.discount_percent = 0.0
-                continue
-            discount_amount = max(suggested - final, 0.0)
-            lead.discount_amount = discount_amount
-            lead.discount_percent = (discount_amount / suggested) * 100.0 if suggested else 0.0
-
-    @api.onchange("final_rate", "suggested_rate")
-    def _onchange_final_rate_discount(self):
-        self._compute_discounts_from_final_rate()
-
-    @api.onchange("discount_percent", "discount_amount", "suggested_rate")
-    def _onchange_discount_to_final_rate(self):
-        for lead in self:
-            suggested = lead.suggested_rate or 0.0
-            amount = lead.discount_amount or 0.0
-            percent = lead.discount_percent or 0.0
-            if percent:
-                amount = suggested * (percent / 100.0)
-            lead.final_rate = max(suggested - amount, 0.0)
 
 
     def write(self, vals):
         res = super().write(vals)
-        if any(k in vals for k in ("final_rate", "suggested_rate")):
-            self._compute_discounts_from_final_rate()
         schedule_triggers = {
             "assigned_vehicle_id",
             "weather_alert_level",
             "weather_checked_at",
-            "schedule_mode",
         }
         if not self.env.context.get("skip_schedule_recompute") and any(k in vals for k in schedule_triggers):
             self.with_context(skip_schedule_recompute=True)._compute_schedule()
@@ -440,8 +431,10 @@ class CrmLead(models.Model):
 
     def compute_pricing(self):
         for lead in self:
-            if lead.billing_mode == "flat" and (lead.final_rate or 0.0) <= 0.0:
-                raise UserError("Flat mode requires final_rate > 0.")
+            if not lead.billing_mode:
+                raise UserError("Billing mode is required.")
+            if (lead.final_rate or 0.0) <= 0.0:
+                raise UserError("Final rate must be greater than zero.")
             if lead.billing_mode == "flat" and (lead.total_distance_km or 0.0) <= 0.0:
                 raise UserError("Total distance must be greater than zero for flat mode.")
 
@@ -633,15 +626,22 @@ class CrmLead(models.Model):
                 raise UserError("Final rate cannot be negative.")
 
     def _default_pickup_datetime_company_tz(self):
-        tz_name = self.env.user.tz or self.env.company.partner_id.tz or "UTC"
+        tz_name = self.env.company.partner_id.tz or "America/Toronto"
         tz = ZoneInfo(tz_name)
         now_utc = fields.Datetime.now()
         if getattr(now_utc, "tzinfo", None) is None:
             now_utc = now_utc.replace(tzinfo=ZoneInfo("UTC"))
         now_local = now_utc.astimezone(tz)
-        pickup_local = now_local.replace(hour=9, minute=0, second=0, microsecond=0)
-        if now_local.hour >= 12:
-            pickup_local += timedelta(days=1)
+        hour_float = float((self.assigned_vehicle_id.work_start_hour if self.assigned_vehicle_id else 8.0) or 8.0)
+        hh = int(hour_float)
+        mm = int(round((hour_float - hh) * 60))
+        if now_local.hour >= 13:
+            base_date = now_local.date() + timedelta(days=1)
+        else:
+            base_date = now_local.date()
+        pickup_local = datetime.combine(base_date, time(hh, mm), tzinfo=tz)
+        if now_local.hour < 8:
+            pickup_local = datetime.combine(now_local.date(), time(hh, mm), tzinfo=tz)
         return pickup_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
 
     def classify_load(self, email_text=None, extracted_data=None):
@@ -723,27 +723,57 @@ class CrmLead(models.Model):
         self.ensure_one()
         product_id = self._get_service_product_id()
         loads = self.env["premafirm.load"].search([("lead_id", "=", self.id)], order="id asc")
-        total_rate = max(self.final_rate_total or self.final_rate or 0.0, 0.0)
-        total_km = sum(max(load.distance_km or 0.0, 0.0) for load in loads)
-        running_total = 0.0
+        if not loads:
+            return
 
-        for idx, load in enumerate(loads, start=1):
-            if idx < len(loads):
-                ratio = (max(load.distance_km or 0.0, 0.0) / total_km) if total_km else (1.0 / len(loads))
-                price_unit = round(total_rate * ratio, 2)
-                running_total += price_unit
-            else:
-                price_unit = round(total_rate - running_total, 2)
+        total_rate = max(self.final_rate_total or self.final_rate or 0.0, 0.0)
+        if total_rate <= 0.0:
+            raise UserError("Final rate must be greater than zero before generating quotation lines.")
+
+        load_metrics = []
+        total_distance = 0.0
+        for load in loads:
             load_stops = self.dispatch_stop_ids.filtered(lambda s: s.load_id == load)
-            pickup = load_stops.filtered(lambda s: s.stop_type == "pickup")[:1]
-            delivery = load_stops.filtered(lambda s: s.stop_type == "delivery")[:1]
-            line_name = f"{load.name} — {self._extract_city(pickup.address)} -> {self._extract_city(delivery.address)}"
+            distance_km = max(load.distance_km or 0.0, 0.0)
+            pallet_count = sum(max(stop.pallets or 0, 0) for stop in load_stops)
+            stop_count = len(load_stops.filtered(lambda s: s.stop_type == "delivery"))
+            load_metrics.append((load, distance_km, pallet_count, stop_count, load_stops))
+            total_distance += distance_km
+
+        running_total = 0.0
+        for idx, (load, distance_km, pallet_count, stop_count, load_stops) in enumerate(load_metrics, start=1):
+            line_name = load.name
+            if load_stops:
+                pickup = load_stops.filtered(lambda s: s.stop_type == "pickup")[:1]
+                delivery = load_stops.filtered(lambda s: s.stop_type == "delivery")[:1]
+                line_name = f"{load.name} — {self._extract_city(pickup.address)} -> {self._extract_city(delivery.address)}"
+
+            if self.billing_mode == "flat":
+                if idx < len(load_metrics):
+                    ratio = (distance_km / total_distance) if total_distance > 0 else (1.0 / len(load_metrics))
+                    price_unit = round(total_rate * ratio, 2)
+                    running_total += price_unit
+                else:
+                    price_unit = round(total_rate - running_total, 2)
+                qty = 1.0
+            elif self.billing_mode == "per_km":
+                price_unit = self.final_rate
+                qty = distance_km
+            elif self.billing_mode == "per_pallet":
+                price_unit = self.final_rate
+                qty = float(pallet_count)
+            elif self.billing_mode == "per_stop":
+                price_unit = self.final_rate
+                qty = float(stop_count)
+            else:
+                raise UserError("Unsupported billing mode configured.")
+
             self.env["sale.order.line"].create(
                 {
                     "order_id": order.id,
                     "product_id": product_id,
                     "name": line_name,
-                    "product_uom_qty": 1,
+                    "product_uom_qty": qty,
                     "price_unit": price_unit,
                     "load_id": load.id,
                 }
@@ -767,6 +797,10 @@ class CrmLead(models.Model):
             raise UserError("A customer must be selected before creating a sales order.")
         if not self.dispatch_stop_ids:
             raise UserError("Add dispatch stops before creating a sales order.")
+        if not self.billing_mode:
+            raise UserError("Billing mode is required before creating a quotation.")
+        if (self.final_rate or 0.0) <= 0.0:
+            raise UserError("Final rate is required before creating a quotation.")
 
         if not self.pickup_date:
             self.pickup_date = fields.Date.to_date(self._default_pickup_datetime_company_tz())

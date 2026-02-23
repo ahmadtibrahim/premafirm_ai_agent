@@ -1,14 +1,28 @@
 import ast
 from collections import Counter
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
+PERCENT_FIELD = "discount_" + "percent"
+AMOUNT_FIELD = "discount_" + "amount"
 
 
-def test_crm_lead_keeps_legacy_discount_fields_for_view_compatibility():
-    source = (ROOT / "premafirm_ai_engine/models/crm_lead_extension.py").read_text()
-    assert "discount_percent = fields.Float" in source
-    assert "discount_amount = fields.Monetary" in source
+def test_crm_lead_discount_fields_removed_from_model_and_form_view():
+    model_source = (ROOT / "premafirm_ai_engine/models/crm_lead_extension.py").read_text()
+    view_source = (ROOT / "premafirm_ai_engine/views/crm_view.xml").read_text()
+
+    assert PERCENT_FIELD not in model_source
+    assert AMOUNT_FIELD not in model_source
+    assert f'name="{PERCENT_FIELD}"' not in view_source
+    assert f'name="{AMOUNT_FIELD}"' not in view_source
+
+
+def test_crm_form_view_xml_is_well_formed_after_discount_field_removal_regression():
+    view_path = ROOT / "premafirm_ai_engine/views/crm_view.xml"
+    parsed = ET.parse(view_path)
+    root = parsed.getroot()
+    assert root.tag == "odoo"
 
 
 def test_no_duplicate_method_definitions_in_mapbox_service():
@@ -19,3 +33,11 @@ def test_no_duplicate_method_definitions_in_mapbox_service():
     methods = [node.name for node in class_defs[0].body if isinstance(node, ast.FunctionDef)]
     duplicates = [name for name, count in Counter(methods).items() if count > 1]
     assert not duplicates, f"Duplicate methods found: {duplicates}"
+
+
+def test_no_discount_field_references_remain_in_module_python_or_xml_sources():
+    base = ROOT / "premafirm_ai_engine"
+    for path in list(base.rglob("*.py")) + list(base.rglob("*.xml")):
+        source = path.read_text()
+        assert PERCENT_FIELD not in source, f"{PERCENT_FIELD} found in {path}"
+        assert AMOUNT_FIELD not in source, f"{AMOUNT_FIELD} found in {path}"

@@ -52,10 +52,6 @@ class CrmLead(models.Model):
     suggested_rate = fields.Monetary(currency_field="company_currency_id")
     final_rate = fields.Monetary(currency_field="company_currency_id", required=True)
     final_rate_total = fields.Monetary(currency_field="company_currency_id")
-    # Deprecated pricing fields kept for legacy view compatibility during staged rollouts.
-    # They are intentionally not used by pricing logic.
-    discount_percent = fields.Float(default=0.0, readonly=True)
-    discount_amount = fields.Monetary(currency_field="company_currency_id", default=0.0, readonly=True)
     ai_recommendation = fields.Text()
 
     # Kept for compatibility with previous versions; stop-level product now drives pricing.

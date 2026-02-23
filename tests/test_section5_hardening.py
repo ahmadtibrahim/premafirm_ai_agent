@@ -27,14 +27,20 @@ def test_mapbox_cache_model_has_required_fields_from_section5():
     for field_name in [
         "origin",
         "destination",
-        "waypoints_hash",
-        "departure_date",
+        "waypoint_hash",
+        "departure_hour",
         "distance_km",
         "duration_minutes",
         "polyline",
         "cached_at",
     ]:
         assert field_name in source
+
+
+def test_mapbox_cache_model_does_not_use_deprecated_cache_fields():
+    source = (ROOT / "premafirm_ai_engine/models/mapbox_cache.py").read_text()
+    assert "waypoints_hash" not in source
+    assert "departure_date" not in source
 
 
 def test_run_planner_uses_home_location_for_route_origin():

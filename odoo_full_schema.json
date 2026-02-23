@@ -18964,14 +18964,14 @@
         "readonly": false,
         "store": true
       },
-      "discount_amount": {
+      "legacy_rate_amount": {
         "type": "monetary",
         "relation": false,
         "required": false,
         "readonly": false,
         "store": true
       },
-      "discount_percent": {
+      "legacy_rate_percent": {
         "type": "float",
         "relation": false,
         "required": false,
@@ -63086,14 +63086,14 @@
         "readonly": true,
         "store": false
       },
-      "discount_amount": {
+      "legacy_rate_amount": {
         "type": "monetary",
         "relation": false,
         "required": false,
         "readonly": false,
         "store": true
       },
-      "discount_percentage": {
+      "legacy_rate_percentage": {
         "type": "float",
         "relation": false,
         "required": false,
@@ -71778,7 +71778,7 @@
         "readonly": true,
         "store": false
       },
-      "discount_amount_currency": {
+      "legacy_rate_amount_currency": {
         "type": "monetary",
         "relation": false,
         "required": false,
@@ -84994,7 +84994,7 @@
         "readonly": false,
         "store": true
       },
-      "discount_percentage": {
+      "legacy_rate_percentage": {
         "type": "float",
         "relation": false,
         "required": false,
@@ -99274,7 +99274,7 @@
         "readonly": true,
         "store": true
       },
-      "discount_amount": {
+      "legacy_rate_amount": {
         "type": "monetary",
         "relation": false,
         "required": false,

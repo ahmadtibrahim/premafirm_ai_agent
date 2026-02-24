@@ -479,14 +479,14 @@ class CrmLead(models.Model):
             delivery_stops = stops.filtered(lambda s: s.stop_type == "delivery")
             total_km = sum(max(stop.distance_km or 0.0, 0.0) for stop in delivery_stops) or lead.total_distance_km or 0.0
             # flat mode assumed by default
-            per_km_rate = (rate / total_km) if total_km else 0.0
+            distance_rate = (rate / total_km) if total_km else 0.0
 
             flat_delivery_ids = [stop.id for stop in delivery_stops]
             for stop in stops:
                 segment_km = max(stop.distance_km or 0.0, 0.0)
                 pallets = max(stop.pallets or 0, 0)
                 if stop.id in flat_delivery_ids:
-                    segment_rate = segment_km * per_km_rate
+                    segment_rate = segment_km * distance_rate
                 else:
                     segment_rate = 0.0
                 payload.append(

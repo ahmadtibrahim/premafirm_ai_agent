@@ -13,7 +13,6 @@ class TestCrmLeadPricingRegression(TransactionCase):
             {
                 "name": "Pricing Lead",
                 "partner_id": self.partner.id,
-                "billing_mode": "flat",
                 "suggested_rate": 550.0,
                 "final_rate": 600.0,
             }

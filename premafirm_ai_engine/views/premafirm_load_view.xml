@@ -9,8 +9,7 @@
                 <field name="sale_order_id"/>
                 <field name="vehicle_id"/>
                 <field name="driver_id"/>
-                <field name="billing_mode"/>
-                <field name="total_distance_km"/>
+                                <field name="total_distance_km"/>
             </list>
         </field>
     </record>
@@ -35,8 +34,7 @@
                             <field name="route_reference"/>
                             <field name="bol_number"/>
                             <field name="seal_number"/>
-                            <field name="billing_mode" readonly="1"/>
-                        </group>
+                                                    </group>
                     </group>
                     <group string="Signatures">
                         <field name="pickup_signature" widget="image"/>

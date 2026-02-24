@@ -95,12 +95,12 @@ class PricingEngine:
         overnight_cost = nights_required * float(limits.get("overnight_cost_per_night", 130))
 
         product_category = self._resolve_product_category_key(lead)
-        base_rate_km = self._resolve_base_rate(pricing_rules, product_category)
+        base_rate_per_km = self._resolve_base_rate(pricing_rules, product_category)
         flat_rate = float(getattr(lead, "final_rate", 0.0) or getattr(lead, "suggested_rate", 0.0) or 0.0)
-        rate_km = base_rate_km
+        rate_per_km = base_rate_per_km
 
         # flat mode assumed by default
-        gross_revenue = flat_rate or max(loaded_km * rate_km, pricing_rules["min_load_charge"])
+        gross_revenue = flat_rate or max(loaded_km * rate_per_km, pricing_rules["min_load_charge"])
 
         detention_hours = float(getattr(lead, "detention_hours", 0.0) or (1.0 if getattr(lead, "detention_requested", False) else 0.0))
         detention_cost = max(0.0, detention_hours - 2.0) * float(pricing_rules.get("detention_per_hour", 75))

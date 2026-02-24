@@ -54,7 +54,6 @@ class DispatchService:
                 "total_pallets": aggregated_pallet_count,
                 "total_weight_lbs": aggregated_load_weight_lbs,
                 "deadhead_km": float(getattr(lead, "deadhead_km", 0.0) or 0.0),
-                "billing_mode": getattr(lead, "billing_mode", "per_km"),
                 "zone": getattr(lead, "zone", False),
                 "unpaid_deadhead": bool(getattr(lead, "unpaid_deadhead", False)),
                 "assigned_vehicle_id": lead.assigned_vehicle_id,

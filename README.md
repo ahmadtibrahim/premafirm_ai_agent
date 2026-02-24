@@ -15,7 +15,7 @@ This module extends Odoo to support an end-to-end freight lifecycle:
 3. Compute routing + timing + pricing suggestions.
 4. Assign service products per stop (FTL/LTL, country-aware defaults).
 5. Create a Sales Order from CRM with stop-based lines.
-6. Apply discount/final-rate logic.
+6. Apply adjustment/final-rate logic.
 7. Plan dispatch runs and create calendar bookings.
 8. Generate POD reporting and align accounting behavior by region.
 
@@ -40,7 +40,7 @@ This module extends Odoo to support an end-to-end freight lifecycle:
 
 ### D) Sales + accounting handoff
 - Creates Sales Orders directly from CRM lead context.
-- Maps stop data into order lines and pushes discount logic.
+- Maps stop data into order lines and pushes adjustment logic.
 - Extends account move behavior for region/company/journal choices.
 
 ### E) Run planning + booking

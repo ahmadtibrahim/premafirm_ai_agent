@@ -212,7 +212,7 @@ def test_ai_override_command_updates_mode_equipment_and_rate():
     lead = __import__("types").SimpleNamespace(
         ai_locked=False,
         ai_override_command="make it flat rate 800 reefer canada",
-        billing_mode="per_km",
+        billing_profile="km_rate",
         equipment_type="dry",
         final_rate=100,
         partner_id=__import__("types").SimpleNamespace(country_id=None),
@@ -223,7 +223,7 @@ def test_ai_override_command_updates_mode_equipment_and_rate():
     )
 
     mod.CrmLead.action_ai_override([lead])
-    assert lead.billing_mode == "flat"
+    assert lead.billing_profile == "flat"
     assert lead.equipment_type == "reefer"
     assert lead.final_rate == 800.0
 

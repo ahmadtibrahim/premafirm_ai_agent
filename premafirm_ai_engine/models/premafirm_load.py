@@ -19,10 +19,6 @@ class PremafirmLoad(models.Model):
         store=True,
         readonly=True,
     )
-    billing_mode = fields.Selection(
-        related="sale_order_id.billing_mode",
-        store=True,
-    )
     currency_id = fields.Many2one(
         "res.currency",
         related="sale_order_id.currency_id",
@@ -59,10 +55,10 @@ class PremafirmLoad(models.Model):
             load.distance_km = sum(stops.mapped("distance_km"))
             load.drive_hours = sum(stops.mapped("drive_hours"))
 
-    @api.depends("billing_mode", "sale_order_id.amount_total")
+    @api.depends("sale_order_id.amount_total")
     def _compute_total_amount(self):
         for load in self:
-            load.total_amount = load.sale_order_id.amount_total if load.billing_mode == "flat" else 0.0
+            load.total_amount = load.sale_order_id.amount_total
 
     @api.model_create_multi
     def create(self, vals_list):

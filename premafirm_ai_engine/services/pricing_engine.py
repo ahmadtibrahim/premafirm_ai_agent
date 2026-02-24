@@ -40,7 +40,7 @@ class PricingEngine:
 
     @staticmethod
     def _resolve_base_rate(pricing_rules, category_key):
-        base = float(pricing_rules.get("dry_rate_per_km", 2.25))
+        base = float(pricing_rules.get("dry_rate_km", 2.25))
         multipliers = {"ftl_dry": 1.0, "ftl_reefer": 1.15, "ltl_dry": 0.9, "ltl_reefer": 1.0, "express": 1.35}
         return base * multipliers.get(category_key, 1.0)
 
@@ -75,7 +75,7 @@ class PricingEngine:
         max_pallets = int(getattr(vehicle, "max_pallets", 0) or limits.get("max_pallets", 12))
         heavy_load_flag = load_weight_lbs >= float(limits.get("heavy_load_threshold_lbs", 11500))
 
-        fuel_cost = total_km * float(costing_rules.get("fuel_cost_per_km", 0.5))
+        fuel_cost = total_km * float(costing_rules.get("fuel_cost_km", 0.5))
         maintenance_cost = total_km * 0.22
         base_cost = fuel_cost + maintenance_cost
 
@@ -95,17 +95,12 @@ class PricingEngine:
         overnight_cost = nights_required * float(limits.get("overnight_cost_per_night", 130))
 
         product_category = self._resolve_product_category_key(lead)
-        base_rate_per_km = self._resolve_base_rate(pricing_rules, product_category)
-        pricing_model = (getattr(lead, "billing_mode", "per_km") or "per_km").upper()
+        base_rate_km = self._resolve_base_rate(pricing_rules, product_category)
         flat_rate = float(getattr(lead, "final_rate", 0.0) or getattr(lead, "suggested_rate", 0.0) or 0.0)
-        rate_per_km = flat_rate if pricing_model == "PER_KM" and flat_rate else base_rate_per_km
+        rate_km = base_rate_km
 
-        if pricing_model == "FLAT":
-            gross_revenue = flat_rate or max(loaded_km * base_rate_per_km, pricing_rules["min_load_charge"])
-        elif pricing_model == "PER_STOP":
-            gross_revenue = float(pricing_rules.get("min_load_charge", 450)) + (float(pricing_rules.get("extra_stop_fee", 75)) * stop_count)
-        else:
-            gross_revenue = loaded_km * rate_per_km
+        # flat mode assumed by default
+        gross_revenue = flat_rate or max(loaded_km * rate_km, pricing_rules["min_load_charge"])
 
         detention_hours = float(getattr(lead, "detention_hours", 0.0) or (1.0 if getattr(lead, "detention_requested", False) else 0.0))
         detention_cost = max(0.0, detention_hours - 2.0) * float(pricing_rules.get("detention_per_hour", 75))

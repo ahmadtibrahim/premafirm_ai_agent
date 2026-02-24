@@ -58,7 +58,12 @@ This module extends Odoo to support an end-to-end freight lifecycle:
 
 Defined in manifest:
 - Required modules: `crm`, `sale_management`, `account`, `mail`, `fleet`, `hr`, `calendar`.
-- Data loaded: security ACL, product seeds, sequence data, CRM/dispatch/sale/account/report views.
+- Data loaded: security ACL, load sequence data, dispatch rules, CRM/dispatch/sale/account/report views.
+
+Production hardening notes:
+- `billing_mode` is permanently removed from business logic and migration cleanup is idempotent for `crm.lead`, `sale.order`, `premafirm.ai.log`, and `premafirm.load`.
+- Dispatch product resolution is strict by normalized country (`CA`/`US`), load type (`FTL`/`LTL`), and reefer flag; unresolved mappings raise `UserError`.
+- Service products are never auto-created by this module; only existing products are selected.
 
 Install as a standard custom module in Odoo 18 and update apps list.
 

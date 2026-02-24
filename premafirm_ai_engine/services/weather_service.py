@@ -31,8 +31,8 @@ class WeatherService:
         if cached:
             try:
                 return json.loads(cached)
-            except Exception:
-                pass
+            except (json.JSONDecodeError, TypeError, ValueError):
+                _logger.warning("Invalid cached weather payload for key %s", cache_key)
         try:
             resp = requests.get(
                 "https://api.open-meteo.com/v1/forecast",

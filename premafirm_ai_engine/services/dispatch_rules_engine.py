@@ -37,10 +37,8 @@ class DispatchRulesEngine:
         country = (customer_country or "").strip().upper()
         if country in {"US", "USA", "UNITED STATES", "UNITED STATES OF AMERICA"}:
             country_code = "US"
-        elif country in {"CA", "CAN", "CANADA"}:
-            country_code = "CA"
         else:
-            raise UserError(f"Unsupported country: {customer_country}")
+            country_code = "CA"
 
         load_type = (structure or "").strip().upper()
         is_reefer = (equipment or "").strip().lower() == "reefer"

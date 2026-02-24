@@ -33,18 +33,6 @@ class CrmLead(models.Model):
     ENGINE_WARMUP = 15.0
     LOAD_UNLOAD_TIME = 30.0
 
-    @api.model
-    def _register_hook(self):
-        res = super()._register_hook()
-        stale_field = self.env["ir.model.fields"].sudo().search([
-            ("model", "=", "crm.lead"),
-            ("name", "=", "billing_mode"),
-            ("state", "=", "manual"),
-        ])
-        if stale_field:
-            stale_field.unlink()
-        return res
-
     dispatch_stop_ids = fields.One2many("premafirm.dispatch.stop", "lead_id")
 
     total_pallets = fields.Integer(compute="_compute_dispatch_totals", store=True)

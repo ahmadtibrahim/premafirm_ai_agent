@@ -66,5 +66,5 @@ class CrmLeadAI(models.Model):
                 raise
             except Exception:
                 _logger.exception("AI scheduling failed for lead %s", lead.id)
-                continue
+                raise UserError("AI Calculate failed. Please verify email thread/attachments and try again.")
         return True

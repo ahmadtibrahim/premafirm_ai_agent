@@ -139,7 +139,7 @@
     "freight_structure_detection": {
       "rules": [
         "if multiple_bol == true -> LTL",
-        "if rate_type == 'per_stop' -> LTL",
+        "if rate_type == 'stop_rate' -> LTL",
         "if pallet_count >= 8 AND dedicated_truck == true -> FTL",
         "if pallet_count < 8 AND number_of_stops > 1 -> LTL",
         "else -> FTL"
@@ -285,9 +285,9 @@
     }
   },
   "cost_model": {
-    "fuel_cost_per_km_dry": 0.55,
-    "fuel_cost_per_km_reefer": 0.63,
-    "maintenance_cost_per_km": 0.22,
+    "fuel_cost_km_dry": 0.55,
+    "fuel_cost_km_reefer": 0.63,
+    "maintenance_cost_km": 0.22,
     "insurance_daily": 95,
     "overhead_daily": 60,
     "reefer_daily_cost": 18,
@@ -309,8 +309,8 @@
     "note": "Use day-level economics (not just trip margin).",
     "steps": [
       "total_km = loaded_km + deadhead_km + return_home_km",
-      "fuel_cost = total_km * applicable_fuel_cost_per_km",
-      "maintenance_cost = total_km * maintenance_cost_per_km",
+      "fuel_cost = total_km * applicable_fuel_cost_km",
+      "maintenance_cost = total_km * maintenance_cost_km",
       "daily_fixed = insurance_daily + overhead_daily + (reefer_daily_cost if reefer)",
       "gross_profit = revenue - fuel_cost - maintenance_cost",
       "net_day_profit = gross_profit - daily_fixed",
@@ -342,20 +342,20 @@
     ]
   },
   "pricing": {
-    "dry_rate_per_km": 2.25,
-    "reefer_rate_per_km": 2.55,
+    "dry_rate_km": 2.25,
+    "reefer_rate_km": 2.55,
     "min_load_charge": 450,
     "inside_delivery_fee": 125,
     "liftgate_fee": 85,
     "detention_per_hour": 75,
     "extra_stop_fee": 75,
-    "overload_per_pallet": 12
+    "overload_pallet": 12
   },
   "costing": {
-    "fuel_cost_per_km": 0.5,
+    "fuel_cost_km": 0.5,
     "maintenance_monthly": 1000,
     "default_monthly_km": 12000,
-    "safety_cost_per_km": 0.6
+    "safety_cost_km": 0.6
   },
   "hos_rules": {
     "canada_max_drive_hours": 13,

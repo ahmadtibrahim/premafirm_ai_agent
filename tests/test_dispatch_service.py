@@ -99,7 +99,7 @@ def test_compute_lead_totals_applies_dispatcher_rules_for_overweight_load():
         total_weight_lbs=17000,
         total_pallets=16,
         deadhead_km=20,
-        billing_mode="per_km",
+        billing_profile="km_rate",
     )
     service = DispatchService(env=None)
 

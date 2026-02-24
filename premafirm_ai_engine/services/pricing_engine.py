@@ -96,16 +96,11 @@ class PricingEngine:
 
         product_category = self._resolve_product_category_key(lead)
         base_rate_per_km = self._resolve_base_rate(pricing_rules, product_category)
-        pricing_model = (getattr(lead, "billing_mode", "per_km") or "per_km").upper()
         flat_rate = float(getattr(lead, "final_rate", 0.0) or getattr(lead, "suggested_rate", 0.0) or 0.0)
-        rate_per_km = flat_rate if pricing_model == "PER_KM" and flat_rate else base_rate_per_km
+        rate_per_km = base_rate_per_km
 
-        if pricing_model == "FLAT":
-            gross_revenue = flat_rate or max(loaded_km * base_rate_per_km, pricing_rules["min_load_charge"])
-        elif pricing_model == "PER_STOP":
-            gross_revenue = float(pricing_rules.get("min_load_charge", 450)) + (float(pricing_rules.get("extra_stop_fee", 75)) * stop_count)
-        else:
-            gross_revenue = loaded_km * rate_per_km
+        # flat mode assumed by default
+        gross_revenue = flat_rate or max(loaded_km * rate_per_km, pricing_rules["min_load_charge"])
 
         detention_hours = float(getattr(lead, "detention_hours", 0.0) or (1.0 if getattr(lead, "detention_requested", False) else 0.0))
         detention_cost = max(0.0, detention_hours - 2.0) * float(pricing_rules.get("detention_per_hour", 75))

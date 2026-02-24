@@ -19,15 +19,6 @@ class SaleOrder(models.Model):
     total_distance_km = fields.Float()
 
     load_reference = fields.Char()
-    billing_mode = fields.Selection(
-        [
-            ("flat", "Flat Rate"),
-            ("per_km", "Per KM"),
-            ("per_pallet", "Per Pallet"),
-            ("per_stop", "Per Stop"),
-        ],
-        default="flat",
-    )
     load_ids = fields.One2many("premafirm.load", "sale_order_id", string="Loads")
 
     def action_generate_pod(self):

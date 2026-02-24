@@ -97,16 +97,6 @@ class CrmLead(models.Model):
 
     assigned_vehicle_id = fields.Many2one("fleet.vehicle")
 
-    billing_mode = fields.Selection(
-        [
-            ("flat", "Flat"),
-            ("per_km", "Per KM"),
-            ("per_pallet", "Per Pallet"),
-            ("per_stop", "Per Stop"),
-        ],
-        default="flat",
-        required=True,
-    )
     ai_override_command = fields.Text()
     ai_locked = fields.Boolean(default=False)
     load_status = fields.Selection(
@@ -373,7 +363,7 @@ class CrmLead(models.Model):
 
 
     def write(self, vals):
-        pricing_fields = {"final_rate", "billing_mode", "suggested_rate", "estimated_cost"}
+        pricing_fields = {"final_rate", "suggested_rate", "estimated_cost"}
         if pricing_fields.intersection(vals) and not (
             self.env.user.has_group("sales_team.group_sale_manager") or self.env.user.has_group("base.group_system")
         ):
@@ -447,8 +437,6 @@ class CrmLead(models.Model):
         multiple_bol = bool(self.bol_number and "," in self.bol_number)
         if multiple_bol:
             return "LTL"
-        if self.billing_mode == "per_stop":
-            return "LTL"
         pallets = int(self.total_pallets or 0)
         delivery_stops = len(self.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery"))
         dedicated_truck = bool(self.assigned_vehicle_id)
@@ -469,7 +457,6 @@ class CrmLead(models.Model):
         self.env["premafirm.ai.log"].create(
             {
                 "lead_id": self.id,
-                "billing_mode": self.billing_mode,
                 "distance_km": self.total_distance_km,
                 "pallets": self.total_pallets,
                 "final_rate": self.final_rate,
@@ -480,12 +467,8 @@ class CrmLead(models.Model):
 
     def compute_pricing(self):
         for lead in self:
-            if not lead.billing_mode:
-                raise UserError("Billing mode is required.")
             if (lead.final_rate or 0.0) <= 0.0:
                 raise UserError("Final rate must be greater than zero.")
-            if lead.billing_mode == "flat" and (lead.total_distance_km or 0.0) <= 0.0:
-                raise UserError("Total distance must be greater than zero for flat mode.")
 
             stops = lead.dispatch_stop_ids.sorted("sequence")
             rate = max(lead.final_rate or lead.suggested_rate or 0.0, 0.0)
@@ -495,25 +478,17 @@ class CrmLead(models.Model):
             payload = []
             delivery_stops = stops.filtered(lambda s: s.stop_type == "delivery")
             total_km = sum(max(stop.distance_km or 0.0, 0.0) for stop in delivery_stops) or lead.total_distance_km or 0.0
-            per_km_rate = (rate / total_km) if lead.billing_mode == "flat" and total_km else (rate if lead.billing_mode == "per_km" else 0.0)
-            per_pallet_rate = rate if lead.billing_mode == "per_pallet" else 0.0
-            per_stop_rate = (rate / len(delivery_stops)) if lead.billing_mode == "per_stop" and delivery_stops else 0.0
+            # flat mode assumed by default
+            per_km_rate = (rate / total_km) if total_km else 0.0
 
             flat_delivery_ids = [stop.id for stop in delivery_stops]
             for stop in stops:
                 segment_km = max(stop.distance_km or 0.0, 0.0)
                 pallets = max(stop.pallets or 0, 0)
-                if lead.billing_mode == "flat":
-                    if stop.id in flat_delivery_ids:
-                        segment_rate = segment_km * per_km_rate
-                    else:
-                        segment_rate = 0.0
-                elif lead.billing_mode == "per_km":
+                if stop.id in flat_delivery_ids:
                     segment_rate = segment_km * per_km_rate
-                elif lead.billing_mode == "per_pallet":
-                    segment_rate = per_pallet_rate * pallets
                 else:
-                    segment_rate = per_stop_rate if stop.stop_type == "delivery" else 0.0
+                    segment_rate = 0.0
                 payload.append(
                     {
                         "stop_id": stop.id,
@@ -525,7 +500,7 @@ class CrmLead(models.Model):
                     }
                 )
 
-            if lead.billing_mode == "flat" and flat_delivery_ids:
+            if flat_delivery_ids:
                 delivery_payload = [item for item in payload if item["stop_type"] == "delivery"]
                 rounded_running = 0.0
                 for item in delivery_payload[:-1]:
@@ -534,7 +509,6 @@ class CrmLead(models.Model):
                 delivery_payload[-1]["segment_rate"] = round(max(rate - rounded_running, 0.0), 2)
 
             bullets = [
-                f"• Billing mode: {lead.billing_mode}",
                 f"• Structure: {lead._resolve_structure()} | Equipment: {lead._resolve_equipment().upper()}",
                 f"• Total distance: {total_km:.2f} km",
                 f"• Final rate basis: {rate:.2f}",
@@ -550,7 +524,7 @@ class CrmLead(models.Model):
                 {
                     "pricing_payload_json": json.dumps(payload),
                     "ai_internal_summary": "\n".join(bullets),
-                    "ai_customer_email": f"Quoted in {lead.billing_mode} mode. Total {total_segment_amount:.2f}.",
+                    "ai_customer_email": f"Quoted total {total_segment_amount:.2f}.",
                 }
             )
             lead._create_ai_log(user_modified=False)
@@ -568,15 +542,6 @@ class CrmLead(models.Model):
             if amount_match:
                 vals["final_rate"] = float(amount_match.group(1))
             lowered = command.lower()
-            if "per pallet" in lowered:
-                vals["billing_mode"] = "per_pallet"
-            elif "per stop" in lowered:
-                vals["billing_mode"] = "per_stop"
-            elif "per km" in lowered:
-                vals["billing_mode"] = "per_km"
-            elif "flat" in lowered:
-                vals["billing_mode"] = "flat"
-
             if "reefer" in lowered:
                 vals["equipment_type"] = "reefer"
                 vals["reefer_required"] = True
@@ -608,7 +573,6 @@ class CrmLead(models.Model):
             lead.dispatch_stop_ids.unlink()
             lead.write(
                 {
-                    "billing_mode": "flat",
                     "final_rate": 0.0,
                     "ai_override_command": False,
                     "ai_internal_summary": False,
@@ -696,7 +660,6 @@ class CrmLead(models.Model):
     def classify_load(self, email_text=None, extracted_data=None):
         data = extracted_data or {}
         multiple_bol = bool(data.get("multiple_bol", False))
-        rate_type = data.get("rate_type") or self.billing_mode
         pallet_count = int(data.get("pallet_count") or self.total_pallets or 0)
         inferred_stops = int(data.get("delivery_locations_count") or 0)
         if not inferred_stops and getattr(self, "dispatch_stop_ids", None):
@@ -707,8 +670,6 @@ class CrmLead(models.Model):
             return {"classification": "LTL", "confidence": "HIGH"}
 
         if multiple_bol is True:
-            classification = "LTL"
-        elif rate_type == "per_stop":
             classification = "LTL"
         elif pallet_count >= 8 and dedicated_truck is True:
             classification = "FTL"
@@ -752,7 +713,6 @@ class CrmLead(models.Model):
             "total_pallets": self.total_pallets,
             "total_weight_lbs": self.total_weight_lbs,
             "total_distance_km": self.total_distance_km,
-            "billing_mode": self.billing_mode,
             "payment_term_id": self.payment_terms.id,
         }
 
@@ -805,25 +765,14 @@ class CrmLead(models.Model):
                 delivery = load_stops.filtered(lambda s: s.stop_type == "delivery")[:1]
                 line_name = f"{load.name} — {self._extract_city(pickup.address)} -> {self._extract_city(delivery.address)}"
 
-            if self.billing_mode == "flat":
-                if idx < len(load_metrics):
-                    ratio = (distance_km / total_distance) if total_distance > 0 else (1.0 / len(load_metrics))
-                    price_unit = round(total_rate * ratio, 2)
-                    running_total += price_unit
-                else:
-                    price_unit = round(total_rate - running_total, 2)
-                qty = 1.0
-            elif self.billing_mode == "per_km":
-                price_unit = self.final_rate
-                qty = distance_km
-            elif self.billing_mode == "per_pallet":
-                price_unit = self.final_rate
-                qty = float(pallet_count)
-            elif self.billing_mode == "per_stop":
-                price_unit = self.final_rate
-                qty = float(stop_count)
+            # flat mode assumed by default
+            if idx < len(load_metrics):
+                ratio = (distance_km / total_distance) if total_distance > 0 else (1.0 / len(load_metrics))
+                price_unit = round(total_rate * ratio, 2)
+                running_total += price_unit
             else:
-                raise UserError("Unsupported billing mode configured.")
+                price_unit = round(total_rate - running_total, 2)
+            qty = 1.0
 
             self.env["sale.order.line"].create(
                 {
@@ -854,8 +803,6 @@ class CrmLead(models.Model):
             raise UserError("A customer must be selected before creating a sales order.")
         if not self.dispatch_stop_ids:
             raise UserError("Add dispatch stops before creating a sales order.")
-        if not self.billing_mode:
-            raise UserError("Billing mode is required before creating a quotation.")
         if (self.final_rate or 0.0) <= 0.0:
             raise UserError("Final rate is required before creating a quotation.")
 

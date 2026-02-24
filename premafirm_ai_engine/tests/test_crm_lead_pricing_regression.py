@@ -8,7 +8,7 @@ class TestCrmLeadPricingRegression(TransactionCase):
         super().setUp()
         self.partner = self.env["res.partner"].create({"name": "Pricing Customer"})
 
-    def test_crm_lead_form_view_and_pricing_fields_work_without_legacy_discount_fields(self):
+    def test_crm_lead_form_view_and_pricing_fields_work_without_legacy_legacy_adj_fields(self):
         lead = self.env["crm.lead"].create(
             {
                 "name": "Pricing Lead",

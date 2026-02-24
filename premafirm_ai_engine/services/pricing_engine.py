@@ -40,7 +40,7 @@ class PricingEngine:
 
     @staticmethod
     def _resolve_base_rate(pricing_rules, category_key):
-        base = float(pricing_rules.get("dry_rate_per_km", 2.25))
+        base = float(pricing_rules.get("dry_rate_km", 2.25))
         multipliers = {"ftl_dry": 1.0, "ftl_reefer": 1.15, "ltl_dry": 0.9, "ltl_reefer": 1.0, "express": 1.35}
         return base * multipliers.get(category_key, 1.0)
 
@@ -75,7 +75,7 @@ class PricingEngine:
         max_pallets = int(getattr(vehicle, "max_pallets", 0) or limits.get("max_pallets", 12))
         heavy_load_flag = load_weight_lbs >= float(limits.get("heavy_load_threshold_lbs", 11500))
 
-        fuel_cost = total_km * float(costing_rules.get("fuel_cost_per_km", 0.5))
+        fuel_cost = total_km * float(costing_rules.get("fuel_cost_km", 0.5))
         maintenance_cost = total_km * 0.22
         base_cost = fuel_cost + maintenance_cost
 

@@ -4,11 +4,11 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-PERCENT_FIELD = "discount_" + "percent"
-AMOUNT_FIELD = "discount_" + "amount"
+PERCENT_FIELD = "legacy_adj_" + "percent"
+AMOUNT_FIELD = "legacy_adj_" + "amount"
 
 
-def test_crm_lead_discount_fields_removed_from_model_and_form_view():
+def test_crm_lead_legacy_adj_fields_removed_from_model_and_form_view():
     model_source = (ROOT / "premafirm_ai_engine/models/crm_lead_extension.py").read_text()
     view_source = (ROOT / "premafirm_ai_engine/views/crm_view.xml").read_text()
 
@@ -18,7 +18,7 @@ def test_crm_lead_discount_fields_removed_from_model_and_form_view():
     assert f'name="{AMOUNT_FIELD}"' not in view_source
 
 
-def test_crm_form_view_xml_is_well_formed_after_discount_field_removal_regression():
+def test_crm_form_view_xml_is_well_formed_after_legacy_adj_field_removal_regression():
     view_path = ROOT / "premafirm_ai_engine/views/crm_view.xml"
     parsed = ET.parse(view_path)
     root = parsed.getroot()
@@ -35,7 +35,7 @@ def test_no_duplicate_method_definitions_in_mapbox_service():
     assert not duplicates, f"Duplicate methods found: {duplicates}"
 
 
-def test_no_discount_field_references_remain_in_module_python_or_xml_sources():
+def test_no_legacy_adj_field_references_remain_in_module_python_or_xml_sources():
     base = ROOT / "premafirm_ai_engine"
     for path in list(base.rglob("*.py")) + list(base.rglob("*.xml")):
         source = path.read_text()

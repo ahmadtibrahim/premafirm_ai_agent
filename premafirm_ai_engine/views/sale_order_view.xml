@@ -16,8 +16,7 @@
                         <field name="premafirm_bol"/>
                         <field name="premafirm_pod"/>
                         <field name="load_reference"/>
-                        <field name="billing_mode"/>
-                    </group>
+                                            </group>
                     <group>
                         <field name="pickup_city"/>
                         <field name="delivery_city"/>

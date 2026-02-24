@@ -24,8 +24,7 @@
                             <field name="total_weight_lbs" readonly="1"/>
                         </group>
                         <group>
-                            <field name="billing_mode"/>
-                            <field name="po_number"/>
+                                                        <field name="po_number"/>
                             <field name="bol_number"/>
                             <field name="pod_reference"/>
                             <field name="payment_terms"/>

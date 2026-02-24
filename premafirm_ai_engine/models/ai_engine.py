@@ -23,54 +23,48 @@ class CrmLeadAI(models.Model):
             ]
         ).filtered(lambda a: (a.name or "").lower().endswith((".pdf", ".xlsx", ".xls")))
 
-    def _get_latest_email_message(self):
-        messages = self.message_ids.sorted("date", reverse=True)
-        load_keywords = ("load #", "# of pallets", "pickup", "delivery", "total weight")
+    def _get_inbound_email_messages(self):
+        return self.env["mail.message"].search(
+            [
+                ("model", "=", "crm.lead"),
+                ("res_id", "=", self.id),
+                ("message_type", "=", "email"),
+            ],
+            order="date asc",
+        )
 
+    def _build_thread_text(self, messages):
+        parts = []
         for msg in messages:
-            if msg.model != "crm.lead" or msg.res_id != self.id:
-                continue
-            if msg.message_type != "email":
-                continue
-            body = html2plaintext(msg.body or "").lower()
-            if msg.attachment_ids or any(keyword in body for keyword in load_keywords):
-                return msg
-
-        for msg in messages:
-            if msg.model != "crm.lead" or msg.res_id != self.id:
-                continue
-            if msg.message_type == "email":
-                return msg
-
-        for msg in messages:
-            if msg.model != "crm.lead" or msg.res_id != self.id:
-                continue
-            if msg.message_type == "comment":
-                return msg
-        return self.env["mail.message"]
-
-    def _clean_body(self):
-        msg = self._get_latest_email_message()
-        if msg and msg.body:
-            return (html2plaintext(msg.body) or "").strip()
-        return ""
+            body = (html2plaintext(msg.body or "") or "").strip()
+            if body:
+                parts.append(body)
+        return "\n\n".join(parts).strip()
 
     def action_ai_calculate(self):
         for lead in self:
-            if not lead.billing_mode:
-                raise UserError("Billing mode is required before AI Auto Calculate.")
-            if (lead.final_rate or 0.0) <= 0.0:
-                raise UserError("Final rate is required before AI Auto Calculate.")
-            msg = lead._get_latest_email_message()
-            email_text = lead._clean_body()
-            attachments = lead._get_ai_attachments(msg)
+            confirmed_so = self.env["sale.order"].search_count(
+                [
+                    ("opportunity_id", "=", lead.id),
+                    ("state", "not in", ["cancel"]),
+                ]
+            )
+            if confirmed_so:
+                raise UserError("AI locked after Sales Order creation.")
+
+            messages = lead._get_inbound_email_messages()
+            email_text = lead._build_thread_text(messages)
+            attachments = messages.mapped("attachment_ids")
+            if not attachments:
+                attachments = lead._get_ai_attachments(self.env["mail.message"])
             if not email_text and not attachments:
                 raise UserError("No email content or attachments found.")
             try:
-                CRMDispatchService(self.env).process_lead(lead, email_text, attachments=attachments)
+                result = CRMDispatchService(self.env).process_lead(lead, email_text, attachments=attachments)
+                lead.final_rate = result.get("pricing", {}).get("extracted_rate") or result.get("pricing", {}).get("final_rate") or lead.final_rate
             except UserError:
                 raise
             except Exception:
                 _logger.exception("AI scheduling failed for lead %s", lead.id)
-                continue
+                raise UserError("AI Calculate failed. Please verify email thread/attachments and try again.")
         return True

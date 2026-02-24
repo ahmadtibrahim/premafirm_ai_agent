@@ -1,6 +1,6 @@
 {
     "name": "PremaFirm AI Engine",
-    "version": "1.4",
+    "version": "18.0.2.0.0",
     "summary": "AI Pricing + Routing Engine for PremaFirm Logistics",
     "author": "PremaFirm",
     "license": "LGPL-3",

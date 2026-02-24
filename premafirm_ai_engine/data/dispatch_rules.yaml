@@ -134,14 +134,14 @@ product_selection_engine:
     note: "Use sale.order.partner_id.country_id or crm.lead.partner_id.country_id."
   mapping_by_customer_country:
     USA:
-      FTL: { Dry: 266, Reefer: 264 }
-      LTL: { Dry: 278, Reefer: 276 }
+      FTL: { Dry: "FTL - Freight Service - USA", Reefer: "FTL - Freight Service - USA" }
+      LTL: { Dry: "LTL - Freight Service - USA", Reefer: "LTL - Freight Service - USA" }
     Canada:
-      FTL: { Dry: 262, Reefer: 259 }
-      LTL: { Dry: 274, Reefer: 273 }
+      FTL: { Dry: "FTL Freight Service - Canada", Reefer: "FTL Freight Service - Canada" }
+      LTL: { Dry: "LTL Freight Service - Canada", Reefer: "LTL Freight Service - Canada" }
   accessorials:
-    Liftgate: 269
-    Inside_Delivery: 270
+    Liftgate: "Liftgate"
+    Inside_Delivery: "Inside Delivery"
   odoo_target:
     model: sale.order.line
     field: product_id

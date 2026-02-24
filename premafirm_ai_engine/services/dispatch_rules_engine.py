@@ -35,10 +35,12 @@ class DispatchRulesEngine:
 
     def select_product(self, customer_country, structure, equipment):
         country = (customer_country or "").strip().upper()
-        if country in {"US", "USA", "UNITED STATES", "UNITED STATES OF AMERICA"}:
+        if country in {"CA", "CAN", "CANADA"}:
+            country_code = "CA"
+        elif country in {"US", "USA", "UNITED STATES", "UNITED STATES OF AMERICA"}:
             country_code = "US"
         else:
-            country_code = "CA"
+            raise UserError("Unsupported country")
 
         load_type = (structure or "").strip().upper()
         is_reefer = (equipment or "").strip().lower() == "reefer"

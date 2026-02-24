@@ -46,18 +46,6 @@ def test_no_legacy_adj_field_references_remain_in_module_python_or_xml_sources()
 
 def test_no_billing_mode_references_remain_in_module_python_or_xml_sources():
     base = ROOT / "premafirm_ai_engine"
-    allowed_cleanup_file = base / "models/crm_lead_extension.py"
     for path in list(base.rglob("*.py")) + list(base.rglob("*.xml")):
         source = path.read_text()
-        if path == allowed_cleanup_file:
-            continue
         assert BILLING_MODE_FIELD not in source, f"{BILLING_MODE_FIELD} found in {path}"
-
-
-def test_crm_lead_register_hook_cleans_stale_manual_billing_mode_field():
-    model_source = (ROOT / "premafirm_ai_engine/models/crm_lead_extension.py").read_text()
-
-    assert "def _register_hook" in model_source
-    assert "ir.model.fields" in model_source
-    assert '("name", "=", "billing_mode")' in model_source
-    assert '("state", "=", "manual")' in model_source

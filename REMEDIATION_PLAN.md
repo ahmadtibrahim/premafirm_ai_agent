@@ -1,3 +1,10 @@
+# Production hardening status update
+
+- `billing_mode` removal is enforced via migration cleanup across `crm.lead`, `sale.order`, `premafirm.ai.log`, and `premafirm.load`.
+- Dispatch resolver policy is strict (`CA`/`US` normalization only) and raises `UserError` for unsupported country or unresolved product mapping.
+- Product auto-creation is prohibited; module resolves existing templates/variants only.
+- Silent exception swallowing has been removed from weather cache parsing.
+
 # IMPLEMENTATION AUDIT – Remediation Plan (Fix Design Only)
 
 This document provides **minimal, safe patch design** for each FAIL item, without introducing new architecture.

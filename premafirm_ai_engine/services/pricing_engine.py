@@ -6,7 +6,7 @@ _logger = logging.getLogger(__name__)
 
 try:
     from .dispatch_rules_engine import DispatchRulesEngine
-except Exception:
+except ImportError:
     module_path = Path(__file__).resolve().parent / "dispatch_rules_engine.py"
     spec = spec_from_file_location("dispatch_rules_engine", module_path)
     module = module_from_spec(spec)

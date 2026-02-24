@@ -155,28 +155,28 @@
     "mapping_by_customer_country": {
       "USA": {
         "FTL": {
-          "Dry": 266,
-          "Reefer": 264
+          "Dry": "FTL - Freight Service - USA",
+          "Reefer": "FTL - Freight Service - USA"
         },
         "LTL": {
-          "Dry": 278,
-          "Reefer": 276
+          "Dry": "LTL - Freight Service - USA",
+          "Reefer": "LTL - Freight Service - USA"
         }
       },
       "Canada": {
         "FTL": {
-          "Dry": 262,
-          "Reefer": 259
+          "Dry": "FTL Freight Service - Canada",
+          "Reefer": "FTL Freight Service - Canada"
         },
         "LTL": {
-          "Dry": 274,
-          "Reefer": 273
+          "Dry": "LTL Freight Service - Canada",
+          "Reefer": "LTL Freight Service - Canada"
         }
       }
     },
     "accessorials": {
-      "Liftgate": 269,
-      "Inside_Delivery": 270
+      "Liftgate": "Liftgate",
+      "Inside_Delivery": "Inside Delivery"
     },
     "odoo_target": {
       "model": "sale.order.line",

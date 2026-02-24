@@ -207,6 +207,43 @@ class CRMDispatchService:
         self._create_calendar_booking(lead)
         return [lead.schedule_api_warning] if lead.schedule_api_warning else []
 
+
+    def _extract_last_numeric(self, text, patterns):
+        matches = []
+        for pattern in patterns:
+            matches.extend(re.finditer(pattern, text or "", re.I))
+        if not matches:
+            return None
+        raw = matches[-1].group(1)
+        try:
+            return float(str(raw).replace(",", ""))
+        except Exception:
+            return None
+
+    def _extract_last_token(self, text, patterns):
+        matches = []
+        for pattern in patterns:
+            matches.extend(re.finditer(pattern, text or "", re.I))
+        return matches[-1].group(1).strip() if matches else None
+
+    def _extract_commercial_terms(self, thread_text, attachments=None):
+        attachment_text = ""
+        for att in (attachments or self.env["ir.attachment"]):
+            if (att.name or "").lower().endswith(".pdf"):
+                attachment_text += "\n" + (self.ai_service._extract_attachment_text(att) or "")
+        full_text = f"{thread_text or ''}\n{attachment_text}"
+        return {
+            "rate": self._extract_last_numeric(full_text, [r"(?:rate|line\s*haul|all\s*in)\s*[:$]?\s*(\d+(?:,\d{3})*(?:\.\d+)?)", r"\$(\d+(?:,\d{3})*(?:\.\d+)?)"]),
+            "tonu": bool(re.search(r"\btonu\b", full_text or "", re.I)),
+            "detention": bool(re.search(r"\bdetention\b", full_text or "", re.I)),
+            "pump_truck": bool(re.search(r"pump\s*truck|pallet\s*jack", full_text or "", re.I)),
+            "reefer_temp": self._extract_last_token(full_text, [r"(?:reefer|temp(?:erature)?)\s*[:=-]?\s*([-+]?\d+(?:\.\d+)?)"]),
+            "pallets": self._extract_last_numeric(full_text, [r"(?:#\s*of\s*pallets|pallets?)\s*[:=-]?\s*(\d+(?:\.\d+)?)"]),
+            "weight": self._extract_last_numeric(full_text, [r"(?:weight|lbs?)\s*[:=-]?\s*(\d+(?:,\d{3})*(?:\.\d+)?)"]),
+            "load_number": self._extract_last_token(full_text, [r"load\s*(?:#|number|no\.?)\s*[:=-]?\s*([A-Za-z0-9-]+)"]),
+            "customer_po": self._extract_last_token(full_text, [r"(?:customer\s*)?po\s*(?:#|number|no\.?)\s*[:=-]?\s*([A-Za-z0-9-]+)"]),
+        }
+
     def _extract_po_details(self, email_text):
         text = email_text or ""
         po_match = re.search(r"(?:PO|Purchase\s*Order)\s*[:#-]?\s*([A-Z0-9-]+)", text, re.I)
@@ -230,7 +267,6 @@ class CRMDispatchService:
 
         structure = lead.classify_load(extracted_data={
             "multiple_bol": bool(extraction.get("multiple_bols_detected")),
-            "rate_type": lead.billing_mode,
             "pallet_count": lead.total_pallets,
             "number_of_stops": len(lead.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery")),
             "dedicated_truck": bool(lead.assigned_vehicle_id),
@@ -291,6 +327,7 @@ class CRMDispatchService:
     def process_lead(self, lead, email_text, attachments=None):
         t0 = time.perf_counter()
         extraction = self.ai_service.extract_load(email_text, attachments=attachments)
+        extracted_terms = self._extract_commercial_terms(email_text, attachments=attachments)
         _logger.info("AI extraction took %.3fs", time.perf_counter() - t0)
         po_data = self._extract_po_details(email_text)
         stop_vals = self._normalize_stop_values(extraction.get("stops", []))
@@ -339,9 +376,12 @@ class CRMDispatchService:
         updates = {
             "inside_delivery": bool(extraction.get("inside_delivery")),
             "liftgate": bool(extraction.get("liftgate")),
-            "detention_requested": bool(extraction.get("detention_requested")),
+            "detention_requested": bool(extraction.get("detention_requested") or extracted_terms.get("detention")),
+            "pump_truck_required": bool(extracted_terms.get("pump_truck")),
         }
-        if po_data.get("po_number"):
+        if extracted_terms.get("customer_po"):
+            updates["po_number"] = extracted_terms["customer_po"]
+        elif po_data.get("po_number"):
             updates["po_number"] = po_data["po_number"]
         if extraction.get("source") == "attachment" and email_text:
             lead.message_post(body="Attachment and email body both contained data; attachment was prioritized.")
@@ -371,11 +411,26 @@ class CRMDispatchService:
         if warnings:
             recommendation = f"{recommendation} Warnings: {' | '.join(dict.fromkeys(warnings))}"
         t_write = time.perf_counter()
+        extracted_rate = extracted_terms.get("rate")
+        final_rate_value = extracted_rate if extracted_rate else pricing_result.get("suggested_rate", 0.0)
+        summary_lines = [
+            f"Rate: {extracted_rate if extracted_rate else 'estimated'}",
+            f"TONU: {'yes' if extracted_terms.get('tonu') else 'no'}",
+            f"Detention: {'yes' if extracted_terms.get('detention') else 'no'}",
+            f"Pump truck: {'yes' if extracted_terms.get('pump_truck') else 'no'}",
+            f"Reefer temp: {extracted_terms.get('reefer_temp') or 'n/a'}",
+            f"Pallets: {extracted_terms.get('pallets') or lead.total_pallets or 0}",
+            f"Weight: {extracted_terms.get('weight') or lead.total_weight_lbs or 0}",
+            f"Load number: {extracted_terms.get('load_number') or 'n/a'}",
+            f"Customer PO: {extracted_terms.get('customer_po') or lead.po_number or 'n/a'}",
+        ]
         lead.write(
             {
                 "estimated_cost": pricing_result.get("estimated_cost", 0.0),
                 "suggested_rate": pricing_result.get("suggested_rate", 0.0),
+                "final_rate": final_rate_value,
                 "ai_recommendation": recommendation,
+                "ai_internal_summary": "\n".join(summary_lines),
                 "weather_risk": weather_risk,
                 "profit_estimate": pricing_result.get("NET_profit", 0.0),
                 "booking_hos_status": "near limit" if (lead.total_drive_hours or 0.0) >= 10.5 else "ok",
@@ -388,4 +443,6 @@ class CRMDispatchService:
             }
         )
         _logger.info("Lead write/update took %.3fs", time.perf_counter() - t_write)
+        pricing_result["extracted_rate"] = extracted_terms.get("rate")
+        pricing_result["final_rate"] = final_rate_value
         return {"warnings": warnings, "pricing": pricing_result}

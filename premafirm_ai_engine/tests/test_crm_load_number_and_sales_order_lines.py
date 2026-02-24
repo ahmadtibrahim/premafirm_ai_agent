@@ -19,7 +19,6 @@ class TestCrmLoadNumberAndSalesOrderLines(TransactionCase):
                 "name": "Two Load Lead",
                 "partner_id": self.partner.id,
                 "final_rate": 500.0,
-                "billing_mode": "flat",
             }
         )
         self.env["premafirm.dispatch.stop"].create(

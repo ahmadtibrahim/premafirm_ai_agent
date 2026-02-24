@@ -15,7 +15,6 @@
     ],
     "data": [
         "security/ir.model.access.csv",
-        "data/product_data.xml",
         "data/load_sequence.xml",
         "views/crm_view.xml",
         "views/dispatch_stop_views.xml",

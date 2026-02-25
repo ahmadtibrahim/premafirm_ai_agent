@@ -610,7 +610,7 @@ class CrmLead(models.Model):
         for lead in self:
             lead.dispatch_stop_ids.write({"load_id": False})
             loads = self.env["premafirm.load"].search([("lead_id", "=", lead.id)])
-            loads.unlink()
+            loads.sudo().unlink()
             grouped_loads = {}
             current_load = self.env["premafirm.load"]
             for stop in lead.dispatch_stop_ids.sorted("sequence"):

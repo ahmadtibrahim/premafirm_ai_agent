@@ -449,9 +449,14 @@ class CrmLead(models.Model):
 
     def _get_service_product_id(self):
         self.ensure_one()
+        if self.product_id and self.product_id.active:
+            return self.product_id.id
         rules = DispatchRulesEngine(self.env)
         customer_country = (self.partner_id.country_id.name or "") if self.partner_id and self.partner_id.country_id else ""
-        return rules.select_product(customer_country, self._resolve_structure(), self._resolve_equipment())
+        product_id = rules.select_product(customer_country, self._resolve_structure(), self._resolve_equipment())
+        if not product_id:
+            raise UserError("Freight product is not configured. Please contact your administrator.")
+        return product_id
 
     def _create_ai_log(self, user_modified=False):
         self.ensure_one()

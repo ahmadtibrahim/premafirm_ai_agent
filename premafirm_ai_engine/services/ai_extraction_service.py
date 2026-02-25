@@ -27,7 +27,7 @@ class AIExtractionService:
         self._runtime_warnings.append(warning)
 
     def _get_openai_key(self):
-        return self.env["ir.config_parameter"].sudo().get_param("openai.api_key")
+        return self.env["ir.config_parameter"].sudo().get_param(self.OPENAI_API_KEY_PARAM)
 
     def _extract_json_from_text(self, content):
         if not content:

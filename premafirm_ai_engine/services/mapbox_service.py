@@ -12,7 +12,7 @@ _logger = logging.getLogger(__name__)
 
 
 class MapboxService:
-    ORIGIN_YARD = "5585 McAdam Rd, Mississauga ON L4Z 1P1"
+    ORIGIN_YARD = False
     ALLOWED_COUNTRIES = {"us", "ca"}
     MIN_LATITUDE = 24.0
     MAX_LATITUDE = 83.0
@@ -333,8 +333,9 @@ class MapboxService:
         }
 
     def calculate_trip_segments(self, origin, stops, return_home=True):
-        origin_address = self._normalize_address(origin) or self.ORIGIN_YARD
         stop_list = list(stops or [])
+        dynamic_home = self._normalize_address(getattr(stop_list[0], "home_location", False)) if stop_list else ""
+        origin_address = self._normalize_address(origin) or dynamic_home or self._normalize_address(self.ORIGIN_YARD)
         addresses = [origin_address]
         addresses.extend(self._normalize_address(getattr(stop, "full_address", False) or getattr(stop, "address", stop)) for stop in stop_list)
         if return_home:

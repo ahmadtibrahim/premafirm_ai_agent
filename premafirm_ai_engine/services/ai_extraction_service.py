@@ -91,7 +91,7 @@ class AIExtractionService:
         escaped = "|".join(labels)
         patterns = [
             rf"(?:{escaped})\s*(?:\([^)]*\))?\s*(?::|\-)?\s*\n\s*([^\n]+)",
-            rf"(?:{escaped})\s*(?:\([^)]*\))?\s*[:\-]?\s*([^\n]+)",
+            rf"(?:{escaped})\s*(?:\([^)]*\))?\s*(?::|\-)\s*([^\n]+)",
         ]
         return self._extract_value(text, patterns)
 
@@ -111,6 +111,7 @@ class AIExtractionService:
         errors = []
         stops = []
         pickup_labels = [
+            r"Pickup\s*(?:Information|Info|Details)",
             r"Pickup\s*Address",
             r"Pickup\s*Location",
             r"Pickup",
@@ -119,6 +120,7 @@ class AIExtractionService:
             r"Shipper",
         ]
         delivery_labels = [
+            r"Delivery\s*(?:Information|Info|Details)",
             r"Delivery\s*Address",
             r"Delivery\s*Location",
             r"Delivery",

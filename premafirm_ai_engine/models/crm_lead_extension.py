@@ -233,7 +233,8 @@ class CrmLead(models.Model):
             segment_data = []
             prev_loc = yard_location
             for stop in ordered:
-                travel = mapbox.get_travel_time(prev_loc, stop.address)
+                stop_location = stop.full_address or stop.address
+                travel = mapbox.get_travel_time(prev_loc, stop_location)
                 fallback_minutes = float(stop.drive_minutes or stop.drive_hours * 60.0 or 0.0)
                 drive_minutes = float(travel.get("drive_minutes") or fallback_minutes)
                 distance_km = float(travel.get("distance_km") or stop.distance_km or 0.0)
@@ -247,7 +248,7 @@ class CrmLead(models.Model):
                     "drive_minutes": adjusted_minutes,
                     "map_url": travel.get("map_url"),
                 })
-                prev_loc = stop.address
+                prev_loc = stop_location
 
             updates = {}
             if manual_stop:
@@ -816,11 +817,21 @@ class CrmLead(models.Model):
         self.selected_service_product_id = self._get_service_product_id()
         self.selected_accessorial_product_ids = ",".join(str(x) for x in DispatchRulesEngine(self.env).accessorial_product_ids(self.liftgate, self.inside_delivery))
         order_vals = self._prepare_order_values()
-        existing_order = self.order_ids.filtered(lambda o: o.state in ("draft", "sent"))[:1]
-        if existing_order:
-            existing_order.write(order_vals)
-            existing_order.order_line.unlink()
-            order = existing_order
+        order = self.env["sale.order"].search(
+            [("opportunity_id", "=", self.id), ("state", "!=", "cancel")],
+            order="id desc",
+            limit=1,
+        )
+        if order and order.state in ("draft", "sent"):
+            order.write(order_vals)
+            order.order_line.unlink()
+        elif order and order.state not in ("draft", "sent"):
+            return {
+                "type": "ir.actions.act_window",
+                "res_model": "sale.order",
+                "res_id": order.id,
+                "view_mode": "form",
+            }
         else:
             order = self.env["sale.order"].create(order_vals)
 

@@ -818,13 +818,20 @@ class CrmLead(models.Model):
         self.selected_accessorial_product_ids = ",".join(str(x) for x in DispatchRulesEngine(self.env).accessorial_product_ids(self.liftgate, self.inside_delivery))
         order_vals = self._prepare_order_values()
         order = self.env["sale.order"].search(
-            [("opportunity_id", "=", self.id), ("state", "in", ("draft", "sent"))],
+            [("opportunity_id", "=", self.id), ("state", "!=", "cancel")],
             order="id desc",
             limit=1,
-        ).exists()
-        if order:
+        )
+        if order and order.state in ("draft", "sent"):
             order.write(order_vals)
             order.order_line.unlink()
+        elif order and order.state not in ("draft", "sent"):
+            return {
+                "type": "ir.actions.act_window",
+                "res_model": "sale.order",
+                "res_id": order.id,
+                "view_mode": "form",
+            }
         else:
             order = self.env["sale.order"].create(order_vals)
 

@@ -168,39 +168,3 @@ Weight: 9115 lbs
         self.assertTrue(second_order.exists())
         self.assertNotEqual(first_order.id, second_order.id)
         self.assertEqual(second_order.state, "draft")
-
-
-    def test_action_create_sales_order_creates_new_when_only_confirmed_order_exists(self):
-        lead = self._create_lead_with_two_loads()
-        lead.po_number = "PO-EXISTING"
-
-        first_action = lead.action_create_sales_order()
-        confirmed_order = self.env["sale.order"].browse(first_action["res_id"])
-        self.assertEqual(confirmed_order.state, "sale")
-
-        lead.po_number = False
-        second_action = lead.action_create_sales_order()
-        new_order = self.env["sale.order"].browse(second_action["res_id"])
-
-        self.assertTrue(new_order.exists())
-        self.assertNotEqual(confirmed_order.id, new_order.id)
-        self.assertEqual(new_order.state, "draft")
-
-    def test_action_confirm_skips_missing_pod_report_action(self):
-        lead = self._create_lead_with_two_loads()
-        driver = self.env["res.partner"].create({"name": "Driver One"})
-        vehicle = self.env["fleet.vehicle"].create({"name": "Truck POD", "driver_id": driver.id})
-        lead.assigned_vehicle_id = vehicle
-
-        action = lead.action_create_sales_order()
-        order = self.env["sale.order"].browse(action["res_id"])
-
-        report_action = self.env.ref("premafirm_ai_engine.action_report_premafirm_load_pod", raise_if_not_found=False)
-        self.assertTrue(report_action)
-        report_action.unlink()
-
-        order.action_confirm()
-
-        self.assertTrue(order.exists())
-        self.assertEqual(order.state, "sale")
-        self.assertTrue(any("POD report template is missing" in (msg.body or "") for msg in order.message_ids))

@@ -109,14 +109,14 @@ class PremafirmDispatchStop(models.Model):
         for stop in self:
             stop.drive_minutes = (stop.drive_hours or 0.0) * 60.0
 
-    @api.depends("map_url", "address")
+    @api.depends("map_url", "address", "full_address", "geo_short_address")
     def _compute_address_link_html(self):
         for stop in self:
-            address = stop.address or ""
+            display_address = stop.geo_short_address or stop.full_address or stop.address or ""
             if stop.map_url:
-                stop.address_link_html = f'<a href="{stop.map_url}" target="_blank">{address}</a>'
+                stop.address_link_html = f'<a href="{stop.map_url}" target="_blank">{display_address}</a>'
             else:
-                stop.address_link_html = address
+                stop.address_link_html = display_address
 
     @api.depends("stop_type", "service_duration")
     def _compute_stop_service_mins(self):

@@ -570,7 +570,7 @@ class CrmLead(models.Model):
         for lead in self:
             if lead.ai_locked:
                 continue
-            lead.dispatch_stop_ids.unlink()
+            lead.dispatch_stop_ids.sudo().unlink()
             lead.write(
                 {
                     "final_rate": 0.0,
@@ -815,7 +815,14 @@ class CrmLead(models.Model):
             self.action_rebuild_loads_from_ai()
         self.selected_service_product_id = self._get_service_product_id()
         self.selected_accessorial_product_ids = ",".join(str(x) for x in DispatchRulesEngine(self.env).accessorial_product_ids(self.liftgate, self.inside_delivery))
-        order = self.env["sale.order"].create(self._prepare_order_values())
+        order_vals = self._prepare_order_values()
+        existing_order = self.order_ids.filtered(lambda o: o.state in ("draft", "sent"))[:1]
+        if existing_order:
+            existing_order.write(order_vals)
+            existing_order.order_line.unlink()
+            order = existing_order
+        else:
+            order = self.env["sale.order"].create(order_vals)
 
         if self.assigned_vehicle_id and self.dispatch_stop_ids and not self.dispatch_run_id:
             from ..services.run_planner_service import RunPlannerService

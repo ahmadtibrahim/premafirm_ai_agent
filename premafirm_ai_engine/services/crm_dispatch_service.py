@@ -1,7 +1,7 @@
 import logging
 import re
 import time
-from datetime import datetime, time, timedelta
+from datetime import datetime, time as datetime_time, timedelta
 
 
 import pytz
@@ -148,7 +148,7 @@ class CRMDispatchService:
         pickup_service_minutes = int(float(self.env["ir.config_parameter"].sudo().get_param("premafirm.pickup_service_minutes", "45")))
         delivery_service_minutes = int(float(self.env["ir.config_parameter"].sudo().get_param("premafirm.delivery_service_minutes", "45")))
         if first_pickup and not first_pickup.scheduled_datetime:
-            first_pickup.scheduled_datetime = datetime.combine(self._now_company_tz().date(), time(start_hour_hh, start_hour_mm))
+            first_pickup.scheduled_datetime = datetime.combine(self._now_company_tz().date(), datetime_time(start_hour_hh, start_hour_mm))
 
         if first_pickup and first_pickup.scheduled_datetime:
             first_leg_hours = float(segments[0].get("drive_hours") or 0.0) if segments else 0.0

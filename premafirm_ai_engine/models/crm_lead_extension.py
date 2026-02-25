@@ -215,7 +215,7 @@ class CrmLead(models.Model):
                 lead.write({"leave_yard_at": False, "schedule_conflict": False, "schedule_api_warning": False})
                 continue
             vehicle = lead.assigned_vehicle_id
-            yard_location = (vehicle.home_location if vehicle else False) or mapbox.ORIGIN_YARD
+            yard_location = (vehicle.home_location if vehicle else False) or (ordered and ordered[0].home_location) or False
             vehicle_start = lead._vehicle_start_datetime()
             has_window = any(bool(lead._stop_window(stop)[0]) for stop in ordered)
             warnings = []
@@ -570,7 +570,7 @@ class CrmLead(models.Model):
         for lead in self:
             if lead.ai_locked:
                 continue
-            lead.dispatch_stop_ids.unlink()
+            lead.dispatch_stop_ids.sudo().unlink()
             lead.write(
                 {
                     "final_rate": 0.0,
@@ -610,7 +610,7 @@ class CrmLead(models.Model):
         for lead in self:
             lead.dispatch_stop_ids.write({"load_id": False})
             loads = self.env["premafirm.load"].search([("lead_id", "=", lead.id)])
-            loads.unlink()
+            loads.sudo().unlink()
             grouped_loads = {}
             current_load = self.env["premafirm.load"]
             for stop in lead.dispatch_stop_ids.sorted("sequence"):
@@ -815,7 +815,14 @@ class CrmLead(models.Model):
             self.action_rebuild_loads_from_ai()
         self.selected_service_product_id = self._get_service_product_id()
         self.selected_accessorial_product_ids = ",".join(str(x) for x in DispatchRulesEngine(self.env).accessorial_product_ids(self.liftgate, self.inside_delivery))
-        order = self.env["sale.order"].create(self._prepare_order_values())
+        order_vals = self._prepare_order_values()
+        existing_order = self.order_ids.filtered(lambda o: o.state in ("draft", "sent"))[:1]
+        if existing_order:
+            existing_order.write(order_vals)
+            existing_order.order_line.unlink()
+            order = existing_order
+        else:
+            order = self.env["sale.order"].create(order_vals)
 
         if self.assigned_vehicle_id and self.dispatch_stop_ids and not self.dispatch_run_id:
             from ..services.run_planner_service import RunPlannerService

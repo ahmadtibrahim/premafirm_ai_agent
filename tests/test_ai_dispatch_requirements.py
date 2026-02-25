@@ -10,7 +10,12 @@ def _install_base_fakes():
     req = ModuleType("requests")
     req.get = lambda *a, **k: SimpleNamespace(raise_for_status=lambda: None, json=lambda: {})
     req.post = lambda *a, **k: SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"choices": [{"message": {"content": "{}"}}]})
+    req.exceptions = SimpleNamespace(HTTPError=Exception)
     sys.modules["requests"] = req
+
+    psycopg2 = ModuleType("psycopg2")
+    psycopg2.IntegrityError = Exception
+    sys.modules["psycopg2"] = psycopg2
 
     class _FakeFieldFactory:
         def __call__(self, *a, **k):
@@ -42,6 +47,27 @@ def _install_base_fakes():
     tools = ModuleType("odoo.tools")
     tools.html2plaintext = lambda v: v
     sys.modules["odoo.tools"] = tools
+
+    pdfplumber = ModuleType("pdfplumber")
+    class _PdfOpen:
+        def __enter__(self):
+            return SimpleNamespace(pages=[])
+        def __exit__(self, exc_type, exc, tb):
+            return False
+    pdfplumber.open = lambda *a, **k: _PdfOpen()
+    sys.modules["pdfplumber"] = pdfplumber
+
+    docx = ModuleType("docx")
+    docx.Document = lambda *a, **k: SimpleNamespace(paragraphs=[])
+    sys.modules["docx"] = docx
+
+    pypdf = ModuleType("pypdf")
+    pypdf.PdfReader = lambda *a, **k: SimpleNamespace(pages=[])
+    sys.modules["pypdf"] = pypdf
+
+    pytz = ModuleType("pytz")
+    pytz.timezone = lambda _name: SimpleNamespace()
+    sys.modules["pytz"] = pytz
 
 
 def _load_module(name, rel_path):
@@ -144,6 +170,114 @@ def test_city_extraction_prefers_city_region_not_region_only():
     geo = svc.geocode_address("Barrie, ON")
     assert geo["short_address"] == "Barrie, ON"
 
+
+
+
+def test_geocode_request_is_restricted_to_us_and_ca():
+    mod = _load_module("mapbox_service_country_filter_test", "premafirm_ai_engine/services/mapbox_service.py")
+
+    class FakeConfig:
+        def sudo(self):
+            return self
+
+        def get_param(self, _):
+            return "k"
+
+    svc = mod.MapboxService({"ir.config_parameter": FakeConfig()})
+    captured = {}
+
+    def fake_safe_get(url, timeout=20):
+        captured["url"] = url
+        return {
+            "features": [
+                {
+                    "place_name": "Toronto, ON, Canada",
+                    "center": [-79.38, 43.65],
+                    "text": "Toronto",
+                    "place_type": ["place"],
+                    "context": [
+                        {"id": "region.1", "short_code": "ca-on", "text": "Ontario"},
+                        {"id": "country.1", "short_code": "ca", "text": "Canada"},
+                    ],
+                }
+            ]
+        }
+
+    svc._safe_get = fake_safe_get
+    svc.geocode_address("Toronto")
+    assert "country=us,ca" in captured["url"]
+
+
+def test_get_route_skips_non_us_ca_country_pair():
+    mod = _load_module("mapbox_service_country_validation_test", "premafirm_ai_engine/services/mapbox_service.py")
+
+    class FakeConfig:
+        def sudo(self):
+            return self
+
+        def get_param(self, _):
+            return "k"
+
+    svc = mod.MapboxService({"ir.config_parameter": FakeConfig()})
+
+    svc.geocode_address = lambda address: {
+        "latitude": 48.85 if "Paris" in address else 43.65,
+        "longitude": 2.35 if "Paris" in address else -79.38,
+        "country_code": "FR" if "Paris" in address else "CA",
+        "full_address": address,
+    }
+
+    route = svc.get_route("Paris, FR", "Toronto, ON")
+    assert route["distance_km"] == 0.0
+    assert route["drive_hours"] == 0.0
+    assert route.get("geometry") is None
+    assert "USA/Canada" in (route.get("warning") or "")
+
+
+def test_get_route_skips_out_of_bounds_coordinates():
+    mod = _load_module("mapbox_service_bounds_validation_test", "premafirm_ai_engine/services/mapbox_service.py")
+
+    class FakeConfig:
+        def sudo(self):
+            return self
+
+        def get_param(self, _):
+            return "k"
+
+    svc = mod.MapboxService({"ir.config_parameter": FakeConfig()})
+
+    svc.geocode_address = lambda address: {
+        "latitude": 10.0 if "Outside" in address else 43.65,
+        "longitude": -79.38,
+        "country_code": "CA",
+        "full_address": address,
+    }
+
+    route = svc.get_route("Outside Range", "Toronto, ON")
+    assert route["distance_km"] == 0.0
+    assert route["drive_hours"] == 0.0
+    assert route.get("geometry") is None
+    assert "invalid coordinates" in (route.get("warning") or "")
+
+
+
+def test_crm_dispatch_reconciles_single_load_quantity_outliers_source_guard():
+    source = (ROOT / "premafirm_ai_engine/services/crm_dispatch_service.py").read_text()
+    assert "def _reconcile_stop_quantities" in source
+    assert "pallets_suspicious = any(value > 1000" in source
+    assert "weight_missing = all(value == 0.0" in source
+
+
+def test_crm_dispatch_geodata_keeps_original_address_for_routing_source_guard():
+    source = (ROOT / "premafirm_ai_engine/services/crm_dispatch_service.py").read_text()
+    assert 'stop["geo_short_address"] = geo.get("short_address")' in source
+    assert 'stop["address"] = geo.get("short_address")' not in source
+
+
+def test_action_create_sales_order_updates_existing_draft_order_source_guard():
+    source = (ROOT / "premafirm_ai_engine/models/crm_lead_extension.py").read_text()
+    assert 'existing_order = self.order_ids.filtered(lambda o: o.state in ("draft", "sent"))[:1]' in source
+    assert "existing_order.order_line.unlink()" in source
 
 def test_run_insertion_reduces_empty_km():
     map_mod = _load_module("premafirm_ai_engine.services.mapbox_service", "premafirm_ai_engine/services/mapbox_service.py")

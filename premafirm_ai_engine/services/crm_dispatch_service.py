@@ -85,6 +85,42 @@ class CRMDispatchService:
             )
         return sorted(stops, key=lambda s: (s["sequence"], 0 if s["stop_type"] == "pickup" else 1))
 
+    def _reconcile_stop_quantities(self, stop_vals, extracted_terms):
+        if not stop_vals:
+            return
+        if len(stop_vals) != 2:
+            return
+        stop_types = {stop.get("stop_type") for stop in stop_vals}
+        if stop_types != {"pickup", "delivery"}:
+            return
+
+        extracted_pallets = extracted_terms.get("pallets")
+        extracted_weight = extracted_terms.get("weight")
+
+        if extracted_pallets is not None:
+            try:
+                extracted_pallets = int(float(extracted_pallets))
+            except Exception:
+                extracted_pallets = None
+        if extracted_weight is not None:
+            try:
+                extracted_weight = float(extracted_weight)
+            except Exception:
+                extracted_weight = None
+
+        pallets_values = [int(float(stop.get("pallets") or 0)) for stop in stop_vals]
+        weight_values = [float(stop.get("weight_lbs") or 0.0) for stop in stop_vals]
+
+        pallets_suspicious = any(value > 1000 for value in pallets_values) or (all(value == 0 for value in pallets_values) and extracted_pallets)
+        weight_missing = all(value == 0.0 for value in weight_values) and extracted_weight
+
+        if pallets_suspicious and extracted_pallets is not None:
+            for stop in stop_vals:
+                stop["pallets"] = extracted_pallets
+        if weight_missing and extracted_weight is not None:
+            for stop in stop_vals:
+                stop["weight_lbs"] = extracted_weight
+
     def _compute_break_hours(self, segment_drive_hours, state):
         break_hours = 0.0
         before = state.get("since_major", 0.0)
@@ -126,7 +162,7 @@ class CRMDispatchService:
                 warnings.append(f"Geocoding failed for stop '{stop['address']}', manual review required.")
                 continue
             stop["full_address"] = geo.get("full_address")
-            stop["address"] = geo.get("short_address") or stop["address"]
+            stop["geo_short_address"] = geo.get("short_address") or stop.get("geo_short_address")
             stop["postal_code"] = geo.get("postal_code")
             stop["latitude"] = geo.get("latitude")
             stop["longitude"] = geo.get("longitude")
@@ -331,6 +367,7 @@ class CRMDispatchService:
         _logger.info("AI extraction took %.3fs", time.perf_counter() - t0)
         po_data = self._extract_po_details(email_text)
         stop_vals = self._normalize_stop_values(extraction.get("stops", []))
+        self._reconcile_stop_quantities(stop_vals, extracted_terms)
         warnings = list(extraction.get("warnings") or [])
         warnings.extend(extraction.get("errors") or [])
 
@@ -357,7 +394,7 @@ class CRMDispatchService:
         }
         has_manual_corrections = bool(self.env["premafirm.ai.correction"].search_count([("lead_id", "=", lead.id)]))
 
-        lead.dispatch_stop_ids.unlink()
+        lead.dispatch_stop_ids.sudo().unlink()
         created_stops = self.env["premafirm.dispatch.stop"]
         for vals in stop_vals:
             vals["lead_id"] = lead.id

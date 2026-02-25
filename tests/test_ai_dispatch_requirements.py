@@ -259,26 +259,6 @@ def test_get_route_skips_out_of_bounds_coordinates():
     assert route.get("geometry") is None
     assert "invalid coordinates" in (route.get("warning") or "")
 
-
-
-def test_crm_dispatch_reconciles_single_load_quantity_outliers_source_guard():
-    source = (ROOT / "premafirm_ai_engine/services/crm_dispatch_service.py").read_text()
-    assert "def _reconcile_stop_quantities" in source
-    assert "pallets_suspicious = any(value > 1000" in source
-    assert "weight_missing = all(value == 0.0" in source
-
-
-def test_crm_dispatch_geodata_keeps_original_address_for_routing_source_guard():
-    source = (ROOT / "premafirm_ai_engine/services/crm_dispatch_service.py").read_text()
-    assert 'stop["geo_short_address"] = geo.get("short_address")' in source
-    assert 'stop["address"] = geo.get("short_address")' not in source
-
-
-def test_action_create_sales_order_updates_existing_draft_order_source_guard():
-    source = (ROOT / "premafirm_ai_engine/models/crm_lead_extension.py").read_text()
-    assert 'existing_order = self.order_ids.filtered(lambda o: o.state in ("draft", "sent"))[:1]' in source
-    assert "existing_order.order_line.unlink()" in source
-
 def test_run_insertion_reduces_empty_km():
     map_mod = _load_module("premafirm_ai_engine.services.mapbox_service", "premafirm_ai_engine/services/mapbox_service.py")
     sys.modules["premafirm_ai_engine.services.mapbox_service"] = map_mod

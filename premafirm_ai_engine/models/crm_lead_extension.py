@@ -449,9 +449,14 @@ class CrmLead(models.Model):
 
     def _get_service_product_id(self):
         self.ensure_one()
+        if self.product_id and self.product_id.active:
+            return self.product_id.id
         rules = DispatchRulesEngine(self.env)
         customer_country = (self.partner_id.country_id.name or "") if self.partner_id and self.partner_id.country_id else ""
-        return rules.select_product(customer_country, self._resolve_structure(), self._resolve_equipment())
+        product_id = rules.select_product(customer_country, self._resolve_structure(), self._resolve_equipment())
+        if not product_id:
+            raise UserError("Freight product is not configured. Please contact your administrator.")
+        return product_id
 
     def _create_ai_log(self, user_modified=False):
         self.ensure_one()
@@ -599,9 +604,13 @@ class CrmLead(models.Model):
 
     def _validate_load_structure(self):
         for lead in self:
-            loads = self.env["premafirm.load"].search([("lead_id", "=", lead.id)])
-            for load in loads:
-                load_stops = lead.dispatch_stop_ids.filtered(lambda s: s.load_id == load)
+            stops = lead.dispatch_stop_ids
+            unassigned_stops = stops.filtered(lambda s: not s.load_id)
+            if unassigned_stops:
+                raise UserError("Each load must have exactly one pickup and one delivery before quoting or creating Sales Orders.")
+
+            for load in stops.mapped("load_id"):
+                load_stops = stops.filtered(lambda s: s.load_id == load)
                 pickups = len(load_stops.filtered(lambda s: s.stop_type == "pickup"))
                 deliveries = len(load_stops.filtered(lambda s: s.stop_type == "delivery"))
                 if pickups != 1 or deliveries != 1:

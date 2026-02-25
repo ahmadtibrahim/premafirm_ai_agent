@@ -64,7 +64,10 @@ class CrmLeadAI(models.Model):
                 lead.final_rate = result.get("pricing", {}).get("extracted_rate") or result.get("pricing", {}).get("final_rate") or lead.final_rate
             except UserError:
                 raise
-            except Exception:
+            except Exception as err:
                 _logger.exception("AI scheduling failed for lead %s", lead.id)
-                raise UserError("AI Calculate failed. Please verify email thread/attachments and try again.")
+                raise UserError(
+                    f"AI Calculate failed. Technical reason: {type(err).__name__}. "
+                    "Please check server logs for details."
+                )
         return True

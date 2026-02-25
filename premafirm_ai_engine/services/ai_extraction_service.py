@@ -6,6 +6,9 @@ import re
 from datetime import datetime
 
 import requests
+import pdfplumber
+from docx import Document
+from pypdf import PdfReader
 
 _logger = logging.getLogger(__name__)
 
@@ -13,7 +16,8 @@ _logger = logging.getLogger(__name__)
 class AIExtractionService:
     """Extraction layer that converts broker data into structured freight data."""
 
-    OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+    OPENAI_URL = "https://api.openai.com/v1/responses"
+    OPENAI_API_KEY_PARAM = "openai.api_key"
 
     def __init__(self, env):
         self.env = env
@@ -24,7 +28,7 @@ class AIExtractionService:
         self._runtime_warnings.append(warning)
 
     def _get_openai_key(self):
-        return self.env["ir.config_parameter"].sudo().get_param("openai.api_key")
+        return self.env["ir.config_parameter"].sudo().get_param(self.OPENAI_API_KEY_PARAM)
 
     def _extract_json_from_text(self, content):
         if not content:
@@ -198,33 +202,41 @@ class AIExtractionService:
 
     def _extract_attachment_text(self, attachment):
         name = (attachment.name or "").lower()
-        payload = base64.b64decode(attachment.datas or b"") if attachment.datas else b""
-        if not payload:
+        file_data = base64.b64decode(attachment.datas) if attachment.datas else b""
+        if not file_data:
             return ""
 
         if name.endswith(".pdf"):
             try:
-                try:
-                    from pypdf import PdfReader
-                except ModuleNotFoundError:
-                    from PyPDF2 import PdfReader
-
-                reader = PdfReader(io.BytesIO(payload))
-                return "\n".join((page.extract_text() or "") for page in reader.pages)
-            except ModuleNotFoundError:
-                warning = "PDF parser dependency missing. Install 'pypdf' in the Odoo venv to enable attachment parsing."
-                self._record_runtime_warning(warning)
-                _logger.error(warning)
-                return ""
+                with pdfplumber.open(io.BytesIO(file_data)) as pdf:
+                    return "\n".join(page.extract_text() or "" for page in pdf.pages)
             except Exception:
-                _logger.exception("PDF parsing failed for attachment %s", attachment.name)
+                pass
+
+            try:
+                reader = PdfReader(io.BytesIO(file_data))
+                return "\n".join((page.extract_text() or "") for page in reader.pages)
+            except Exception:
+                _logger.exception("PDF extraction failed")
                 return ""
+
+        if name.endswith(".docx"):
+            try:
+                doc = Document(io.BytesIO(file_data))
+                return "\n".join(p.text for p in doc.paragraphs if p.text)
+            except Exception:
+                _logger.exception("DOCX extraction failed")
+                return ""
+
+        if name.endswith(".doc"):
+            _logger.warning("DOC extraction is not supported for attachment %s", attachment.name)
+            return ""
 
         if name.endswith(".xlsx") or name.endswith(".xls"):
             try:
                 import openpyxl
 
-                workbook = openpyxl.load_workbook(io.BytesIO(payload), read_only=True, data_only=True)
+                workbook = openpyxl.load_workbook(io.BytesIO(file_data), read_only=True, data_only=True)
                 rows = []
                 for sheet in workbook.worksheets:
                     for row in sheet.iter_rows(values_only=True):
@@ -293,21 +305,41 @@ Extract freight details from this {source_label} and return valid JSON:
 CONTENT:
 {source_text}
 """
-        payload = {
-            "model": "gpt-4o-mini",
-            "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            "temperature": 0.1,
-        }
         try:
+            payload = {
+                "model": "gpt-4.1-mini",
+                "input": [
+                    {
+                        "role": "system",
+                        "content": system_prompt,
+                    },
+                    {
+                        "role": "user",
+                        "content": user_prompt,
+                    },
+                ],
+                "temperature": 0.1,
+            }
+
             response = requests.post(
                 self.OPENAI_URL,
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
                 json=payload,
                 timeout=60,
             )
+
             response.raise_for_status()
             data = response.json()
-            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+            content = ""
+            for block in data.get("output", []):
+                for item in block.get("content", []):
+                    if item.get("type") == "output_text":
+                        content += item.get("text", "")
+
             return self._extract_json_from_text(content)
         except Exception:
             _logger.exception("OpenAI extraction failed")
@@ -317,7 +349,7 @@ CONTENT:
 
 
         attachments = attachments or self.env["ir.attachment"]
-        parsable = attachments.filtered(lambda a: (a.name or "").lower().endswith((".pdf", ".xlsx", ".xls")))
+        parsable = attachments.filtered(lambda a: (a.name or "").lower().endswith((".pdf", ".docx", ".doc", ".xlsx", ".xls")))
         if parsable:
             raw_text = "\n".join(filter(None, [self._extract_attachment_text(att) for att in parsable]))
             parsed = self._parse_load_sections(raw_text)

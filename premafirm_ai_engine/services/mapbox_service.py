@@ -13,6 +13,11 @@ _logger = logging.getLogger(__name__)
 
 class MapboxService:
     ORIGIN_YARD = "5585 McAdam Rd, Mississauga ON L4Z 1P1"
+    ALLOWED_COUNTRIES = {"us", "ca"}
+    MIN_LATITUDE = 24.0
+    MAX_LATITUDE = 83.0
+    MIN_LONGITUDE = -170.0
+    MAX_LONGITUDE = -50.0
 
     def __init__(self, env):
         self.env = env
@@ -101,6 +106,29 @@ class MapboxService:
     def _normalize_address(self, address):
         return (address or "").strip()
 
+    @staticmethod
+    def _extract_country_code(feature):
+        context = feature.get("context") or []
+        for item in context:
+            item_id = item.get("id", "")
+            if item_id.startswith("country"):
+                return (item.get("short_code") or "").strip().lower()
+        properties = feature.get("properties") or {}
+        if properties.get("short_code"):
+            return str(properties.get("short_code")).strip().lower()
+        return ""
+
+    def _is_allowed_country(self, country_code):
+        return (country_code or "").strip().lower() in self.ALLOWED_COUNTRIES
+
+    def _coordinates_within_us_ca_bounds(self, latitude, longitude):
+        if latitude is None or longitude is None:
+            return False
+        return (
+            self.MIN_LATITUDE <= float(latitude) <= self.MAX_LATITUDE
+            and self.MIN_LONGITUDE <= float(longitude) <= self.MAX_LONGITUDE
+        )
+
     def geocode_address(self, address):
         api_key = self._get_api_key()
         normalized = self._normalize_address(address)
@@ -109,7 +137,7 @@ class MapboxService:
 
         url = (
             "https://api.mapbox.com/geocoding/v5/mapbox.places/"
-            f"{quote(normalized)}.json?access_token={api_key}&autocomplete=true&limit=1"
+            f"{quote(normalized)}.json?access_token={api_key}&autocomplete=true&limit=1&country=us,ca"
         )
         data = self._safe_get(url)
         features = data.get("features", [])
@@ -122,7 +150,7 @@ class MapboxService:
         city = None
         region = None
         postal = None
-        country_code = None
+        country_code = self._extract_country_code(first)
         for item in context:
             item_id = item.get("id", "")
             if item_id.startswith("place"):
@@ -131,8 +159,6 @@ class MapboxService:
                 region = item.get("short_code", "").upper().replace("CA-", "").replace("US-", "") or item.get("text")
             elif item_id.startswith("postcode"):
                 postal = item.get("text")
-            elif item_id.startswith("country"):
-                country_code = (item.get("short_code") or "").upper()
 
         place_name = first.get("place_name") or normalized
         if not city:
@@ -144,8 +170,8 @@ class MapboxService:
             "longitude": center[0],
             "full_address": place_name,
             "postal_code": postal,
-            "country": country_code,
-            "country_code": country_code,
+            "country": (country_code or "").upper(),
+            "country_code": (country_code or "").upper(),
             "city": city,
             "region": region,
             "short_address": short_address,
@@ -189,34 +215,98 @@ class MapboxService:
         origin = self.geocode_address(origin_address)
         destination = self.geocode_address(destination_address)
         if origin.get("warning") or destination.get("warning"):
-            return {"distance_km": 0.0, "drive_hours": 0.0, "warning": "Could not geocode one or more stops."}
+            return {"distance_km": 0.0, "drive_hours": 0.0, "geometry": None, "warning": "Could not geocode one or more stops."}
 
         map_url = self._google_maps_url(origin, destination)
         if not api_key:
-            return {"distance_km": 0.0, "drive_hours": 0.0, "map_url": map_url, "warning": "Routing API key missing."}
+            return {"distance_km": 0.0, "drive_hours": 0.0, "geometry": None, "map_url": map_url, "warning": "Routing API key missing."}
 
-        coords = f"{origin['longitude']},{origin['latitude']};{destination['longitude']},{destination['latitude']}"
+        origin_country = (origin.get("country_code") or "").lower()
+        destination_country = (destination.get("country_code") or "").lower()
+        if not self._is_allowed_country(origin_country) or not self._is_allowed_country(destination_country):
+            _logger.warning(
+                "Skipping routing for unsupported country pair: origin=%s destination=%s",
+                origin_country or "unknown",
+                destination_country or "unknown",
+            )
+            return {
+                "distance_km": 0.0,
+                "drive_hours": 0.0,
+                "geometry": None,
+                "map_url": map_url,
+                "warning": "Routing supports USA/Canada only.",
+            }
+
+        origin_lat = origin.get("latitude")
+        origin_lon = origin.get("longitude")
+        destination_lat = destination.get("latitude")
+        destination_lon = destination.get("longitude")
+        if not self._coordinates_within_us_ca_bounds(origin_lat, origin_lon) or not self._coordinates_within_us_ca_bounds(destination_lat, destination_lon):
+            _logger.warning(
+                "Skipping routing for out-of-bounds coordinates: origin=(%s,%s) destination=(%s,%s)",
+                origin_lat,
+                origin_lon,
+                destination_lat,
+                destination_lon,
+            )
+            return {
+                "distance_km": 0.0,
+                "drive_hours": 0.0,
+                "geometry": None,
+                "map_url": map_url,
+                "warning": "Routing skipped due to invalid coordinates.",
+            }
+
+        coords = f"{origin_lon},{origin_lat};{destination_lon},{destination_lat}"
         url = (
             "https://api.mapbox.com/directions/v5/mapbox/driving-traffic/"
             f"{coords}?access_token={api_key}&overview=full&steps=false&annotations=duration,distance&geometries=geojson"
         )
-        data = self._safe_get(url)
+        try:
+            response = requests.get(url, timeout=20)
+            response.raise_for_status()
+            data = response.json()
+        except requests.exceptions.HTTPError:
+            _logger.error("Mapbox directions HTTP error for %s", url, exc_info=True)
+            return {
+                "distance_km": 0.0,
+                "drive_hours": 0.0,
+                "geometry": None,
+                "map_url": map_url,
+                "warning": "Routing unavailable; used safe fallback.",
+            }
+        except Exception:
+            _logger.error("Mapbox directions request failed for %s", url, exc_info=True)
+            return {
+                "distance_km": 0.0,
+                "drive_hours": 0.0,
+                "geometry": None,
+                "map_url": map_url,
+                "warning": "Routing unavailable; used safe fallback.",
+            }
+
         routes = data.get("routes") or []
         if not routes:
             try:
                 distance_km = self._haversine_km(origin["latitude"], origin["longitude"], destination["latitude"], destination["longitude"])
-                return {"distance_km": distance_km, "drive_hours": max(distance_km / 60.0, 0.0), "map_url": map_url, "warning": "Mapbox route unavailable; used fallback estimate."}
+                return {
+                    "distance_km": distance_km,
+                    "drive_hours": max(distance_km / 60.0, 0.0),
+                    "geometry": None,
+                    "map_url": map_url,
+                    "warning": "Mapbox route unavailable; used fallback estimate.",
+                }
             except Exception:
-                return {"distance_km": 0.0, "drive_hours": 0.0, "map_url": map_url, "warning": "No route found."}
+                return {"distance_km": 0.0, "drive_hours": 0.0, "geometry": None, "map_url": map_url, "warning": "No route found."}
 
         route = routes[0]
         legs = route.get("legs") or []
         if not legs:
-            return {"distance_km": 0.0, "drive_hours": 0.0, "map_url": map_url, "warning": "No route legs found."}
+            return {"distance_km": 0.0, "drive_hours": 0.0, "geometry": None, "map_url": map_url, "warning": "No route legs found."}
 
         distance_km = float(sum(float(leg.get("distance") or 0.0) for leg in legs)) / 1000.0
         drive_hours = float(sum(float(leg.get("duration") or 0.0) for leg in legs)) / 3600.0
-        return {"distance_km": distance_km, "drive_hours": drive_hours, "map_url": map_url}
+        return {"distance_km": distance_km, "drive_hours": drive_hours, "geometry": route.get("geometry"), "map_url": map_url}
 
 
     def get_travel_time(self, origin, destination):

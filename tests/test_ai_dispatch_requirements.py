@@ -48,6 +48,27 @@ def _install_base_fakes():
     tools.html2plaintext = lambda v: v
     sys.modules["odoo.tools"] = tools
 
+    pdfplumber = ModuleType("pdfplumber")
+    class _PdfOpen:
+        def __enter__(self):
+            return SimpleNamespace(pages=[])
+        def __exit__(self, exc_type, exc, tb):
+            return False
+    pdfplumber.open = lambda *a, **k: _PdfOpen()
+    sys.modules["pdfplumber"] = pdfplumber
+
+    docx = ModuleType("docx")
+    docx.Document = lambda *a, **k: SimpleNamespace(paragraphs=[])
+    sys.modules["docx"] = docx
+
+    pypdf = ModuleType("pypdf")
+    pypdf.PdfReader = lambda *a, **k: SimpleNamespace(pages=[])
+    sys.modules["pypdf"] = pypdf
+
+    pytz = ModuleType("pytz")
+    pytz.timezone = lambda _name: SimpleNamespace()
+    sys.modules["pytz"] = pytz
+
 
 def _load_module(name, rel_path):
     _install_base_fakes()

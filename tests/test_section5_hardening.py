@@ -10,7 +10,12 @@ ROOT = Path(__file__).resolve().parents[1]
 def _install_base_fakes():
     req = ModuleType("requests")
     req.get = lambda *a, **k: SimpleNamespace(raise_for_status=lambda: None, json=lambda: {})
+    req.exceptions = SimpleNamespace(HTTPError=Exception)
     sys.modules["requests"] = req
+
+    psycopg2 = ModuleType("psycopg2")
+    psycopg2.IntegrityError = Exception
+    sys.modules["psycopg2"] = psycopg2
 
 
 def _load_module(name, rel_path):

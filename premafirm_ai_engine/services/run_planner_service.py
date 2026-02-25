@@ -155,8 +155,25 @@ class RunPlannerService:
         return vehicle.driver_id or False
 
     def _update_run(self, run, simulation):
-        start = fields.Datetime.now()
-        end = start + timedelta(hours=float(simulation.get("total_drive_hours") or 0.0))
+        ordered_stops = run.stop_ids.sorted("run_sequence")
+        start_candidates = [
+            stop.lead_id.leave_yard_at
+            for stop in ordered_stops
+            if stop.lead_id and stop.lead_id.leave_yard_at
+        ]
+        if not start_candidates:
+            start_candidates = [stop.scheduled_datetime for stop in ordered_stops if stop.scheduled_datetime]
+
+        end_candidates = [stop.scheduled_end_datetime for stop in ordered_stops if stop.scheduled_end_datetime]
+        if not end_candidates:
+            end_candidates = [
+                stop.estimated_arrival + timedelta(minutes=float(stop.stop_service_mins or 0.0))
+                for stop in ordered_stops
+                if stop.estimated_arrival
+            ]
+
+        start = min(start_candidates) if start_candidates else fields.Datetime.now()
+        end = max(end_candidates) if end_candidates else (start + timedelta(hours=float(simulation.get("total_drive_hours") or 0.0)))
         run_vals = {
             "start_datetime": start,
             "end_datetime": end,

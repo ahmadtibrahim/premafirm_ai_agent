@@ -215,7 +215,7 @@ class CrmLead(models.Model):
                 lead.write({"leave_yard_at": False, "schedule_conflict": False, "schedule_api_warning": False})
                 continue
             vehicle = lead.assigned_vehicle_id
-            yard_location = (vehicle.home_location if vehicle else False) or mapbox.ORIGIN_YARD
+            yard_location = (vehicle.home_location if vehicle else False) or (ordered and ordered[0].home_location) or False
             vehicle_start = lead._vehicle_start_datetime()
             has_window = any(bool(lead._stop_window(stop)[0]) for stop in ordered)
             warnings = []
@@ -610,7 +610,7 @@ class CrmLead(models.Model):
         for lead in self:
             lead.dispatch_stop_ids.write({"load_id": False})
             loads = self.env["premafirm.load"].search([("lead_id", "=", lead.id)])
-            loads.unlink()
+            loads.sudo().unlink()
             grouped_loads = {}
             current_load = self.env["premafirm.load"]
             for stop in lead.dispatch_stop_ids.sorted("sequence"):

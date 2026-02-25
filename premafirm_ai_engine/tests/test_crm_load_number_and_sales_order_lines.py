@@ -1,5 +1,6 @@
 from odoo.tests.common import TransactionCase
 
+from ..services.ai_extraction_service import AIExtractionService
 from ..services.crm_dispatch_service import CRMDispatchService
 
 
@@ -130,3 +131,40 @@ class TestCrmLoadNumberAndSalesOrderLines(TransactionCase):
         self.assertEqual(lead.weather_alert_level, "severe")
         self.assertTrue(lead.schedule_conflict)
         self.assertTrue(lead.weather_summary)
+
+
+    def test_parse_load_sections_handles_pickup_delivery_information_headings(self):
+        service = AIExtractionService(env=None)
+        raw_text = """
+LOAD #1
+Pickup Information
+Barrie, ON
+
+Delivery Information
+Mississauga, ON
+
+Pallets: 8
+Weight: 9115 lbs
+"""
+
+        parsed = service._parse_load_sections(raw_text)
+
+        self.assertEqual(len(parsed["stops"]), 2)
+        self.assertEqual(parsed["stops"][0]["stop_type"], "pickup")
+        self.assertTrue(parsed["stops"][0]["address"].startswith("Barrie"))
+        self.assertEqual(parsed["stops"][1]["stop_type"], "delivery")
+        self.assertTrue(parsed["stops"][1]["address"].startswith("Mississauga"))
+
+    def test_action_create_sales_order_recreates_after_delete(self):
+        lead = self._create_lead_with_two_loads()
+
+        first_action = lead.action_create_sales_order()
+        first_order = self.env["sale.order"].browse(first_action["res_id"])
+        first_order.unlink()
+
+        second_action = lead.action_create_sales_order()
+        second_order = self.env["sale.order"].browse(second_action["res_id"])
+
+        self.assertTrue(second_order.exists())
+        self.assertNotEqual(first_order.id, second_order.id)
+        self.assertEqual(second_order.state, "draft")

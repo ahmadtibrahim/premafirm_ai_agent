@@ -1,5 +1,6 @@
 from odoo.tests.common import TransactionCase
 
+from ..services.ai_extraction_service import AIExtractionService
 from ..services.crm_dispatch_service import CRMDispatchService
 
 
@@ -130,3 +131,76 @@ class TestCrmLoadNumberAndSalesOrderLines(TransactionCase):
         self.assertEqual(lead.weather_alert_level, "severe")
         self.assertTrue(lead.schedule_conflict)
         self.assertTrue(lead.weather_summary)
+
+
+    def test_parse_load_sections_handles_pickup_delivery_information_headings(self):
+        service = AIExtractionService(env=None)
+        raw_text = """
+LOAD #1
+Pickup Information
+Barrie, ON
+
+Delivery Information
+Mississauga, ON
+
+Pallets: 8
+Weight: 9115 lbs
+"""
+
+        parsed = service._parse_load_sections(raw_text)
+
+        self.assertEqual(len(parsed["stops"]), 2)
+        self.assertEqual(parsed["stops"][0]["stop_type"], "pickup")
+        self.assertTrue(parsed["stops"][0]["address"].startswith("Barrie"))
+        self.assertEqual(parsed["stops"][1]["stop_type"], "delivery")
+        self.assertTrue(parsed["stops"][1]["address"].startswith("Mississauga"))
+
+    def test_action_create_sales_order_recreates_after_delete(self):
+        lead = self._create_lead_with_two_loads()
+
+        first_action = lead.action_create_sales_order()
+        first_order = self.env["sale.order"].browse(first_action["res_id"])
+        first_order.unlink()
+
+        second_action = lead.action_create_sales_order()
+        second_order = self.env["sale.order"].browse(second_action["res_id"])
+
+        self.assertTrue(second_order.exists())
+        self.assertNotEqual(first_order.id, second_order.id)
+        self.assertEqual(second_order.state, "draft")
+
+
+    def test_action_create_sales_order_creates_new_when_only_confirmed_order_exists(self):
+        lead = self._create_lead_with_two_loads()
+        lead.po_number = "PO-EXISTING"
+
+        first_action = lead.action_create_sales_order()
+        confirmed_order = self.env["sale.order"].browse(first_action["res_id"])
+        self.assertEqual(confirmed_order.state, "sale")
+
+        lead.po_number = False
+        second_action = lead.action_create_sales_order()
+        new_order = self.env["sale.order"].browse(second_action["res_id"])
+
+        self.assertTrue(new_order.exists())
+        self.assertNotEqual(confirmed_order.id, new_order.id)
+        self.assertEqual(new_order.state, "draft")
+
+    def test_action_confirm_skips_missing_pod_report_action(self):
+        lead = self._create_lead_with_two_loads()
+        driver = self.env["res.partner"].create({"name": "Driver One"})
+        vehicle = self.env["fleet.vehicle"].create({"name": "Truck POD", "driver_id": driver.id})
+        lead.assigned_vehicle_id = vehicle
+
+        action = lead.action_create_sales_order()
+        order = self.env["sale.order"].browse(action["res_id"])
+
+        report_action = self.env.ref("premafirm_ai_engine.action_report_premafirm_load_pod", raise_if_not_found=False)
+        self.assertTrue(report_action)
+        report_action.unlink()
+
+        order.action_confirm()
+
+        self.assertTrue(order.exists())
+        self.assertEqual(order.state, "sale")
+        self.assertTrue(any("POD report template is missing" in (msg.body or "") for msg in order.message_ids))

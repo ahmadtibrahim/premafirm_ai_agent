@@ -34,6 +34,7 @@ class PremafirmDispatchStop(models.Model):
     address = fields.Char(required=True)
     address_link_html = fields.Html(compute="_compute_address_link_html", store=True)
     full_address = fields.Char()
+    geo_short_address = fields.Char(string="Geo Short Address")
     city = fields.Char()
     state = fields.Char()
     country = fields.Char()

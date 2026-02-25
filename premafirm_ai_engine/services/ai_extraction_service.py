@@ -17,7 +17,6 @@ class AIExtractionService:
     """Extraction layer that converts broker data into structured freight data."""
 
     OPENAI_URL = "https://api.openai.com/v1/responses"
-    OPENAI_API_KEY_PARAM = "openai.api_key"
 
     def __init__(self, env):
         self.env = env

@@ -155,6 +155,31 @@ Weight: 9115 lbs
         self.assertEqual(parsed["stops"][1]["stop_type"], "delivery")
         self.assertTrue(parsed["stops"][1]["address"].startswith("Mississauga"))
 
+
+    def test_normalize_stop_values_accepts_weight_alias(self):
+        service = CRMDispatchService(self.env)
+        stops = service._normalize_stop_values(
+            [
+                {
+                    "sequence": 1,
+                    "stop_type": "pickup",
+                    "address": "Barrie, ON",
+                    "pallets": 8,
+                    "weight": 9115,
+                },
+                {
+                    "sequence": 2,
+                    "stop_type": "delivery",
+                    "address": "Mississauga, ON",
+                    "pallets": 8,
+                    "weight": 9115,
+                },
+            ]
+        )
+
+        self.assertEqual(len(stops), 2)
+        self.assertEqual(stops[0]["weight_lbs"], 9115.0)
+        self.assertEqual(stops[1]["weight_lbs"], 9115.0)
     def test_action_create_sales_order_recreates_after_delete(self):
         lead = self._create_lead_with_two_loads()
 

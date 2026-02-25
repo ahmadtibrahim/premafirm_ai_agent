@@ -76,6 +76,48 @@ Deployment notes:
 - Keep production Odoo settings at `log_level = info` and ensure no `debug=True` flags are enabled.
 - Store external API keys (Mapbox and Weather provider) in `ir.config_parameter` and verify they are present during deployment checks.
 
+### Architecture overview (current extraction + dispatch chain)
+1. Inbound email thread and attachments are collected from `crm.lead` messages.
+2. `AIExtractionService` attempts structured extraction from attachments first.
+3. Parsed stops are normalized by `CRMDispatchService` and created as `premafirm.dispatch.stop` records.
+4. Routing/geodata enrichment is applied via Mapbox service.
+5. `PricingEngine` computes estimated cost/suggested rate and lead-level pricing fields are updated.
+6. CRM lead can then create Sales Order lines from dispatch stop payload.
+
+### Extraction strategy flow
+1. Attachment-first strategy (`.pdf`, `.docx`, `.doc`, `.xlsx`, `.xls`).
+2. PDF parser order is deterministic:
+   - primary: `pdfplumber`
+   - fallback: `pypdf`
+3. DOCX parser: `python-docx`.
+4. Legacy `.doc` files are intentionally not parsed and return empty text with warning logs.
+5. OpenAI fallback executes only when parser output does not yield usable stops.
+6. Final fallback is deterministic email text parsing.
+
+### OpenAI API mapping
+- API style: **Responses API**.
+- Endpoint: `https://api.openai.com/v1/responses`.
+- Model: `gpt-4.1-mini`.
+- Odoo system parameter required: `openai.api_key`.
+
+### Required Python dependencies
+- `pdfplumber`
+- `pypdf`
+- `python-docx`
+
+### Upgrade procedure (production-safe)
+1. Confirm code is deployed to server path used by `odoo18` service.
+2. Run module upgrade as the service user (not root) while following your standard service maintenance window process.
+3. Verify registry load and module state in Apps/Logs.
+
+### Safe deployment command
+Use a controlled service-user upgrade command in maintenance mode:
+
+`sudo -u odoo18 /usr/bin/odoo -c /etc/odoo18.conf -d Prody-db -u premafirm_ai_engine --stop-after-init`
+
+### Known limitations
+- `.doc` attachment parsing is not supported; the extractor returns empty text and logs a warning.
+
 ---
 
 ## 4) Developer workflow
@@ -140,7 +182,6 @@ Deployment notes:
 - `security/ir.model.access.csv` — Access control list entries for custom models.
 
 ### Data seeds/config: `premafirm_ai_engine/data/`
-- `data/product_data.xml` — Product/service seed data for dispatch billing lines.
 - `data/load_sequence.xml` — Sequence definitions for load/run identifiers.
 - `data/dispatch_rules.yaml` — Human-editable dispatch rule definitions.
 - `data/dispatch_rules.json` — JSON-form dispatch rules (runtime/compatibility source).

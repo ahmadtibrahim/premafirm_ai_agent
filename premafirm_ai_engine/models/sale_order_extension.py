@@ -60,8 +60,11 @@ class SaleOrder(models.Model):
             for load in order.load_ids:
                 if not load.vehicle_id or not load.driver_id:
                     continue
-                report_action = self.env.ref("premafirm_ai_engine.action_report_premafirm_load_pod", raise_if_not_found=False)
-                report_action = report_action.exists() if report_action else report_action
+                report_action_id = self.env["ir.model.data"]._xmlid_to_res_id(
+                    "premafirm_ai_engine.action_report_premafirm_load_pod",
+                    raise_if_not_found=False,
+                )
+                report_action = self.env["ir.actions.report"].browse(report_action_id).exists() if report_action_id else self.env["ir.actions.report"]
                 if not report_action:
                     order.message_post(body="POD report template is missing; POD PDF generation was skipped.")
                     continue

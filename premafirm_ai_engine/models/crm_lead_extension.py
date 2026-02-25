@@ -861,6 +861,23 @@ class CrmLead(models.Model):
 
         planner = RunPlannerService(self.env)
         suggestions = planner.optimize_insertion_for_lead(self)
+        if suggestions.get("feasible"):
+            run = self.dispatch_run_id
+            options = suggestions.get("options") or []
+            if options:
+                best_option = dict(options[0])
+                if suggestions.get("run_id"):
+                    best_option["run_id"] = suggestions.get("run_id")
+                planner.apply_option(self, best_option)
+                run = self.env["premafirm.dispatch.run"].browse(best_option.get("run_id") or suggestions.get("run_id"))
+            elif suggestions.get("run_id"):
+                run = self.env["premafirm.dispatch.run"].browse(suggestions.get("run_id"))
+
+            if run:
+                simulation = planner.simulate_run(run, run.stop_ids.sorted("run_sequence"))
+                planner._update_run(run, simulation)
+                self.dispatch_run_id = run.id
+
         self.write({"ai_optimization_suggestion": suggestions.get("text"), "schedule_conflict": not suggestions.get("feasible")})
         return True
 

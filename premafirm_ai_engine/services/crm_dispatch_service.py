@@ -77,7 +77,7 @@ class CRMDispatchService:
                     "address": address,
                     "country": stop.get("country") or "",
                     "pallets": int(float(stop.get("pallets") or 0)),
-                    "weight_lbs": float(stop.get("weight_lbs") or 0.0),
+                    "weight_lbs": float(stop.get("weight_lbs") or stop.get("weight") or 0.0),
                     "service_type": "reefer" if stop.get("service_type") == "reefer" else "dry",
                     "scheduled_datetime": requested,
                     "special_instructions": stop.get("special_instructions"),

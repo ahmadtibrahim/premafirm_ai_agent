@@ -56,7 +56,7 @@ class CrmLeadAI(models.Model):
             email_text = lead._build_thread_text(messages)
             attachments = messages.mapped("attachment_ids")
             if not attachments:
-                attachments = lead._get_ai_attachments(self.env["mail.message"])
+                attachments = lead._get_ai_attachments(False)
             if not email_text and not attachments:
                 raise UserError("No email content or attachments found.")
             try:

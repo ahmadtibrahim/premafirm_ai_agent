@@ -1,0 +1,108 @@
+.ai-drop-zone {
+    border: 2px dashed #4a90e2;
+    padding: 20px;
+    border-radius: 8px;
+    position: relative;
+}
+
+.ai-drag-overlay {
+    position: absolute;
+    background: rgba(74, 144, 226, 0.2);
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+}
+
+.ai-file-input {
+    display: none;
+}
+
+.ai-upload-list {
+    margin-top: 10px;
+    padding-left: 20px;
+}
+
+.progress-bar {
+    height: 6px;
+    background: #eee;
+    margin-top: 8px;
+}
+
+.progress-bar .bar {
+    height: 100%;
+    background: #4a90e2;
+}
+
+.ai-preview {
+    margin-top: 8px;
+}
+
+.o_prema_modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.o_prema_modal_content {
+    background: #fff;
+    padding: 16px;
+    border-radius: 8px;
+    width: 480px;
+    max-width: 95%;
+}
+
+.o_prema_modal_actions {
+    display: flex;
+    gap: 8px;
+}
+
+.o_prema_chat_window {
+    max-height: 420px;
+    overflow-y: auto;
+    margin-top: 12px;
+    padding: 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.o_prema_chat_window .msg {
+    margin-bottom: 8px;
+    white-space: pre-wrap;
+}
+
+.o_prema_chat_window .msg.user {
+    text-align: right;
+}
+
+.o_prema_chat_window .msg.assistant,
+.o_prema_chat_window .msg.system {
+    text-align: left;
+}
+
+.o_prema_input {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.o_prema_input input {
+    flex: 1;
+}
+
+.o_prema_ai_chat_root {
+    min-height: 500px;
+    padding: 16px;
+}
+
+.modal-lg .o_form_sheet {
+    max-width: 1200px;
+}

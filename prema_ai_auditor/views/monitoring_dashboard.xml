@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_prema_monitoring_log_graph" model="ir.ui.view">
+        <field name="name">prema.monitoring.log.graph</field>
+        <field name="model">prema.audit.log</field>
+        <field name="arch" type="xml">
+            <graph string="Severity Heatmap" type="bar">
+                <field name="severity" type="row"/>
+                <field name="id" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="view_prema_monitoring_log_kanban" model="ir.ui.view">
+        <field name="name">prema.monitoring.log.kanban</field>
+        <field name="model">prema.audit.log</field>
+        <field name="arch" type="xml">
+            <kanban>
+                <field name="severity"/>
+                <field name="rule_name"/>
+                <field name="status"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_global_click">
+                            <strong><field name="rule_name"/></strong>
+                            <div class="mt8">Severity: <field name="severity"/></div>
+                            <div>Status: <field name="status"/></div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="action_prema_monitoring_dashboard" model="ir.actions.act_window">
+        <field name="name">AI Monitoring Dashboard</field>
+        <field name="res_model">prema.audit.log</field>
+        <field name="view_mode">graph,kanban,list,form</field>
+        <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'graph', 'view_id': ref('view_prema_monitoring_log_graph')}),
+            (0, 0, {'view_mode': 'kanban', 'view_id': ref('view_prema_monitoring_log_kanban')})]"/>
+        <field name="domain">[("status", "=", "open")]</field>
+    </record>
+
+    <record id="prema_ai_dashboard_action" model="ir.actions.client">
+        <field name="name">AI Monitoring</field>
+        <field name="tag">prema_ai_chat_action</field>
+    </record>
+</odoo>

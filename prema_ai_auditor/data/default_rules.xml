@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="rule_scan_duplicate_bills" model="prema.audit.rule">
+        <field name="name">Duplicate Vendor Bills</field>
+        <field name="code">scan_duplicate_bills</field>
+        <field name="severity">high</field>
+        <field name="description">Detects duplicate posted vendor bills by supplier/date/total.</field>
+    </record>
+    <record id="rule_scan_gst_anomalies" model="prema.audit.rule">
+        <field name="name">GST/HST Anomalies</field>
+        <field name="code">scan_gst_anomalies</field>
+        <field name="severity">medium</field>
+        <field name="description">Flags tax lines with unexpected GST/HST rates.</field>
+    </record>
+    <record id="rule_scan_unreconciled_bank" model="prema.audit.rule">
+        <field name="name">Unreconciled Bank Lines</field>
+        <field name="code">scan_unreconciled_bank</field>
+        <field name="severity">medium</field>
+        <field name="description">Identifies completed bank statement lines that are unreconciled.</field>
+    </record>
+</odoo>

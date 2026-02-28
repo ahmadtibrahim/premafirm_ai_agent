@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_prema_ai_dashboard" model="ir.ui.view">
+        <field name="name">prema.ai.dashboard</field>
+        <field name="model">prema.audit.log</field>
+        <field name="arch" type="xml">
+            <kanban>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_global_click">
+                            <strong>Prema AI Auditor Dashboard</strong>
+                            <div>
+                                Open findings can be reviewed from the Audit Logs menu.
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+</odoo>

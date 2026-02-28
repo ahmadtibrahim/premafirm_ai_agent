@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="prema_ai_auditor.AIChatUpload">
+        <div class="ai-drop-zone"
+             t-on-dragover="onDragOver"
+             t-on-dragleave="onDragLeave"
+             t-on-drop="onDrop">
+
+            <div t-if="state.dragging" class="ai-drag-overlay">
+                Drop files here
+            </div>
+
+            <input type="file"
+                   multiple="multiple"
+                   class="ai-file-input"
+                   t-ref="fileInput"
+                   t-on-change="onFileSelect"/>
+
+            <button class="btn btn-secondary" t-on-click="onAttachClick">
+                📎 Attach Files
+            </button>
+
+            <div t-if="state.uploading" class="ai-upload-status">
+                Uploading... <t t-esc="state.done"/>/<t t-esc="state.total"/>
+            </div>
+
+            <div class="progress-bar" t-if="state.uploading">
+                <div class="bar" t-att-style="'width:' + state.progress + '%'">
+                </div>
+            </div>
+
+            <ul class="ai-upload-list" t-if="state.files.length">
+                <li t-foreach="state.files" t-as="uploadFile" t-key="uploadFile.name + uploadFile.progress">
+                    <span><t t-esc="uploadFile.name"/></span>
+                    <span><t t-esc="uploadFile.progress"/>%</span>
+
+                    <div class="ai-preview" t-if="uploadFile.attachment_id and uploadFile.mimetype == 'application/pdf'">
+                        <iframe t-att-src="'/web/content/' + uploadFile.attachment_id" width="100%" height="400px"/>
+                    </div>
+                    <div class="ai-preview" t-if="uploadFile.attachment_id and _isImage(uploadFile.mimetype)">
+                        <img t-att-src="'/web/content/' + uploadFile.attachment_id" style="max-width:100%;"/>
+                    </div>
+                </li>
+            </ul>
+        </div>
+    </t>
+</templates>

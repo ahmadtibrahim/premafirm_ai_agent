@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_prema_cleanup_plan" model="ir.actions.act_window">
+        <field name="name">Cleanup Plans</field>
+        <field name="res_model">prema.cleanup.plan</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>

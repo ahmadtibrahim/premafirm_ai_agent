@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem
+    id="menu_prema_ai_root"
+    name="Prema AI Auditor"
+    sequence="10"
+    web_icon="prema_ai_auditor,static/description/icon.png"
+    groups="base.group_user"
+    />
+    <menuitem id="menu_prema_ai_chat" name="AI Chat" parent="menu_prema_ai_root" action="action_prema_ai_chat"/>
+    <menuitem id="menu_prema_ai_logs" name="Audit Logs" parent="menu_prema_ai_root" action="action_prema_audit_log"/>
+    <menuitem id="menu_prema_ai_dashboard" name="Dashboard" parent="menu_prema_ai_root" action="action_prema_ai_dashboard"/>
+    <menuitem id="menu_prema_cleanup_plans" name="Cleanup Plans" parent="menu_prema_ai_root" action="action_prema_cleanup_plan"/>
+    <menuitem id="menu_prema_ai_monitoring" name="AI Monitoring" parent="menu_prema_ai_root" action="action_prema_monitoring_dashboard"/>
+    <menuitem id="menu_prema_ai_monitoring_chat" name="AI Monitoring Console" parent="menu_prema_ai_root" action="prema_ai_dashboard_action"/>
+    <menuitem id="menu_prema_ai_proposals" name="Proposals" parent="menu_prema_ai_root" action="action_prema_ai_proposals"/>
+    <menuitem id="menu_prema_ai_config_audit" name="Config Audit" parent="menu_prema_ai_root" action="action_prema_config_audit_wizard"/>
+    <menuitem id="menu_prema_ai_schema_viewer" name="Schema Viewer" parent="menu_prema_ai_root" action="action_schema_viewer"/>
+</odoo>

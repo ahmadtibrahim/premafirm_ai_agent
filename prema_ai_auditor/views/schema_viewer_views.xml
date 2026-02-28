@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_prema_schema_viewer_wizard_form" model="ir.ui.view">
+        <field name="name">prema.schema.viewer.wizard.form</field>
+        <field name="model">prema.schema.viewer.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Schema Viewer" class="modal-lg">
+                <sheet>
+                    <group>
+                        <field name="model_name"/>
+                    </group>
+                    <notebook>
+                        <page string="Runtime Schema">
+                            <field name="runtime_schema" widget="text" readonly="1"/>
+                        </page>
+                        <page string="Reference Schema">
+                            <field name="reference_schema" widget="text" readonly="1"/>
+                        </page>
+                        <page string="Diff Report">
+                            <field name="diff_report" widget="text" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <footer>
+                    <button name="action_load_schema" type="object" string="Load Schema" class="btn-primary"/>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_schema_viewer" model="ir.actions.act_window">
+        <field name="name">Schema Viewer</field>
+        <field name="res_model">prema.schema.viewer.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+</odoo>

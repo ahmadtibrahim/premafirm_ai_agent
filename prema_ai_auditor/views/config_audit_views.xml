@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_prema_config_audit_wizard_form" model="ir.ui.view">
+        <field name="name">prema.config.audit.wizard.form</field>
+        <field name="model">prema.config.audit.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Config Audit">
+                <sheet>
+                    <group>
+                        <field name="result" nolabel="1" readonly="1" widget="text"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_run_audit" type="object" string="Run Audit" class="btn-primary"/>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_prema_config_audit_wizard" model="ir.actions.act_window">
+        <field name="name">Config Audit</field>
+        <field name="res_model">prema.config.audit.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+</odoo>

@@ -1,0 +1,8 @@
+<odoo>
+    <record id="action_prema_ai_dashboard" model="ir.actions.act_window">
+        <field name="name">Prema AI Dashboard</field>
+        <field name="res_model">prema.ai.dashboard</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+    </record>
+</odoo>

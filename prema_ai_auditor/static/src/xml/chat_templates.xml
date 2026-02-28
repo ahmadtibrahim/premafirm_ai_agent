@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="prema_ai_auditor.ChatTemplate">
+        <div class="o_prema_ai_chat_root">
+            <div class="o_prema_header">
+                <h2>Prema AI Auditor</h2>
+                <div>Health Score: <t t-esc="state.healthScore"/>%</div>
+            </div>
+
+            <AIChatUpload sessionId="state.sessionId" onUploaded.bind="refreshDocumentSummary"/>
+
+            <div class="alert alert-warning mt-2" t-if="state.showAiDisabledWarning">
+                AI is disabled for this action context.
+            </div>
+
+            <div class="o_prema_input mt-2">
+                <select t-model="state.mode" class="form-select form-select-sm">
+                    <option value="advice_only">Advice only</option>
+                    <option value="draft">Create draft after approval</option>
+                </select>
+            </div>
+
+            <div class="alert alert-warning mt-2" t-if="state.errorMessage">
+                <t t-esc="state.errorMessage"/>
+            </div>
+
+            <div class="o_prema_chat_window" t-ref="chatWindow">
+                <t t-foreach="state.messages" t-as="msg" t-key="msg.content + msg.role + msg_index">
+                    <div t-att-class="'msg ' + msg.role">
+                        <t t-esc="msg.content"/>
+                    </div>
+                </t>
+            </div>
+
+            <div class="o_prema_input">
+                <input t-model="state.input" t-on-keydown="onInputKeydown" placeholder="Ask AI Auditor..."/>
+                <button t-on-click="send" t-att-disabled="state.isSending or !state.sessionId">
+                    <t t-if="state.isSending">Sending...</t>
+                    <t t-else="">Send</t>
+                </button>
+            </div>
+
+
+            <div class="row mt-3">
+                <div class="col-6">
+                    <h5>Incidents Feed</h5>
+                    <button class="btn btn-sm btn-outline-secondary mb-2" t-on-click="loadIncidents">Refresh</button>
+                    <ul class="list-group">
+                        <li class="list-group-item" t-foreach="state.incidents" t-as="inc" t-key="inc.id">
+                            <strong><t t-esc="inc.severity"/></strong> - <t t-esc="inc.name"/>
+                        </li>
+                    </ul>
+                </div>
+                <div class="col-6">
+                    <h5>Schema Browser</h5>
+                    <input t-model="state.schemaModel" class="form-control form-control-sm" placeholder="model.name"/>
+                    <button class="btn btn-sm btn-outline-primary mt-2" t-on-click="loadSchemaModel">Load Fields</button>
+                    <pre class="mt-2"><t t-esc="state.schemaFields"/></pre>
+                </div>
+            </div>
+
+            <div class="o_prema_modal" t-if="state.showBatchModal">
+                <div class="o_prema_modal_content">
+                    <h4>You are about to create <t t-esc="state.batchSummary.total"/> Draft Bills.</h4>
+                    <div>Summary:</div>
+                    <ul>
+                        <li><t t-esc="state.batchSummary.clean"/> clean</li>
+                        <li><t t-esc="state.batchSummary.duplicate"/> duplicate</li>
+                        <li><t t-esc="state.batchSummary.missing_vendor"/> missing vendor</li>
+                    </ul>
+                    <div class="o_prema_modal_actions">
+                        <button class="btn btn-primary" t-on-click="createCleanOnlyDrafts">Create Clean Only</button>
+                        <button class="btn btn-secondary" t-on-click="createAllDrafts">Create All As Draft</button>
+                        <button class="btn btn-link" t-on-click="closeBatchModal">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </t>
+</templates>

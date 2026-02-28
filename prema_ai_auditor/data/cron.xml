@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="ir_cron_prema_audit_scan" model="ir.cron">
+        <field name="name">Prema AI Audit Scan</field>
+        <field name="model_id" ref="model_prema_audit_engine"/>
+        <field name="state">code</field>
+        <field name="code">model.run_default_scan()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active">True</field>
+    </record>
+
+    <record id="ir_cron_prema_ai_document_processing" model="ir.cron">
+        <field name="name">Prema AI Document Processing</field>
+        <field name="model_id" ref="model_prema_ai_document_processor_cron"/>
+        <field name="state">code</field>
+        <field name="code">model.cron_process_pending_documents()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">minutes</field>
+        <field name="active">True</field>
+    </record>
+</odoo>

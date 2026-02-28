@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_prema_ai_proposal_tree" model="ir.ui.view">
+        <field name="name">prema.ai.proposal.tree</field>
+        <field name="model">prema.ai.proposal</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="create_date"/>
+                <field name="target_model"/>
+                <field name="target_res_id"/>
+                <field name="action_type"/>
+                <field name="severity"/>
+                <field name="risk_score"/>
+                <field name="status"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_prema_ai_proposal_form" model="ir.ui.view">
+        <field name="name">prema.ai.proposal.form</field>
+        <field name="model">prema.ai.proposal</field>
+        <field name="arch" type="xml">
+            <form string="AI Proposal">
+                <header>
+                    <button name="action_submit_for_approval" type="object" string="Submit" invisible="status != 'draft'"/>
+                    <button name="action_approve" type="object" string="Approve" invisible="status != 'pending_approval'"/>
+                    <button name="action_reject" type="object" string="Reject" invisible="status not in ('draft','pending_approval','approved')"/>
+                    <button name="action_apply" type="object" string="Apply" invisible="status != 'approved'"/>
+                    <field name="status" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="created_by" readonly="1"/>
+                            <field name="target_model"/>
+                            <field name="target_res_id"/>
+                            <field name="action_type"/>
+                            <field name="severity"/>
+                            <field name="risk_score"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Details">
+                            <group>
+                                <field name="rationale"/>
+                                <field name="payload_json" widget="json"/>
+                            </group>
+                        </page>
+                        <page string="Execution Log">
+                            <group>
+                                <field name="apply_log" readonly="1"/>
+                                <field name="error_trace_masked" readonly="1"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_prema_ai_proposals" model="ir.actions.act_window">
+        <field name="name">AI Proposals</field>
+        <field name="res_model">prema.ai.proposal</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>

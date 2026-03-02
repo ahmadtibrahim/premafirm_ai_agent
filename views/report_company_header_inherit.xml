@@ -1,0 +1,72 @@
+<odoo>
+
+    <!-- SALE ORDER / QUOTATION -->
+    <template id="report_saleorder_document_inherit_company_info"
+              inherit_id="sale.report_saleorder_document">
+
+        <xpath expr="//div[@id='informations']" position="inside">
+
+            <div class="mt16">
+                <strong>Regulatory Information</strong><br/>
+
+                <t t-if="o.company_id.x_studio_cvor_number">
+                    CVOR #:
+                    <span t-field="o.company_id.x_studio_cvor_number"/><br/>
+                </t>
+
+                <t t-if="o.company_id.x_studio_usdot_">
+                    USDOT #:
+                    <span t-field="o.company_id.x_studio_usdot_"/><br/>
+                </t>
+
+                <t t-if="o.company_id.x_studio_mc_">
+                    MC #:
+                    <span t-field="o.company_id.x_studio_mc_"/><br/>
+                </t>
+
+                <t t-if="o.company_id.vat">
+                    HST #:
+                    <span t-field="o.company_id.vat"/>
+                </t>
+            </div>
+
+        </xpath>
+
+    </template>
+
+
+    <!-- INVOICE -->
+    <template id="report_invoice_document_inherit_company_info"
+              inherit_id="account.report_invoice_document">
+
+        <xpath expr="//div[@id='informations']" position="inside">
+
+            <div class="mt16">
+                <strong>Regulatory Information</strong><br/>
+
+                <t t-if="o.company_id.x_studio_cvor_number">
+                    CVOR #:
+                    <span t-field="o.company_id.x_studio_cvor_number"/><br/>
+                </t>
+
+                <t t-if="o.company_id.x_studio_usdot_">
+                    USDOT #:
+                    <span t-field="o.company_id.x_studio_usdot_"/><br/>
+                </t>
+
+                <t t-if="o.company_id.x_studio_mc_">
+                    MC #:
+                    <span t-field="o.company_id.x_studio_mc_"/><br/>
+                </t>
+
+                <t t-if="o.company_id.vat">
+                    HST #:
+                    <span t-field="o.company_id.vat"/>
+                </t>
+            </div>
+
+        </xpath>
+
+    </template>
+
+</odoo>

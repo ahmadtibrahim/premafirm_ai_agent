@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_order_form_premafirm_ai" model="ir.ui.view">
+        <field name="name">sale.order.form.premafirm.ai</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="action_generate_pod" type="object" string="Generate POD" class="btn-primary"/>
+            </xpath>
+
+            <xpath expr="//sheet/group" position="after">
+                <group string="PremaFirm Load Details">
+                    <group>
+                        <field name="premafirm_po"/>
+                        <field name="premafirm_bol"/>
+                        <field name="premafirm_pod"/>
+                        <field name="load_reference"/>
+                                            </group>
+                    <group>
+                        <field name="pickup_city"/>
+                        <field name="delivery_city"/>
+                        <field name="total_pallets"/>
+                        <field name="total_weight_lbs"/>
+                        <field name="total_distance_km"/>
+                    </group>
+                    <group>
+                        <field name="load_ids" context="{'default_sale_order_id': id}">
+                            <list editable="bottom">
+                                <field name="name"/>
+                                <field name="vehicle_id"/>
+                                <field name="driver_id" readonly="1"/>
+                                <field name="route_reference"/>
+                                <field name="bol_number"/>
+                                <field name="seal_number"/>
+                            </list>
+                        </field>
+                    </group>
+                </group>
+            </xpath>
+
+
+            <xpath expr="//field[@name='order_line']/list/field[@name='name']" position="after">
+                <field name="stop_type" optional="show"/>
+                <field name="stop_address" optional="show"/>
+                <field name="scheduled_date" optional="show"/>
+                <field name="eta_datetime" optional="show"/>
+                <field name="stop_distance_km" optional="show"/>
+                <field name="stop_drive_hours" optional="show"/>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_packaging_id']" position="attributes">
+                <attribute name="invisible">1</attribute>
+                <attribute name="optional">hide</attribute>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_packaging_qty']" position="attributes">
+                <attribute name="invisible">1</attribute>
+                <attribute name="optional">hide</attribute>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="attributes">
+                <attribute name="invisible">1</attribute>
+                <attribute name="optional">hide</attribute>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom']" position="attributes">
+                <attribute name="invisible">1</attribute>
+                <attribute name="optional">hide</attribute>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/form//field[@name='product_packaging_id']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/form//field[@name='product_packaging_qty']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/form//field[@name='product_uom_qty']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/form//field[@name='product_uom']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+        </field>
+    </record>
+</odoo>

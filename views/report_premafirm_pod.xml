@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="action_report_premafirm_load_pod" model="ir.actions.report">
+        <field name="name">PremaFirm Load POD</field>
+        <field name="model">premafirm.load</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">premafirm_ai_engine.report_premafirm_load_pod_template</field>
+        <field name="report_file">premafirm_ai_engine.report_premafirm_load_pod_template</field>
+        <field name="print_report_name">'POD - %s' % (object.name)</field>
+    </record>
+
+    <template id="report_premafirm_load_pod_template">
+        <t t-call="web.external_layout">
+            <main>
+                <t t-foreach="docs" t-as="o">
+                    <t t-set="deliveries" t-value="o.stop_ids.filtered(lambda s: s.stop_type == 'delivery').sorted(lambda s: (s.sequence, s.id))"/>
+                    <t t-foreach="deliveries" t-as="delivery">
+                        <t t-set="pickup" t-value="o._get_pickup_for_delivery(delivery)"/>
+                        <t t-set="allocations" t-value="o._get_delivery_allocations(delivery)"/>
+                        <div class="page">
+                            <h3 style="margin-bottom: 8px;">PROOF OF DELIVERY (POD)</h3>
+                            <table class="table table-sm">
+                                <tr><td><strong>Company Name</strong></td><td><span t-esc="o.company_id.name"/></td></tr>
+                                <tr><td><strong>CVOR</strong></td><td><span t-esc="getattr(o.company_id, 'x_cvor', '')"/></td></tr>
+                                <tr><td><strong>MC #</strong></td><td><span t-esc="getattr(o.company_id, 'x_mc_number', '')"/></td></tr>
+                                <tr><td><strong>USDOT #</strong></td><td><span t-esc="getattr(o.company_id, 'x_usdot_number', '')"/></td></tr>
+                                <tr><td><strong>HST / VAT</strong></td><td><span t-esc="o.company_id.vat or ''"/></td></tr>
+                            </table>
+
+                            <h4>Vehicle</h4>
+                            <p>
+                                <strong>Vehicle model:</strong> <span t-esc="o.vehicle_id.model_id.name or ''"/><br/>
+                                <strong>Unit number:</strong> <span t-esc="getattr(o.vehicle_id, 'x_unit_number', False) or getattr(o.vehicle_id, 'x_studio_unit_number', False) or o.vehicle_id.name"/><br/>
+                                <strong>License plate:</strong> <span t-esc="o.vehicle_id.license_plate or ''"/><br/>
+                                <strong>Driver name:</strong> <span t-esc="o.driver_id.name or ''"/>
+                            </p>
+
+                            <h4>Load</h4>
+                            <p>
+                                <strong>Sale Order #:</strong> <span t-esc="o.sale_order_id.name"/><br/>
+                                <strong>Load #:</strong> <span t-esc="o.name"/><br/>
+                                <strong>Customer PO:</strong> <span t-esc="o.sale_order_id.premafirm_po or ''"/><br/>
+                                <strong>BOL #:</strong> <span t-esc="o.bol_number or o.sale_order_id.premafirm_bol or ''"/><br/>
+                                <strong>Service type:</strong> <span t-esc="getattr(o.sale_order_id.opportunity_id, 'service_type', '') or ''"/><br/>
+                                <strong>Equipment type:</strong> <span t-esc="getattr(o.sale_order_id.opportunity_id, 'equipment_type', '') or ''"/><br/>
+                                <t t-if="o.reefer_required">
+                                    <strong>Reefer setpoint (°C):</strong> <span t-esc="o.reefer_setpoint_c or ''"/><br/>
+                                </t>
+                            </p>
+
+                            <h4>Pickup</h4>
+                            <p>
+                                <strong>Pickup address:</strong> <span t-esc="pickup.address or ''"/><br/>
+                                <strong>Pickup company:</strong> <span t-esc="pickup.name or ''"/><br/>
+                                <strong>Pickup date/time:</strong> <span t-esc="pickup.scheduled_datetime or ''"/><br/>
+                                <strong>Pallets picked for this delivery:</strong>
+                                <span t-esc="sum(item.get('pallets', 0) for item in allocations)"/>
+                            </p>
+
+                            <h4>Delivery</h4>
+                            <p>
+                                <strong>Delivery address:</strong> <span t-esc="delivery.address or ''"/><br/>
+                                <strong>Delivery company:</strong> <span t-esc="delivery.name or ''"/><br/>
+                                <strong>Delivery date/time:</strong> <span t-esc="delivery.scheduled_datetime or ''"/><br/>
+                                <strong>Pallets delivered:</strong> <span t-esc="delivery.pallets or 0"/>
+                            </p>
+
+                            <h4>Commodity</h4>
+                            <p>
+                                <strong>Product:</strong> <span t-esc="delivery.product_id.display_name or ''"/>
+                            </p>
+
+                            <t t-if="o.hos_warning_text">
+                                <div class="alert alert-warning" role="alert">
+                                    <strong>HOS Warning:</strong> <span t-esc="o.hos_warning_text"/>
+                                </div>
+                            </t>
+
+                            <h4>Signatures</h4>
+                            <p><strong>Shipper signature:</strong> ________________________________</p>
+                            <p><strong>Receiver signature:</strong> ________________________________</p>
+                            <p><strong>Printed name:</strong> ________________________________</p>
+                            <p><strong>Date:</strong> ________________________________</p>
+                            <p><strong>Seal number:</strong> <span t-esc="o.seal_number or ''"/></p>
+                        </div>
+                        <div class="page"/>
+                    </t>
+                </t>
+            </main>
+        </t>
+    </template>
+</odoo>

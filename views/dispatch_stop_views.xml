@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_premafirm_dispatch_stop_tree_driver" model="ir.ui.view">
+        <field name="name">premafirm.dispatch.stop.tree.driver</field>
+        <field name="model">premafirm.dispatch.stop</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="sequence"/>
+                <field name="sale_order_id"/>
+                <field name="stop_type"/>
+                <field name="address"/>
+                <field name="delivery_status"/>
+                <field name="receiver_signed_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_premafirm_dispatch_stop_form_driver" model="ir.ui.view">
+        <field name="name">premafirm.dispatch.stop.form.driver</field>
+        <field name="model">premafirm.dispatch.stop</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="sale_order_id" readonly="1"/>
+                        <field name="stop_type" readonly="1"/>
+                        <field name="address" readonly="1"/>
+                        <field name="delivery_status"/>
+                        <field name="receiver_signature" widget="signature"/>
+                        <field name="receiver_signed_at"/>
+                        <field name="no_signature_approved"/>
+                        <field name="damage_notes"/>
+                        <field name="drop_photo" widget="image"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_premafirm_dispatch_stop_driver" model="ir.actions.act_window">
+        <field name="name">My Dispatch Stops</field>
+        <field name="res_model">premafirm.dispatch.stop</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('sale_order_id.load_ids.driver_id.user_id', '=', uid), ('delivery_status', 'in', ['pending', 'out'])]</field>
+    </record>
+</odoo>

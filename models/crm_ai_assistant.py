@@ -131,8 +131,27 @@ class CrmLeadAIAssistant(models.Model):
         if not response:
             return {'type': 'ir.actions.client', 'tag': 'reload'}
 
-        # ── Strip subject lines and signatures the AI wrote ──────────────────
+        # ── Parse SUBJECT: line from AI output ───────────────────────────────
+        subject = ''
+        body_lines = []
+        for line in response.replace('\r\n', '\n').split('\n'):
+            if not subject and re.match(r'^subject\s*:', line.strip(), re.IGNORECASE):
+                subject = re.sub(r'^subject\s*:\s*', '', line.strip(), flags=re.IGNORECASE).strip()
+            else:
+                body_lines.append(line)
+        response = '\n'.join(body_lines).strip()
+
+        # ── Strip any remaining AI narration / signature ──────────────────────
         response = _strip_ai_meta(response)
+
+        # ── Fallback subject if AI didn't produce one ─────────────────────────
+        if not subject:
+            partner = self.partner_id
+            company = partner.parent_id if (partner and partner.parent_id) else (
+                partner if (partner and partner.is_company) else None
+            )
+            company_name = company.name if company else (partner.name if partner else self.partner_name or '')
+            subject = f"Carrier Introduction – {company_name}" if company_name else "PREMAFIRM INC. – Carrier Introduction"
 
         # ── Convert plain text to HTML ────────────────────────────────────────
         html_body = response.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
@@ -148,32 +167,11 @@ class CrmLeadAIAssistant(models.Model):
         if sig_text:
             sig_html = sig_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             sig_html = '<br/>'.join(sig_html.replace('\r\n', '\n').split('\n'))
-            html_body = (
-                f'{html_body}'
-                f'<br/><br/>--<br/>'
-                f'{sig_html}'
-            )
-
-        # ── Build a meaningful subject ────────────────────────────────────────
-        partner = self.partner_id
-        company = partner.parent_id if (partner and partner.parent_id) else (
-            partner if (partner and partner.is_company) else None
-        )
-        contact_name = partner.name if partner else self.partner_name or ''
-        company_name = company.name if company else contact_name
-
-        lead_name = (self.name or '').strip()
-        if lead_name and "opportunity" not in lead_name.lower():
-            subject = lead_name
-        elif company_name:
-            subject = f"Carrier Introduction – {company_name}"
-        else:
-            subject = "PREMAFIRM INC. – Carrier Introduction"
+            html_body = f'{html_body}<br/><br/>--<br/>{sig_html}'
 
         # ── Collect recipient partner IDs ─────────────────────────────────────
-        partner_ids = []
-        if partner and partner.id:
-            partner_ids.append(partner.id)
+        partner = self.partner_id
+        partner_ids = [partner.id] if partner and partner.id else []
 
         return {
             'type': 'ir.actions.act_window',
@@ -379,14 +377,22 @@ class CrmLeadAIAssistant(models.Model):
             'Think like a senior freight sales account manager. '
             'Be concise, direct, and immediately useful. Give Ahmad exactly what he needs — no fluff. '
             '\n\n'
-            '=== EMAIL DRAFT RULES (MANDATORY) ===\n'
-            'When drafting an email:\n'
-            '  1. Write ONLY the email body — no subject line, no greeting header like "Subject: ...".\n'
-            '     The subject is handled separately by Odoo — do NOT include it in the body.\n'
-            '  2. Do NOT include a signature block. Odoo appends the user signature automatically.\n'
-            '  3. Keep emails under 120 words unless more detail is specifically requested.\n'
-            '  4. Use professional freight-industry tone — direct, warm, no hollow filler phrases.\n'
-            '  5. Never auto-send anything. All drafts are for Ahmad to review first.\n'
+            '=== EMAIL DRAFT OUTPUT FORMAT (STRICT — NO EXCEPTIONS) ===\n'
+            'When asked to draft an email, your ENTIRE response must follow this exact format:\n'
+            'SUBJECT: (a relevant freight sales subject line based on the company and context)\n'
+            '(email body starting directly with Hi FirstName,)\n'
+            '\n'
+            'Rules:\n'
+            '  1. First line must be SUBJECT: followed by the subject. Example:\n'
+            '     SUBJECT: Reefer Carrier Introduction – PREMAFIRM INC.\n'
+            '  2. Second line onward is the email body. Start directly with Hi [FirstName],\n'
+            '  3. NO preamble. NO narration. NO explanation before or after the email.\n'
+            '     Never write "Here is a draft...", "I understand...", "Let\'s reach out...",\n'
+            '     "Sure, here\'s an email...", or ANY meta-commentary of any kind.\n'
+            '  4. NO signature block — it is appended automatically.\n'
+            '  5. Keep body under 120 words unless specifically asked for more.\n'
+            '  6. Professional freight-industry tone — direct, warm, no hollow filler phrases.\n'
+            '  7. Never auto-send. All output is for Ahmad to review first.\n'
             + (f'\nSEASONAL NOTE: {seasonal}' if seasonal else '')
         )
 

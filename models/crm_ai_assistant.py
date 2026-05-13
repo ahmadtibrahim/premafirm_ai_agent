@@ -47,6 +47,31 @@ def _strip_html(html):
     return re.sub(r'\s+', ' ', text).strip()
 
 
+def _strip_ai_meta(text):
+    """Remove subject lines and signature blocks the AI accidentally writes.
+
+    Strips:
+    - Lines starting with "Subject:"
+    - Everything from a signature separator (--) onward
+    - Everything from a closing line (Best regards / Sincerely / Ahmad Ibrahim etc.) onward
+    """
+    lines = text.replace('\r\n', '\n').split('\n')
+    body_lines = []
+    sig_triggers = re.compile(
+        r'^(--|best regards|best,|sincerely|warm regards|regards,|'
+        r'ahmad ibrahim|premafirm|owner.?operator|cheers,)',
+        re.IGNORECASE,
+    )
+    for line in lines:
+        stripped = line.strip()
+        if re.match(r'^subject\s*:', stripped, re.IGNORECASE):
+            continue
+        if sig_triggers.match(stripped):
+            break
+        body_lines.append(line)
+    return '\n'.join(body_lines).strip()
+
+
 def _gpt(env, system, messages, max_tokens=800):
     from odoo.addons.premafirm_ai_engine.services.openai_utils import openai_chat
     key = _api_key(env)
@@ -106,14 +131,8 @@ class CrmLeadAIAssistant(models.Model):
         if not response:
             return {'type': 'ir.actions.client', 'tag': 'reload'}
 
-        # ── Strip any subject line the AI accidentally wrote in the body ──────
-        # Remove lines like "Subject: Reliable Freight Solutions for Maple Lodge Farms"
-        cleaned_lines = []
-        for line in response.split('\n'):
-            if re.match(r'^subject\s*:', line.strip(), re.IGNORECASE):
-                continue
-            cleaned_lines.append(line)
-        response = '\n'.join(cleaned_lines).strip()
+        # ── Strip subject lines and signatures the AI wrote ──────────────────
+        response = _strip_ai_meta(response)
 
         # ── Convert plain text to HTML ────────────────────────────────────────
         html_body = response.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')

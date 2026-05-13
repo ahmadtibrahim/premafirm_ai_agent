@@ -119,6 +119,22 @@ class CrmLeadAIAssistant(models.Model):
         html_body = response.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         html_body = '<br/>'.join(html_body.replace('\r\n', '\n').split('\n'))
 
+        # ── Append Business Profile signature ────────────────────────────────
+        try:
+            profile = self.env['premafirm.business.profile'].sudo().get_profile()
+            sig_text = (profile.email_signature or '').strip()
+        except Exception:
+            sig_text = ''
+
+        if sig_text:
+            sig_html = sig_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            sig_html = '<br/>'.join(sig_html.replace('\r\n', '\n').split('\n'))
+            html_body = (
+                f'{html_body}'
+                f'<br/><br/>--<br/>'
+                f'{sig_html}'
+            )
+
         # ── Build a meaningful subject ────────────────────────────────────────
         partner = self.partner_id
         company = partner.parent_id if (partner and partner.parent_id) else (
@@ -127,7 +143,6 @@ class CrmLeadAIAssistant(models.Model):
         contact_name = partner.name if partner else self.partner_name or ''
         company_name = company.name if company else contact_name
 
-        # Use lead name as subject if it is descriptive, otherwise build one
         lead_name = (self.name or '').strip()
         if lead_name and "opportunity" not in lead_name.lower():
             subject = lead_name
@@ -155,6 +170,7 @@ class CrmLeadAIAssistant(models.Model):
                 'default_partner_ids':      partner_ids,
                 'force_email':              True,
                 'mark_so_as_sent':          True,
+                'mail_add_signature':       False,
             },
         }
 

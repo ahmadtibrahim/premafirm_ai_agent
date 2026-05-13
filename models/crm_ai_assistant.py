@@ -2,6 +2,11 @@
 CRM AI Sales Assistant — core brain for PremaFirm's CRM bot.
 Provides: AI chat widget, account summary, Won/Lost debrief + checklist,
           auto-log split (company vs contact), reply detection + outreach stamping.
+
+FIX LOG (May 13 2026):
+  - action_ai_compose_email: added default_subject, fixed default_res_id (singular),
+    added default_partner_ids so compose window is properly threaded to lead.
+  - _ai_system_prompt: instructed AI not to include subject line in email body drafts.
 """
 import logging
 import re
@@ -13,11 +18,13 @@ _logger = logging.getLogger(__name__)
 
 PREMAFIRM_FALLBACK = (
     "PREMAFIRM INC. — Owner Operator: Ahmad Ibrahim\n"
-    "Equipment: 26FT Freightliner M2 straight truck, reefer and dry capability, up to 26 pallets\n"
+    "Equipment: 26FT Freightliner M2 straight truck, reefer and dry capability, up to 12 pallets\n"
     "Base: Mississauga, Ontario, Canada\n"
     "Lanes: GTA, Ontario, Quebec, cross-country Canada, Canada–USA cross-border\n"
     "Federally authorized carrier (TC Canada + FMCSA compliant)\n"
-    "Services: FTL, temperature-controlled freight, food-grade, produce, general freight\n"
+    "USDOT: 4512323 | MC: 1786607 | CVOR: 227-065-594 | SCAC: PSHL\n"
+    "Insurance: $2M liability / $100K cargo / Reefer breakdown included\n"
+    "Services: LTL, dedicated, expedited, temperature-controlled, food-grade, produce, general freight\n"
     "Ahmad drives the truck himself and manages all sales alone — he needs concise, actionable help."
 )
 
@@ -80,16 +87,59 @@ class CrmLeadAIAssistant(models.Model):
             self.sudo().write({'x_ai_chat_response': f'⚠ {exc}'})
         return {'type': 'ir.actions.client', 'tag': 'reload'}
 
+    # ── FIXED: Compose Email ──────────────────────────────────────────────────
+
     def action_ai_compose_email(self):
-        """Open Odoo email composer pre-filled with the AI response."""
+        """
+        Open the Odoo email composer pre-filled with the AI draft response.
+
+        FIXES applied (May 13 2026):
+          1. default_subject now populated from lead name / contact name.
+          2. default_res_id (singular) used alongside default_res_ids so Odoo
+             correctly threads the message to the CRM lead chatter.
+          3. default_partner_ids pre-fills the To field with the lead contact.
+          4. AI body is stripped of any accidental subject lines the AI may have
+             written (lines starting with "Subject:").
+        """
         self.ensure_one()
         response = (self.x_ai_chat_response or '').strip()
         if not response:
             return {'type': 'ir.actions.client', 'tag': 'reload'}
 
-        # Convert plain text to HTML, preserve paragraph breaks
+        # ── Strip any subject line the AI accidentally wrote in the body ──────
+        # Remove lines like "Subject: Reliable Freight Solutions for Maple Lodge Farms"
+        cleaned_lines = []
+        for line in response.split('\n'):
+            if re.match(r'^subject\s*:', line.strip(), re.IGNORECASE):
+                continue
+            cleaned_lines.append(line)
+        response = '\n'.join(cleaned_lines).strip()
+
+        # ── Convert plain text to HTML ────────────────────────────────────────
         html_body = response.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
         html_body = '<br/>'.join(html_body.replace('\r\n', '\n').split('\n'))
+
+        # ── Build a meaningful subject ────────────────────────────────────────
+        partner = self.partner_id
+        company = partner.parent_id if (partner and partner.parent_id) else (
+            partner if (partner and partner.is_company) else None
+        )
+        contact_name = partner.name if partner else self.partner_name or ''
+        company_name = company.name if company else contact_name
+
+        # Use lead name as subject if it is descriptive, otherwise build one
+        lead_name = (self.name or '').strip()
+        if lead_name and "opportunity" not in lead_name.lower():
+            subject = lead_name
+        elif company_name:
+            subject = f"Carrier Introduction – {company_name}"
+        else:
+            subject = "PREMAFIRM INC. – Carrier Introduction"
+
+        # ── Collect recipient partner IDs ─────────────────────────────────────
+        partner_ids = []
+        if partner and partner.id:
+            partner_ids.append(partner.id)
 
         return {
             'type': 'ir.actions.act_window',
@@ -97,13 +147,20 @@ class CrmLeadAIAssistant(models.Model):
             'view_mode': 'form',
             'target': 'new',
             'context': {
-                'default_model': 'crm.lead',
-                'default_res_ids': [self.id],
+                # Both forms needed — res_id for threading, res_ids for composer logic
+                'default_model':            'crm.lead',
+                'default_res_id':           self.id,
+                'default_res_ids':          [self.id],
                 'default_composition_mode': 'comment',
-                'default_body': html_body,
-                'force_email': True,
+                'default_subject':          subject,
+                'default_body':             html_body,
+                'default_partner_ids':      partner_ids,
+                'force_email':              True,
+                'mark_so_as_sent':          True,
             },
         }
+
+    # ── Append to Company Notes ───────────────────────────────────────────────
 
     def action_ai_append_company(self):
         self.ensure_one()
@@ -231,12 +288,9 @@ class CrmLeadAIAssistant(models.Model):
         try:
             if result.message_type == 'email':
                 if result.author_id and result.author_id.user_ids:
-                    # Outgoing — stamp outreach date
                     self.sudo().write({'x_last_outreach_at': fields.Datetime.now()})
                 elif result.author_id and not result.author_id.user_ids:
-                    # Incoming reply from external contact
                     self.sudo().write({'x_response_status': 'replied'})
-                    # Log to company and contact automatically
                     self._auto_log_reply(result)
         except Exception as exc:
             _logger.debug('message_post tracking error lead %s: %s', self.id, exc)
@@ -268,6 +322,16 @@ class CrmLeadAIAssistant(models.Model):
         return p.parent_id if p.parent_id else (p if p.is_company else None)
 
     def _ai_system_prompt(self):
+        """
+        Build the master system prompt for all AI operations on this lead.
+
+        Key rules enforced here:
+          - Never auto-send anything
+          - No subject line in email body (Odoo handles subject separately)
+          - No signature in email body (Odoo appends from user profile)
+          - Concise freight-industry tone
+          - Full PREMAFIRM company context always included
+        """
         try:
             profile = self.env['premafirm.business.profile'].sudo().get_profile()
             base = profile.get_system_prompt()
@@ -281,13 +345,24 @@ class CrmLeadAIAssistant(models.Model):
             'Ahmad drives the truck and manages all sales alone — he is extremely busy. '
             'Think like a senior freight sales account manager. '
             'Be concise, direct, and immediately useful. Give Ahmad exactly what he needs — no fluff. '
-            'When drafting emails: write them ready-to-send, professional, freight-industry tone, under 120 words unless asked for more. '
-            'Do NOT include a signature in email drafts — Odoo adds it automatically from the user profile. '
-            'Never auto-send anything. All drafts are for Ahmad to review first.'
+            '\n\n'
+            '=== EMAIL DRAFT RULES (MANDATORY) ===\n'
+            'When drafting an email:\n'
+            '  1. Write ONLY the email body — no subject line, no greeting header like "Subject: ...".\n'
+            '     The subject is handled separately by Odoo — do NOT include it in the body.\n'
+            '  2. Do NOT include a signature block. Odoo appends the user signature automatically.\n'
+            '  3. Keep emails under 120 words unless more detail is specifically requested.\n'
+            '  4. Use professional freight-industry tone — direct, warm, no hollow filler phrases.\n'
+            '  5. Never auto-send anything. All drafts are for Ahmad to review first.\n'
             + (f'\nSEASONAL NOTE: {seasonal}' if seasonal else '')
         )
 
     def _ai_lead_context(self):
+        """
+        Build a rich context string from the lead for AI consumption.
+        Reads: lead fields, email thread (newest first), contact notes, company notes.
+        All three sources are merged so the AI has full account memory.
+        """
         parts = []
         partner = self.partner_id
         company = self._ai_company_partner()
@@ -313,7 +388,7 @@ class CrmLeadAIAssistant(models.Model):
         if self.x_rotation_count:
             parts.append(f'Contacts tried: {self.x_rotation_count}')
 
-        # Email thread
+        # Email thread (newest first, last 8 messages)
         parts.append('\n--- EMAIL THREAD (newest first) ---')
         count = 0
         for msg in self.message_ids.sorted('date', reverse=True):
@@ -330,7 +405,7 @@ class CrmLeadAIAssistant(models.Model):
             if count >= 8:
                 break
 
-        # Contact notes
+        # Contact-level notes (personal preferences, tone, communication style)
         if partner and not partner.is_company:
             cnotes = partner.message_ids.filtered(
                 lambda m: m.message_type == 'comment'
@@ -342,7 +417,7 @@ class CrmLeadAIAssistant(models.Model):
                     if b:
                         parts.append(f'[{n.date.strftime("%Y-%m-%d") if n.date else "??"}]: {b[:300]}')
 
-        # Company notes
+        # Company-level notes (freight requirements, lane history, rate discussions, escalations)
         if company:
             anotes = company.message_ids.filtered(
                 lambda m: m.message_type == 'comment'
@@ -369,6 +444,14 @@ class ResPartnerAI(models.Model):
     )
 
     def action_generate_account_summary(self):
+        """
+        Generate a structured account summary for a company partner.
+        Reads: contact list, all linked leads (stage + last activity),
+               company log notes (last 15 entries).
+        Output sections: STATUS | PRIMARY CONTACT | LANE INTERESTS |
+                         LAST ACTIVITY | NEXT ACTION | RISK FLAGS | OPPORTUNITY SCORE.
+        Summary is stored in x_account_summary field on the company record.
+        """
         self.ensure_one()
         parts = [f'Company: {self.name}']
         if self.website:
@@ -391,7 +474,10 @@ class ResPartnerAI(models.Model):
             parts.append(f'\nLeads ({len(leads)}):')
             for l in leads[:8]:
                 ts = l.x_last_outreach_at.strftime('%Y-%m-%d') if l.x_last_outreach_at else 'never'
-                parts.append(f'  [{l.stage_id.name if l.stage_id else "?"}] {l.name} — last contact: {ts} — status: {l.x_response_status or "?"}')
+                parts.append(
+                    f'  [{l.stage_id.name if l.stage_id else "?"}] {l.name} '
+                    f'— last contact: {ts} — status: {l.x_response_status or "?"}'
+                )
 
         notes = self.message_ids.filtered(
             lambda m: m.message_type == 'comment'

@@ -1,4 +1,189 @@
-<section>
-    <h1>PremaFirm AI Engine</h1>
-    <p>AI-powered pricing, routing, Geotab ELD integration, and driver management for PremaFirm Logistics.</p>
-</section>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8"/>
+    <style>
+        body { font-family: Arial, sans-serif; color: #333; max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1 { color: #2c3e50; border-bottom: 3px solid #1abc9c; padding-bottom: 10px; }
+        h2 { color: #2c3e50; border-left: 4px solid #1abc9c; padding-left: 12px; margin-top: 30px; }
+        h3 { color: #555; }
+        table { width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 0.9em; }
+        th { background: #2c3e50; color: white; padding: 8px 12px; text-align: left; }
+        td { padding: 7px 12px; border-bottom: 1px solid #ddd; }
+        tr:nth-child(even) { background: #f8f9fa; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; font-weight: bold; }
+        .badge-green { background: #d4edda; color: #155724; }
+        .badge-blue { background: #cce5ff; color: #004085; }
+        .badge-orange { background: #fff3cd; color: #856404; }
+        .feature-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 20px 0; }
+        .feature-card { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 15px; }
+        .feature-card h4 { margin: 0 0 8px 0; color: #1abc9c; }
+        .feature-card p { margin: 0; font-size: 0.88em; color: #555; }
+        code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 0.88em; font-family: monospace; }
+        .carrier-info { background: #eaf7f4; border: 1px solid #1abc9c; border-radius: 6px; padding: 15px; margin: 15px 0; }
+        .fix-log { background: #fff8e1; border-left: 4px solid #ffc107; padding: 10px 15px; margin: 10px 0; }
+        ul { padding-left: 20px; }
+        li { margin-bottom: 4px; }
+    </style>
+</head>
+<body>
+
+<h1>PremaFirm AI Engine</h1>
+<p><strong>AI-powered freight sales, CRM automation, ELD integration, dispatch, and invoicing for PremaFirm Logistics.</strong></p>
+
+<div class="carrier-info">
+    <strong>Carrier:</strong> PREMAFIRM INC. — Mississauga, Ontario, Canada<br/>
+    <strong>Equipment:</strong> 26FT Freightliner M2 Straight Truck | Reefer &amp; Dry | ~12 pallets | Liftgate | Air Ride<br/>
+    <strong>USDOT:</strong> 4512323 &nbsp;|&nbsp; <strong>MC:</strong> 1786607 &nbsp;|&nbsp; <strong>CVOR:</strong> 227-065-594 &nbsp;|&nbsp; <strong>SCAC:</strong> PSHL<br/>
+    <strong>Insurance:</strong> $2M liability / $100K cargo / Reefer breakdown coverage<br/>
+    <strong>Lanes:</strong> GTA Local | Ontario Regional | Quebec | Cross-Country Canada | Canada–USA Cross-Border
+</div>
+
+<h2>Core Features</h2>
+
+<div class="feature-grid">
+    <div class="feature-card">
+        <h4>🤖 AI Sales Assistant (CRM)</h4>
+        <p>AI Chat Box on every CRM lead. Reads full email thread + company notes + contact notes before responding. Draft emails, summarize accounts, suggest next actions.</p>
+    </div>
+    <div class="feature-card">
+        <h4>📧 Smart Email Composer</h4>
+        <p>One-click to push AI draft into Odoo email composer. Auto-fills subject, To field, and threads correctly to CRM lead chatter. No auto-send — Ahmad reviews everything.</p>
+    </div>
+    <div class="feature-card">
+        <h4>📋 Two-Level Note Logging</h4>
+        <p>Company notes (freight needs, lanes, rates, escalation history) vs Contact notes (personal preferences, communication style). Preserved even if contacts change jobs.</p>
+    </div>
+    <div class="feature-card">
+        <h4>🔁 Follow-up Workflow</h4>
+        <p>Daily cron detects no-reply leads. After 3 business days: value-add follow-up draft. After 5 more: urgency follow-up. Cold for 60+ days: reactivation draft. All posted as notes for review.</p>
+    </div>
+    <div class="feature-card">
+        <h4>🔍 Snov.io Contact Escalation</h4>
+        <p>When a contact doesn't reply, finds next best contact at the same company via Snov.io. Title-priority scoring (VP/Director → Manager → Staff). Creates Suggestion lead for Ahmad to approve.</p>
+    </div>
+    <div class="feature-card">
+        <h4>🏆 Won/Lost Debrief + Checklist</h4>
+        <p>AI-generated debrief posted to company notes on Won or Lost. Won triggers carrier onboarding checklist automatically (carrier packet, insurance, portal, first load, rate con).</p>
+    </div>
+    <div class="feature-card">
+        <h4>📊 Account Summary Generator</h4>
+        <p>One-click AI summary on any company contact: Status, Primary Contact, Lane Interests, Last Activity, Next Action, Risk Flags, Opportunity Score (1–10).</p>
+    </div>
+    <div class="feature-card">
+        <h4>💵 Trip Cost Estimator + Dispatch</h4>
+        <p>Full cost calculation: fuel, driver, maintenance, insurance, weight surcharge. Routes via MapBox. Dispatches to Fleetbase. Checks truck availability before dispatch.</p>
+    </div>
+    <div class="feature-card">
+        <h4>🧾 AI Invoice Generator</h4>
+        <p>Analyzes invoice attachments (PDF/image). Extracts BOL, PO, Packing Slip references. Builds service description with route and date. Selects correct service product.</p>
+    </div>
+    <div class="feature-card">
+        <h4>📄 AI Bill Auto-Fill</h4>
+        <p>Processes scanned vendor bills from Documents folder. Extracts vendor, amount, line items, tax, date. Creates draft vendor bill. Learns from every confirmed bill.</p>
+    </div>
+    <div class="feature-card">
+        <h4>🚛 Geotab ELD Integration</h4>
+        <p>Syncs vehicles, telematics (odometer, fuel %, DEF %, GPS), driver profiles, duty status logs, and fuel efficiency. 5-source fuel calculation algorithm.</p>
+    </div>
+    <div class="feature-card">
+        <h4>⛽ IFTA Fuel Log</h4>
+        <p>Auto-created from fuel vendor bills. Detects jurisdiction from postal code, province name, or OCR. Groups by quarter and jurisdiction for IFTA reporting.</p>
+    </div>
+    <div class="feature-card">
+        <h4>📦 POD Generation</h4>
+        <p>Auto-synced from Fleetbase after job completion. Generates PDF Proof of Delivery with compliance info, vehicle details, load specs, stop addresses, and signature fields.</p>
+    </div>
+    <div class="feature-card">
+        <h4>🧠 ML Knowledge Base</h4>
+        <p>Every human decision teaches the AI. Approved drafts (weight 2.0), edited drafts (1.5), rejections with feedback (0.5). Vendor profiles (3.0). Gets smarter over time.</p>
+    </div>
+    <div class="feature-card">
+        <h4>📬 Bulk Email Batching</h4>
+        <p>Send outreach emails to selected leads with configurable delay between each. Templates, scheduling, queue tracking with sent/failed/bounced status per recipient.</p>
+    </div>
+    <div class="feature-card">
+        <h4>🗺️ Google/OSM Address Autocomplete</h4>
+        <p>Address fields on contacts, vehicles, and CRM leads auto-complete via Google Places or Nominatim (free fallback). Fills street, city, province, postal, country automatically.</p>
+    </div>
+</div>
+
+<h2>Integrated APIs</h2>
+<table>
+    <tr><th>Service</th><th>Purpose</th><th>System Parameter</th></tr>
+    <tr><td>OpenAI / Claude</td><td>AI reasoning, drafting, extraction</td><td><code>openai.api_key</code></td></tr>
+    <tr><td>Snov.io</td><td>Contact discovery, email verification</td><td><code>snov.client_id</code> + <code>snov.client_secret</code></td></tr>
+    <tr><td>MapBox</td><td>Geocoding, truck-profile routing</td><td><code>mapbox.access_token</code></td></tr>
+    <tr><td>Google Places</td><td>Address autocomplete</td><td><code>google_maps_api_key</code></td></tr>
+    <tr><td>Geotab</td><td>ELD telematics, driver logs, fuel data</td><td>Settings → Geotab / ELD</td></tr>
+    <tr><td>Fleetbase</td><td>Dispatch order creation + tracking</td><td><code>fleetbase.api_key</code></td></tr>
+</table>
+
+<h2>Scheduled Actions</h2>
+<table>
+    <tr><th>Cron</th><th>Interval</th><th>State</th></tr>
+    <tr><td>CRM: AI Follow-up Draft Generator</td><td>Daily 07:00</td><td><span class="badge badge-green">Active</span></td></tr>
+    <tr><td>CRM: Cold Lead Reactivation</td><td>Weekly</td><td><span class="badge badge-green">Active</span></td></tr>
+    <tr><td>CRM: Process Bulk Email Queue</td><td>Every 1 min</td><td><span class="badge badge-green">Active</span></td></tr>
+    <tr><td>ML: Auto-tag Untagged Contacts</td><td>Daily</td><td><span class="badge badge-green">Active</span></td></tr>
+    <tr><td>ML: Nightly Incremental Ingest</td><td>Daily</td><td><span class="badge badge-green">Active</span></td></tr>
+    <tr><td>ML: Process Ingest Queue</td><td>Every 10 min</td><td><span class="badge badge-green">Active</span></td></tr>
+    <tr><td>ML: Purge Response Cache</td><td>Weekly</td><td><span class="badge badge-green">Active</span></td></tr>
+    <tr><td>Knowledge Center: Index Documents</td><td>Every 1 hour</td><td><span class="badge badge-green">Active</span></td></tr>
+    <tr><td>Sync Completed Jobs &amp; PODs</td><td>Every 4 hours</td><td><span class="badge badge-green">Active</span></td></tr>
+    <tr><td>CRM: Contact Rotation Check</td><td>Daily</td><td><span class="badge badge-orange">Off — enable manually</span></td></tr>
+    <tr><td>Geotab: All sync crons</td><td>Various</td><td><span class="badge badge-orange">Off — enable in Settings</span></td></tr>
+</table>
+
+<h2>Fix Log</h2>
+
+<div class="fix-log">
+    <strong>May 13 2026 — <code>crm_ai_assistant.py</code> → <code>action_ai_compose_email</code></strong><br/>
+    Problem: Compose Email button opened a generic dialog not linked to the lead. Subject field was blank or wrong. To field was empty.<br/>
+    Fix: Added <code>default_subject</code> auto-built from lead/company name. Fixed <code>default_res_id</code> (singular) for correct chatter threading. Added <code>default_partner_ids</code> to pre-fill To field. Added regex stripping of "Subject:" lines AI may accidentally write in the body.
+</div>
+
+<div class="fix-log">
+    <strong>May 13 2026 — <code>crm_ai_assistant.py</code> → <code>_ai_system_prompt</code></strong><br/>
+    Problem: AI was including "Subject: ..." lines at the top of email body drafts, which then appeared in the email body.<br/>
+    Fix: Added explicit rule to system prompt — AI must not write subject lines in the body. Odoo handles subject separately.
+</div>
+
+<h2>Dependencies</h2>
+<ul>
+    <li>crm</li>
+    <li>crm_iap_enrich</li>
+    <li>partner_autocomplete</li>
+    <li>sale_management</li>
+    <li>account</li>
+    <li>mail</li>
+    <li>fleet</li>
+    <li>hr</li>
+    <li>calendar</li>
+    <li>base_setup</li>
+    <li>documents</li>
+    <li>mail_bot</li>
+    <li>whatsapp</li>
+    <li>prema_ai_auditor</li>
+</ul>
+
+<h2>Server Information</h2>
+<table>
+    <tr><th>Field</th><th>Value</th></tr>
+    <tr><td>Server</td><td>72.60.115.139</td></tr>
+    <tr><td>Module Path</td><td><code>/opt/odoo/custom-addons/premafirm_ai_engine/</code></td></tr>
+    <tr><td>Odoo Version</td><td>18.0</td></tr>
+    <tr><td>Module Version</td><td>18.0.6.5.0</td></tr>
+    <tr><td>ERP URL</td><td>erp.premafirm.com</td></tr>
+</table>
+
+<h2>Contact</h2>
+<p>
+    <strong>Ahmad Ibrahim</strong> — Owner Operator, PREMAFIRM INC.<br/>
+    📞 416-505-3510 &nbsp;|&nbsp; 📧 ahmad@premafirm.com<br/>
+    🌐 https://logistics.premafirm.com<br/>
+    📍 7A-994 Westport Cres, Mississauga, ON L5T 1G1, Canada
+</p>
+
+</body>
+</html>

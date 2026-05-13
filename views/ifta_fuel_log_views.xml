@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- List view -->
+    <record id="view_ifta_fuel_log_list" model="ir.ui.view">
+        <field name="name">premafirm.ifta.fuel.log.list</field>
+        <field name="model">premafirm.ifta.fuel.log</field>
+        <field name="arch" type="xml">
+            <list default_order="purchase_date desc" decoration-muted="not ifta_jurisdiction">
+                <field name="purchase_date"/>
+                <field name="quarter"/>
+                <field name="vendor_id"/>
+                <field name="station_name" optional="show"/>
+                <field name="station_city" optional="show"/>
+                <field name="station_province" optional="show"/>
+                <field name="ifta_jurisdiction" widget="badge"
+                       decoration-success="ifta_jurisdiction != ''"
+                       decoration-warning="ifta_jurisdiction == ''"/>
+                <field name="jurisdiction_source" optional="show"/>
+                <field name="fuel_type"/>
+                <field name="fuel_litres" sum="Total Litres"/>
+                <field name="fuel_gallons" sum="Total Gallons" optional="show"/>
+                <field name="price_per_litre" optional="show"/>
+                <field name="amount_before_tax" sum="Net" optional="show"/>
+                <field name="tax_amount" sum="Tax" optional="show"/>
+                <field name="total_amount" sum="Total"/>
+                <field name="account_move_id" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form view -->
+    <record id="view_ifta_fuel_log_form" model="ir.ui.view">
+        <field name="name">premafirm.ifta.fuel.log.form</field>
+        <field name="model">premafirm.ifta.fuel.log</field>
+        <field name="arch" type="xml">
+            <form string="IFTA Fuel Entry">
+                <sheet>
+                    <group>
+                        <group string="Purchase">
+                            <field name="purchase_date"/>
+                            <field name="quarter" readonly="1"/>
+                            <field name="vendor_id"/>
+                            <field name="account_move_id"/>
+                            <field name="fuel_type"/>
+                        </group>
+                        <group string="IFTA Jurisdiction">
+                            <field name="ifta_jurisdiction"/>
+                            <field name="jurisdiction_source" readonly="1"/>
+                            <field name="country_code"/>
+                        </group>
+                    </group>
+                    <group string="Station Address (from Receipt)">
+                        <group>
+                            <field name="station_name"/>
+                            <field name="station_address"/>
+                            <field name="station_city"/>
+                        </group>
+                        <group>
+                            <field name="station_province"/>
+                            <field name="station_postal_code"/>
+                        </group>
+                    </group>
+                    <group string="Fuel Amounts">
+                        <group>
+                            <field name="fuel_litres"/>
+                            <field name="fuel_gallons" readonly="1"/>
+                            <field name="price_per_litre"/>
+                        </group>
+                        <group>
+                            <field name="amount_before_tax"/>
+                            <field name="tax_amount"/>
+                            <field name="total_amount"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="notes" placeholder="Optional notes…"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Search view -->
+    <record id="view_ifta_fuel_log_search" model="ir.ui.view">
+        <field name="name">premafirm.ifta.fuel.log.search</field>
+        <field name="model">premafirm.ifta.fuel.log</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="vendor_id"/>
+                <field name="ifta_jurisdiction"/>
+                <field name="quarter"/>
+                <field name="station_city"/>
+                <filter name="no_jurisdiction" string="Missing Jurisdiction"
+                        domain="[('ifta_jurisdiction','=',False)]"/>
+                <filter name="diesel" string="Diesel" domain="[('fuel_type','=','diesel')]"/>
+                <separator/>
+                <group expand="1" string="Group By">
+                    <filter name="by_quarter"      string="Quarter"      context="{'group_by':'quarter'}"/>
+                    <filter name="by_jurisdiction" string="Jurisdiction" context="{'group_by':'ifta_jurisdiction'}"/>
+                    <filter name="by_vendor"       string="Vendor"       context="{'group_by':'vendor_id'}"/>
+                    <filter name="by_fuel_type"    string="Fuel Type"    context="{'group_by':'fuel_type'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Window action -->
+    <record id="action_ifta_fuel_log" model="ir.actions.act_window">
+        <field name="name">IFTA Fuel Log</field>
+        <field name="res_model">premafirm.ifta.fuel.log</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_ifta_fuel_log_search"/>
+        <field name="context">{'search_default_by_quarter': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No IFTA fuel entries yet.</p>
+            <p>Entries are created automatically when bills are processed via the Documents scanner.</p>
+        </field>
+    </record>
+
+</odoo>

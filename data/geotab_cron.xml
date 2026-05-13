@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Vehicle Sync — every 1 hour -->
+    <record id="ir_cron_geotab_vehicle_sync" model="ir.cron">
+        <field name="name">Geotab: Vehicle Sync</field>
+        <field name="model_id" ref="model_premafirm_geotab_sync"/>
+        <field name="state">code</field>
+        <field name="code">model.run_vehicle_sync()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">hours</field>
+        <field name="active" eval="False"/>
+        <field name="priority">10</field>
+    </record>
+
+    <!-- Telematics Sync — every 30 minutes -->
+    <record id="ir_cron_geotab_telematics_sync" model="ir.cron">
+        <field name="name">Geotab: Telematics Sync</field>
+        <field name="model_id" ref="model_premafirm_geotab_sync"/>
+        <field name="state">code</field>
+        <field name="code">model.run_telematics_sync()</field>
+        <field name="interval_number">30</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="False"/>
+        <field name="priority">10</field>
+    </record>
+
+    <!-- Fuel Average Sync — weekly -->
+    <record id="ir_cron_geotab_fuel_averages_sync" model="ir.cron">
+        <field name="name">Geotab: Weekly Fuel Average Sync</field>
+        <field name="model_id" ref="model_premafirm_geotab_sync"/>
+        <field name="state">code</field>
+        <field name="code">model.run_fuel_averages_sync()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">weeks</field>
+        <field name="active" eval="False"/>
+        <field name="priority">10</field>
+    </record>
+
+    <!-- Driver Sync — every 1 hour -->
+    <record id="ir_cron_geotab_driver_sync" model="ir.cron">
+        <field name="name">Geotab: Driver Sync</field>
+        <field name="model_id" ref="model_premafirm_geotab_sync"/>
+        <field name="state">code</field>
+        <field name="code">model.run_driver_sync()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">hours</field>
+        <field name="active" eval="False"/>
+        <field name="priority">10</field>
+    </record>
+
+    <!-- Driver Log Sync — every 1 hour -->
+    <record id="ir_cron_geotab_driver_log_sync" model="ir.cron">
+        <field name="name">Geotab: Driver Log Sync</field>
+        <field name="model_id" ref="model_premafirm_geotab_sync"/>
+        <field name="state">code</field>
+        <field name="code">model.run_driver_log_sync()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">hours</field>
+        <field name="active" eval="False"/>
+        <field name="priority">10</field>
+    </record>
+
+    <!-- Daily Odometer Sync — every day at midnight -->
+    <record id="ir_cron_geotab_daily_odometer_sync" model="ir.cron">
+        <field name="name">Geotab: Daily Odometer Sync</field>
+        <field name="model_id" ref="model_premafirm_geotab_sync"/>
+        <field name="state">code</field>
+        <field name="code">model.run_daily_odometer_sync()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="False"/>
+        <field name="priority">20</field>
+    </record>
+
+    <!-- Monthly Avg km Update — 2nd of each month (after daily odometer sync runs on the 1st) -->
+    <record id="ir_cron_monthly_avg_km_update" model="ir.cron">
+        <field name="name">Geotab: Monthly Avg km Update (2nd of month)</field>
+        <field name="model_id" ref="model_premafirm_geotab_sync"/>
+        <field name="state">code</field>
+        <field name="code">model.run_monthly_avg_km_update()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">months</field>
+        <field name="active" eval="False"/>
+        <field name="priority">30</field>
+    </record>
+
+</odoo>

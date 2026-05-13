@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- Cron: process queued bulk emails every minute -->
+    <record id="ir_cron_crm_bulk_email_queue" model="ir.cron">
+        <field name="name">CRM: Process Bulk Email Queue</field>
+        <field name="model_id" ref="model_premafirm_crm_bulk_email_queue"/>
+        <field name="state">code</field>
+        <field name="code">model.run_bulk_email_cron()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+        <field name="priority">10</field>
+    </record>
+
+    <!-- Server action: launch bulk email wizard from CRM list view -->
+    <record id="action_server_crm_bulk_email" model="ir.actions.server">
+        <field name="name">Schedule Bulk Email</field>
+        <field name="model_id" ref="crm.model_crm_lead"/>
+        <field name="binding_model_id" ref="crm.model_crm_lead"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">
+action = env['premafirm.crm.bulk.email.wizard'].action_open_wizard(env.context.get('active_ids', []))
+        </field>
+    </record>
+
+</odoo>

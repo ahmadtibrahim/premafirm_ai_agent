@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- ── List View ─────────────────────────────────────────────────────── -->
+    <record id="view_bill_scan_import_list" model="ir.ui.view">
+        <field name="name">premafirm.bill.scan.import.list</field>
+        <field name="model">premafirm.bill.scan.import</field>
+        <field name="arch" type="xml">
+            <list string="Bill Scan Imports"
+                  create="0"
+                  delete="0"
+                  decoration-success="state == 'done'"
+                  decoration-danger="state == 'error'"
+                  decoration-muted="state == 'pending'">
+
+                <!-- Step 1: discover files; Step 2: process the ones you selected -->
+                <header>
+                    <button name="action_scan_folder_only"
+                            type="object"
+                            string="Scan for New Bills"
+                            class="btn-secondary"
+                            confirm="Scan the bills-entry folder and queue any new documents as Pending?"/>
+                    <button name="action_process_selected"
+                            type="object"
+                            string="Process Selected"
+                            class="btn-primary"
+                            confirm="Run AI extraction on the selected pending bills and create draft vendor bills?"/>
+                </header>
+
+                <field name="create_date" string="Uploaded"/>
+                <field name="document_name" string="File"/>
+                <field name="ai_vendor_name" string="Vendor (AI)"/>
+                <field name="ai_invoice_number" string="Invoice #"/>
+                <field name="ai_invoice_date" string="Date"/>
+                <field name="ai_currency" string="Currency"/>
+                <field name="ai_total" string="Total"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'done'"
+                       decoration-danger="state == 'error'"
+                       decoration-warning="state == 'pending'"/>
+                <field name="bill_id" string="Bill Created"/>
+                <field name="processed_at" string="Processed At"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ── Form View ─────────────────────────────────────────────────────── -->
+    <record id="view_bill_scan_import_form" model="ir.ui.view">
+        <field name="name">premafirm.bill.scan.import.form</field>
+        <field name="model">premafirm.bill.scan.import</field>
+        <field name="arch" type="xml">
+            <form string="Bill Scan Import" create="0">
+                <header>
+                    <button name="action_open_bill" type="object"
+                            string="Open Bill" class="btn-primary"
+                            invisible="not bill_id"/>
+                    <button name="action_reprocess" type="object"
+                            string="Retry Processing" class="btn-warning"
+                            invisible="state != 'error'"
+                            confirm="Re-run AI extraction for this document?"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="pending,done,error"/>
+                </header>
+                <sheet>
+                    <div class="alert alert-danger mb-3" invisible="state != 'error'">
+                        <strong>Error:</strong>
+                        <field name="error_message" readonly="1" nolabel="1"/>
+                    </div>
+                    <div class="alert alert-success mb-3" invisible="state != 'done'">
+                        <strong>Bill created successfully.</strong>
+                        <button name="action_open_bill" type="object"
+                                string="Open Bill →" class="btn-link p-0 ms-2"/>
+                    </div>
+
+                    <group string="Source Document">
+                        <group>
+                            <field name="document_id" readonly="1"/>
+                            <field name="document_name" readonly="1" string="File Name"/>
+                            <field name="processed_at" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="bill_id" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <group string="AI Extraction Results">
+                        <group>
+                            <field name="ai_vendor_name" readonly="1" string="Vendor"/>
+                            <field name="ai_invoice_number" readonly="1" string="Invoice #"/>
+                            <field name="ai_invoice_date" readonly="1" string="Invoice Date"/>
+                            <field name="ai_due_date" readonly="1" string="Due Date"/>
+                        </group>
+                        <group>
+                            <field name="ai_currency" readonly="1" string="Currency"/>
+                            <field name="ai_subtotal" readonly="1" string="Subtotal"/>
+                            <field name="ai_tax_amount" readonly="1" string="Tax Amount"/>
+                            <field name="ai_total" readonly="1" string="Total"/>
+                        </group>
+                    </group>
+
+                    <group string="Raw AI Response">
+                        <field name="ai_raw_json" readonly="1" nolabel="1" widget="text"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ── Search View ───────────────────────────────────────────────────── -->
+    <record id="view_bill_scan_import_search" model="ir.ui.view">
+        <field name="name">premafirm.bill.scan.import.search</field>
+        <field name="model">premafirm.bill.scan.import</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="ai_vendor_name" string="Vendor"/>
+                <field name="ai_invoice_number" string="Invoice #"/>
+                <field name="document_name" string="File Name"/>
+                <filter string="Pending" name="pending" domain="[('state','=','pending')]"/>
+                <filter string="Done"    name="done"    domain="[('state','=','done')]"/>
+                <filter string="Errors"  name="error"   domain="[('state','=','error')]"/>
+                <group expand="0" string="Group By">
+                    <filter string="Status" name="group_state"  context="{'group_by': 'state'}"/>
+                    <filter string="Vendor" name="group_vendor" context="{'group_by': 'ai_vendor_name'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ── Window Action ─────────────────────────────────────────────────── -->
+    <record id="action_bill_scan_import" model="ir.actions.act_window">
+        <field name="name">Bill Scan Imports</field>
+        <field name="res_model">premafirm.bill.scan.import</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No imports yet — click <strong>Process Bills from bills-entry</strong> above to start.
+            </p>
+            <p>
+                The system will scan every file in your <strong>bills-entry</strong> folder,
+                send each one to GPT-4o Vision, and create a draft vendor bill with all
+                extracted data filled in automatically.
+            </p>
+        </field>
+    </record>
+
+    <!-- ── Menu under Accounting > Vendors ──────────────────────────────── -->
+    <menuitem
+        id="menu_bill_scan_import"
+        name="Bill Scan Imports"
+        parent="account.menu_finance_payables"
+        action="action_bill_scan_import"
+        sequence="55"/>
+
+</odoo>

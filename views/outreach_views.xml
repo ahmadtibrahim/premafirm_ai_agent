@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- ── Snov.io Contact form ── -->
+    <record id="view_snov_contact_form" model="ir.ui.view">
+        <field name="name">premafirm.snov.contact.form</field>
+        <field name="model">premafirm.snov.contact</field>
+        <field name="arch" type="xml">
+            <form string="Prospect Contact">
+                <header>
+                    <button name="action_set_primary" type="object" string="Set as Primary"
+                            class="btn-secondary"
+                            invisible="is_primary"/>
+                    <button name="action_enrich" type="object" string="Find Email (Snov.io)"
+                            class="btn-secondary"
+                            invisible="enriched"/>
+                    <button name="action_verify_email" type="object" string="Verify Email"
+                            class="btn-secondary"
+                            invisible="not email"/>
+                    <field name="outreach_stage" widget="statusbar"
+                           statusbar_visible="new,contacted,followup_1,followup_2,replied"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="first_name" string="Name"/>
+                        <h1>
+                            <field name="first_name" placeholder="First" style="width:49%"/>
+                            <field name="last_name" placeholder="Last" style="width:49%"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="title"/>
+                            <field name="company_name"/>
+                            <field name="email"/>
+                            <field name="email_verified" widget="badge"
+                                   decoration-success="email_verified == 'valid'"
+                                   decoration-danger="email_verified == 'invalid'"
+                                   decoration-warning="email_verified in ('unknown','catch_all')"/>
+                            <field name="phone"/>
+                            <field name="linkedin_url" widget="url"/>
+                        </group>
+                        <group>
+                            <field name="city"/>
+                            <field name="state_name"/>
+                            <field name="country"/>
+                            <field name="industry"/>
+                            <field name="source"/>
+                            <field name="is_primary"/>
+                            <field name="enriched"/>
+                        </group>
+                    </group>
+                    <field name="notes" placeholder="Notes..."/>
+                    <notebook>
+                        <page string="Outreach History">
+                            <field name="outreach_ids">
+                                <list>
+                                    <field name="outreach_stage"/>
+                                    <field name="email_subject"/>
+                                    <field name="sent_at"/>
+                                    <field name="next_followup_date"/>
+                                    <field name="reply_received"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ── Snov.io Contact list ── -->
+    <record id="view_snov_contact_list" model="ir.ui.view">
+        <field name="name">premafirm.snov.contact.list</field>
+        <field name="model">premafirm.snov.contact</field>
+        <field name="arch" type="xml">
+            <list string="Prospect Contacts">
+                <field name="is_primary" widget="boolean_favorite" nolabel="1"/>
+                <field name="name"/>
+                <field name="title"/>
+                <field name="company_name"/>
+                <field name="email"/>
+                <field name="email_verified" widget="badge"
+                       decoration-success="email_verified == 'valid'"
+                       decoration-danger="email_verified == 'invalid'"
+                       decoration-warning="email_verified in ('unknown','catch_all')"/>
+                <field name="phone"/>
+                <field name="country"/>
+                <field name="outreach_stage" widget="badge"
+                       decoration-success="outreach_stage == 'replied' or outreach_stage == 'converted'"
+                       decoration-warning="outreach_stage in ('followup_1','followup_2')"
+                       decoration-muted="outreach_stage == 'no_response'"/>
+                <button name="action_verify_email" type="object" string="Verify"
+                        class="btn-sm btn-secondary"
+                        invisible="not email or email_verified"/>
+                <button name="action_enrich" type="object" string="Find Email"
+                        class="btn-sm btn-secondary"
+                        invisible="enriched"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ── Outreach record list (embedded in CRM) ── -->
+    <record id="view_crm_outreach_list" model="ir.ui.view">
+        <field name="name">premafirm.crm.outreach.list</field>
+        <field name="model">premafirm.crm.outreach</field>
+        <field name="arch" type="xml">
+            <list string="Outreach History" editable="bottom">
+                <field name="contact_id"/>
+                <field name="contact_email"/>
+                <field name="outreach_stage" widget="badge"
+                       decoration-success="outreach_stage == 'replied' or outreach_stage == 'converted'"
+                       decoration-warning="outreach_stage in ('followup_1','followup_2')"
+                       decoration-muted="outreach_stage == 'no_response'"/>
+                <field name="email_subject"/>
+                <field name="sent_at"/>
+                <field name="next_followup_date"/>
+                <field name="reply_received"/>
+                <field name="notes" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ── Outreach Settings section ── -->
+    <record id="view_outreach_settings" model="ir.ui.view">
+        <field name="name">res.config.settings.outreach</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base_setup.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <div class="app_settings_block" data-string="Outreach / Snov.io" string="Outreach / Snov.io" data-key="outreach_snov" id="outreach_snov_settings">
+                    <h2>Outreach / Snov.io</h2>
+                    <div class="row mt16 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane"/>
+                            <div class="o_setting_right_pane">
+                                <label for="snov_client_id" string="Snov.io Client ID"/>
+                                <div class="text-muted">
+                                    Get your Client ID from app.snov.io → Profile → API.
+                                </div>
+                                <field name="snov_client_id"/>
+                                <label for="snov_client_secret" string="Client Secret" class="mt8"/>
+                                <field name="snov_client_secret" password="True"/>
+                                <button name="action_test_snov_connection" type="object"
+                                        string="Test Connection" class="btn-secondary mt8"/>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane">
+                                <field name="outreach_auto_followup" widget="boolean_toggle"/>
+                            </div>
+                            <div class="o_setting_right_pane">
+                                <label for="outreach_auto_followup" string="Automatic Follow-up"/>
+                                <div class="text-muted">
+                                    Automatically advance outreach stage by the cron schedule.
+                                </div>
+                                <div class="content-group" invisible="not outreach_auto_followup">
+                                    <div class="row mt8">
+                                        <label for="outreach_followup_days_1" class="col-lg-4 o_light_label" string="Follow-up 1 after (biz days)"/>
+                                        <field name="outreach_followup_days_1" class="col-lg-2"/>
+                                    </div>
+                                    <div class="row mt4">
+                                        <label for="outreach_followup_days_2" class="col-lg-4 o_light_label" string="Follow-up 2 after (biz days)"/>
+                                        <field name="outreach_followup_days_2" class="col-lg-2"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ── Snov.io Contact menu action ── -->
+    <record id="action_snov_contact" model="ir.actions.act_window">
+        <field name="name">Prospect Contacts</field>
+        <field name="res_model">premafirm.snov.contact</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

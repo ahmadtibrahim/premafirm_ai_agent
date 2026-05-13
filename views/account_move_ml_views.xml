@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Vendor Bill form: AI buttons in header + IFTA smart button -->
+    <record id="view_move_form_ml_buttons" model="ir.ui.view">
+        <field name="name">account.move.form.ml.buttons</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_move_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <!-- Fill from Attachment: only on draft vendor bills -->
+                <button name="action_autofill_from_attachment"
+                        string="AI: Fill from Attachment"
+                        type="object"
+                        class="btn-secondary"
+                        icon="fa-magic"
+                        invisible="move_type != 'in_invoice' or state != 'draft'"
+                        help="Extract vendor, amount, and line items from the attached PDF or image — no vision API cost."/>
+
+                <!-- Flag Invoice: only on posted bills/invoices -->
+                <button name="action_ml_flag_invoice"
+                        string="AI: Check for Issues"
+                        type="object"
+                        class="btn-secondary"
+                        icon="fa-search"
+                        invisible="move_type not in ('in_invoice','out_invoice','in_refund','out_refund') or state != 'posted'"
+                        help="Ask the AI to review this invoice for anomalies, duplicates, or unusual amounts."/>
+            </xpath>
+            <!-- IFTA smart button — visible when a fuel log entry exists for this bill -->
+            <xpath expr="//div[hasclass('oe_button_box')]" position="inside">
+                <button name="action_view_ifta_log"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-map-marker"
+                        invisible="move_type != 'in_invoice'">
+                    <field name="ifta_log_count" widget="statinfo" string="IFTA Log"/>
+                </button>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ML Draft form: add Apply to Bill button for bill_autofill drafts -->
+    <record id="view_ml_draft_form_bill_autofill" model="ir.ui.view">
+        <field name="name">premafirm.ml.draft.form.bill.autofill</field>
+        <field name="model">premafirm.ml.draft</field>
+        <field name="inherit_id" ref="premafirm_ml.view_ml_draft_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header/button[last()]" position="after">
+                <button name="action_apply_to_bill"
+                        string="Apply to Bill"
+                        type="object"
+                        class="btn-primary"
+                        invisible="draft_type != 'bill_autofill' or status not in ('pending','edited')"
+                        help="Apply the extracted data to the linked vendor bill. Sets vendor, date, ref, and line items."/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <!-- Ensure "Driver" partner category/tag exists -->
+    <record id="partner_category_driver" model="res.partner.category">
+        <field name="name">Driver</field>
+    </record>
+</odoo>

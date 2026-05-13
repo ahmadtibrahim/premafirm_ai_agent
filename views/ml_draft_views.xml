@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- ── List view ── -->
+    <record id="view_ml_draft_list" model="ir.ui.view">
+        <field name="name">premafirm.ml.draft.list</field>
+        <field name="model">premafirm.ml.draft</field>
+        <field name="arch" type="xml">
+            <list string="ML Drafts" default_order="create_date desc"
+                  decoration-warning="status == 'pending'"
+                  decoration-success="status in ('approved','sent')"
+                  decoration-muted="status in ('rejected','edited')">
+                <field name="create_date" string="Generated"/>
+                <field name="draft_type" widget="badge"/>
+                <field name="source_ref" string="Source" optional="show"/>
+                <field name="ai_suggestion" string="AI Suggestion" optional="show"/>
+                <field name="examples_used" string="Examples" optional="show"/>
+                <field name="status" widget="badge"
+                       decoration-warning="status == 'pending'"
+                       decoration-success="status in ('approved','sent')"
+                       decoration-info="status == 'edited'"
+                       decoration-danger="status == 'rejected'"/>
+                <field name="reviewed_by" optional="show"/>
+                <field name="reviewed_at" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ── Form view ── -->
+    <record id="view_ml_draft_form" model="ir.ui.view">
+        <field name="name">premafirm.ml.draft.form</field>
+        <field name="model">premafirm.ml.draft</field>
+        <field name="arch" type="xml">
+            <form string="ML Draft">
+                <header>
+                    <button name="action_approve" type="object"
+                            string="Approve As-Is" class="btn-success"
+                            icon="fa-check"
+                            invisible="status != 'pending'"/>
+                    <button name="action_approve_edited" type="object"
+                            string="Approve Edited Version" class="btn-primary"
+                            icon="fa-check-circle"
+                            invisible="status != 'pending'"/>
+                    <button name="action_reject" type="object"
+                            string="Reject" class="btn-danger"
+                            icon="fa-times"
+                            invisible="status != 'pending'"/>
+                    <button name="action_create_quotation" type="object"
+                            string="Create Quotation" class="btn-primary"
+                            icon="fa-file-text-o"
+                            invisible="draft_type not in ('rate_quote','load_tender') or status not in ('approved','edited')"/>
+                    <button name="action_open_source" type="object"
+                            string="Open Source Record" class="btn-secondary"
+                            icon="fa-external-link"
+                            invisible="not source_model"/>
+                    <field name="status" widget="statusbar"
+                           statusbar_visible="pending,approved,edited,rejected,sent"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+
+                    <group>
+                        <group string="Details">
+                            <field name="draft_type" readonly="1"/>
+                            <field name="source_ref" string="Source Record" readonly="1"/>
+                            <field name="examples_used" readonly="1"/>
+                            <field name="reviewed_by" readonly="1"
+                                   invisible="status == 'pending'"/>
+                            <field name="reviewed_at" readonly="1"
+                                   invisible="status == 'pending'"/>
+                        </group>
+                        <group string="AI Reasoning">
+                            <field name="ai_reasoning" nolabel="1" readonly="1"
+                                   widget="html" style="min-height:60px;"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="AI Suggestion" name="ai_suggestion">
+                            <div class="alert alert-info mb-2" invisible="status != 'pending'">
+                                <i class="fa fa-lightbulb-o me-2"/>
+                                Review the AI suggestion below. You can copy it, edit it in
+                                <strong>Final Version</strong>, then click <strong>Approve Edited Version</strong>.
+                                Or click <strong>Approve As-Is</strong> if it looks perfect.
+                            </div>
+                            <field name="ai_suggestion" nolabel="1"
+                                   readonly="status != 'pending'"
+                                   style="min-height:140px; font-family: inherit;"/>
+                        </page>
+
+                        <page string="Final Version" name="human_final">
+                            <div class="alert alert-warning mb-2" invisible="status != 'pending'">
+                                <i class="fa fa-edit me-2"/>
+                                Paste or type your edited version here, then click
+                                <strong>Approve Edited Version</strong>.
+                            </div>
+                            <field name="human_final" nolabel="1"
+                                   placeholder="Paste your edited version here…"
+                                   readonly="status != 'pending'"
+                                   style="min-height:140px; font-family: inherit;"/>
+                        </page>
+
+                        <page string="Feedback Note" name="feedback_note">
+                            <div class="alert alert-success mb-2">
+                                <i class="fa fa-graduation-cap me-2"/>
+                                <strong>This note teaches the AI.</strong>
+                                Explain WHY you changed or rejected the suggestion — even a brief note
+                                helps future drafts improve. Examples:
+                                <em>"Rate too low for reefer loads"</em>,
+                                <em>"Client prefers informal tone"</em>,
+                                <em>"Amount doesn't match PO"</em>.
+                            </div>
+                            <field name="feedback_note" nolabel="1"
+                                   placeholder="Why did you change or reject this? (optional for approvals, required for rejections)"
+                                   style="min-height:100px;"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- ── Window actions ── -->
+    <record id="action_ml_drafts_pending" model="ir.actions.act_window">
+        <field name="name">Pending Review</field>
+        <field name="res_model">premafirm.ml.draft</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('status','=','pending')]</field>
+        <field name="context">{'search_default_status': 'pending'}</field>
+    </record>
+
+    <record id="action_ml_drafts_all" model="ir.actions.act_window">
+        <field name="name">All Drafts</field>
+        <field name="res_model">premafirm.ml.draft</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Extend fleet.vehicle form to show Geotab / telematics data -->
+    <record id="fleet_vehicle_form_geotab_inherit" model="ir.ui.view">
+        <field name="name">fleet.vehicle.form.geotab.inherit</field>
+        <field name="model">fleet.vehicle</field>
+        <field name="inherit_id" ref="fleet.fleet_vehicle_view_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Geotab status bar badge in header area -->
+            <xpath expr="//sheet" position="before">
+                <div class="alert alert-info" role="alert"
+                     invisible="not x_geotab_device_id">
+                    <span class="fa fa-satellite-dish me-1"/>
+                    Geotab linked — Device ID: <field name="x_geotab_device_id" readonly="1" nolabel="1"/>
+                    &#160;|&#160; Sync:
+                    <field name="x_sync_status" widget="badge" readonly="1" nolabel="1"/>
+                    &#160;| Last sync:
+                    <field name="x_last_eld_sync_at" readonly="1" nolabel="1"/>
+                </div>
+            </xpath>
+
+            <!-- Last Odometer (Geotab) on main profile — inserted after vin_sn -->
+            <xpath expr="//field[@name='vin_sn']" position="after">
+                <field name="x_current_odometer_km" readonly="1" string="Last Odometer (km)"/>
+            </xpath>
+
+            <!-- Google Places autocomplete on the base fleet location field -->
+            <xpath expr="//field[@name='location']" position="attributes">
+                <attribute name="widget">google_address</attribute>
+                <attribute name="options">{"lat_field": "home_latitude", "lng_field": "home_longitude"}</attribute>
+                <attribute name="placeholder">Search address…</attribute>
+            </xpath>
+
+            <!-- Add tabs after the existing notebook tabs -->
+            <xpath expr="//notebook" position="inside">
+
+                <!-- GEOTAB / TELEMATICS TAB -->
+                <page string="Geotab / ELD" name="geotab_eld">
+
+                    <!-- Not linked yet -->
+                    <div class="alert alert-warning" role="alert"
+                         invisible="x_geotab_device_id">
+                        <span class="fa fa-exclamation-triangle me-1"/>
+                        This vehicle is not linked to a Geotab device.
+                        <button name="action_open_geotab_link_wizard"
+                                string=" Link to Geotab"
+                                type="object"
+                                class="btn btn-sm btn-primary ms-3"
+                                icon="fa-link"/>
+                    </div>
+
+                    <!-- Already linked -->
+                    <div class="mb-3" invisible="not x_geotab_device_id">
+                        <button name="action_open_geotab_link_wizard"
+                                string="Change Geotab Link"
+                                type="object"
+                                class="btn btn-sm btn-secondary me-2"
+                                icon="fa-link"/>
+                        <button name="action_resync_from_geotab"
+                                string="Re-sync Now"
+                                type="object"
+                                class="btn btn-sm btn-primary me-2"
+                                icon="fa-refresh"/>
+                        <button name="action_sync_fuel_averages"
+                                string="Sync Fuel Averages"
+                                type="object"
+                                class="btn btn-sm btn-warning"
+                                icon="fa-tachometer"/>
+                        <button name="action_diagnose_geotab_fuel"
+                                string="Diagnose Fuel Data"
+                                type="object"
+                                class="btn btn-sm btn-secondary ms-2"
+                                icon="fa-stethoscope"/>
+                    </div>
+
+                    <group string="Geotab Link">
+                        <group>
+                            <field name="x_geotab_device_id" readonly="1"/>
+                            <field name="x_geotab_vehicle_id" readonly="1"/>
+                            <field name="x_external_source" readonly="1"/>
+                            <field name="x_sync_status" widget="badge"/>
+                        </group>
+                        <group>
+                            <field name="x_last_eld_sync_at" readonly="1"/>
+                            <field name="x_sync_error" readonly="1" invisible="x_sync_status != 'error'"/>
+                        </group>
+                    </group>
+
+                    <group string="Live Telematics">
+                        <group>
+                            <field name="x_current_odometer_km" readonly="1"/>
+                            <field name="x_current_engine_hours" readonly="1"/>
+                            <field name="x_current_fuel_percent" readonly="1"
+                                   help="Last known value — preserved when engine is off."/>
+                            <field name="x_current_fuel_liters" readonly="1"/>
+                            <field name="x_current_def_percent" readonly="1"
+                                   help="Last known value — preserved when engine is off."/>
+                            <field name="x_current_def_liters" readonly="1"/>
+                            <field name="x_last_valid_telematics_at" readonly="1"
+                                   string="Fuel/DEF Last Read"/>
+                        </group>
+                        <group>
+                            <field name="x_estimated_range_km" readonly="1"/>
+                            <field name="x_last_location_address" readonly="1"/>
+                            <field name="x_last_location_lat" readonly="1"/>
+                            <field name="x_last_location_lng" readonly="1"/>
+                            <field name="x_last_location_at" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <group string="Fuel Efficiency">
+                        <group>
+                            <field name="x_avg_km_per_l_last_week"/>
+                            <field name="x_avg_l_per_100km_last_week"/>
+                            <field name="x_last_fuel_sync_at" readonly="1" string="Last Synced"/>
+                        </group>
+                    </group>
+                </page>
+
+                <!-- TRUCK CONFIG TAB -->
+                <page string="Truck Config" name="truck_config">
+                    <group string="Fuel and Tank">
+                        <group>
+                            <field name="x_tank_capacity_l"/>
+                            <field name="x_reserve_fuel_percent"/>
+                        </group>
+                        <group>
+                            <field name="x_def_tank_capacity_l"/>
+                        </group>
+                    </group>
+                    <group string="Home Base">
+                        <group>
+                            <field name="x_home_base_address"
+                                   widget="google_address"
+                                   options="{'lat_field': 'x_home_base_lat', 'lng_field': 'x_home_base_lng'}"
+                                   placeholder="Search address…"/>
+                            <field name="x_home_base_lat"/>
+                            <field name="x_home_base_lng"/>
+                        </group>
+                    </group>
+                    <group string="Capabilities &amp; Dimensions">
+                        <group>
+                            <field name="x_reefer"/>
+                            <field name="x_liftgate"/>
+                            <field name="x_air_ride"/>
+                            <field name="x_max_pallets"/>
+                            <field name="x_max_payload_lbs"/>
+                            <field name="x_gvwr_lbs"/>
+                        </group>
+                        <group>
+                            <field name="x_vehicle_height_ft"/>
+                            <field name="x_overall_length_ft"/>
+                            <field name="x_cargo_box_length_ft"/>
+                            <field name="x_box_interior_height_ft"/>
+                            <field name="x_door_clearance_in"/>
+                            <field name="x_dock_height_in"/>
+                        </group>
+                    </group>
+                </page>
+
+                <!-- COSTING TAB -->
+                <page string="Costing" name="truck_costing">
+                    <group string="Monthly Budgets">
+                        <group>
+                            <field name="x_monthly_maintenance_budget"/>
+                            <field name="x_monthly_insurance_budget"/>
+                            <field name="x_monthly_avg_km"
+                                   help="Last 30-day average km from Geotab, or set manually."/>
+                        </group>
+                        <group>
+                            <field name="x_maintenance_cost_per_km" readonly="1"/>
+                            <field name="x_insurance_cost_per_km" readonly="1"/>
+                        </group>
+                    </group>
+                </page>
+
+                <!-- DAILY ODOMETER LOG TAB -->
+                <page string="Odometer Log" name="daily_odometer_log">
+                    <div class="mb-3">
+                        <button name="action_sync_daily_odometer"
+                                string="Import from Geotab (Last 7 Days)"
+                                type="object"
+                                class="btn btn-sm btn-primary"
+                                icon="fa-download"/>
+                    </div>
+                    <field name="daily_odometer_ids" nolabel="1">
+                        <list string="Daily Odometer Log" editable="bottom"
+                              default_order="log_date desc">
+                            <field name="log_date"/>
+                            <field name="odometer_km"/>
+                            <field name="engine_hours"/>
+                            <field name="driver_contact_id"
+                                   domain="[('x_is_driver_profile', '=', True)]"
+                                   options="{'no_quick_create': True}"/>
+                            <field name="source" widget="badge"/>
+                            <field name="notes" optional="hide"/>
+                        </list>
+                    </field>
+                </page>
+
+
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Geotab Sync Log — list view -->
+    <record id="view_premafirm_geotab_sync_tree" model="ir.ui.view">
+        <field name="name">premafirm.geotab.sync.list</field>
+        <field name="model">premafirm.geotab.sync</field>
+        <field name="arch" type="xml">
+            <list string="Geotab Sync Log" decoration-danger="status == 'error'" decoration-success="status == 'done'">
+                <field name="name"/>
+                <field name="sync_type"/>
+                <field name="started_at"/>
+                <field name="ended_at"/>
+                <field name="status" widget="badge"/>
+                <field name="records_processed"/>
+                <field name="records_created"/>
+                <field name="records_updated"/>
+                <field name="error_message" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Geotab Sync Log — action -->
+    <record id="action_premafirm_geotab_sync_log" model="ir.actions.act_window">
+        <field name="name">Geotab Sync Log</field>
+        <field name="res_model">premafirm.geotab.sync</field>
+        <field name="view_mode">list</field>
+    </record>
+
+    <!-- Driver Assignment list view -->
+    <record id="view_fleet_driver_assignment_list" model="ir.ui.view">
+        <field name="name">fleet.driver.assignment.list</field>
+        <field name="model">fleet.driver.assignment</field>
+        <field name="arch" type="xml">
+            <list string="Driver Assignments">
+                <field name="vehicle_id"/>
+                <field name="driver_contact_id"/>
+                <field name="start_datetime"/>
+                <field name="end_datetime"/>
+                <field name="active" widget="boolean_toggle"/>
+                <field name="source" widget="badge"/>
+                <field name="notes" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Trip Log list view -->
+    <record id="view_fleet_trip_log_list" model="ir.ui.view">
+        <field name="name">fleet.trip.log.list</field>
+        <field name="model">fleet.trip.log</field>
+        <field name="arch" type="xml">
+            <list string="Trip Logs">
+                <field name="vehicle_id"/>
+                <field name="driver_contact_id"/>
+                <field name="start_datetime"/>
+                <field name="end_datetime"/>
+                <field name="start_odometer_km"/>
+                <field name="end_odometer_km"/>
+                <field name="distance_km"/>
+                <field name="engine_hours_used"/>
+                <field name="state" widget="badge"/>
+            </list>
+        </field>
+    </record>
+</odoo>

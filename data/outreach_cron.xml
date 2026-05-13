@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="ir_cron_outreach_followup" model="ir.cron">
+        <field name="name">Outreach: Daily Follow-up Advancement</field>
+        <field name="model_id" ref="crm.model_crm_lead"/>
+        <field name="state">code</field>
+        <field name="code">env['premafirm.crm.outreach'].run_outreach_followup()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="False"/>
+        <field name="priority">10</field>
+    </record>
+</odoo>

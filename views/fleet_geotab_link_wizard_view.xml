@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Link Wizard: select Geotab device and import data -->
+    <record id="view_fleet_geotab_link_wizard_form" model="ir.ui.view">
+        <field name="name">fleet.geotab.link.wizard.form</field>
+        <field name="model">fleet.geotab.link.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Link to Geotab Device">
+                <div class="alert alert-info" role="alert">
+                    <strong>Select the Geotab truck</strong> to link to <strong>
+                        <field name="vehicle_id" readonly="1" nolabel="1"/>
+                    </strong>.
+                    Click <em>Refresh from Geotab</em> to load the latest device list.
+                </div>
+
+                <group>
+                    <group string="Geotab Device">
+                        <field name="geotab_device_id"
+                               options="{'no_create': True, 'no_quick_create': True}"
+                               domain="[('linked_vehicle_id', '=', False)]"
+                               placeholder="— Select a Geotab device —"/>
+                        <field name="device_vin" invisible="not geotab_device_id"/>
+                        <field name="device_plate" invisible="not geotab_device_id"/>
+                    </group>
+                    <group string="Cache Status">
+                        <field name="device_count" string="Unlinked Devices Available"/>
+                        <field name="last_fetched" string="Cache Last Updated" readonly="1"/>
+                    </group>
+                </group>
+
+                <footer>
+                    <button name="action_refresh_devices"
+                            string="Refresh from Geotab"
+                            type="object"
+                            class="btn btn-secondary"
+                            icon="fa-refresh"/>
+                    <button name="action_link_and_import"
+                            string="Link and Import Data"
+                            type="object"
+                            class="btn btn-primary"
+                            invisible="not geotab_device_id"/>
+                    <button string="Cancel" class="btn btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Geotab Device Registry — list view (for admin reference) -->
+    <record id="view_premafirm_geotab_device_list" model="ir.ui.view">
+        <field name="name">premafirm.geotab.device.list</field>
+        <field name="model">premafirm.geotab.device</field>
+        <field name="arch" type="xml">
+            <list string="Geotab Devices">
+                <field name="name"/>
+                <field name="geotab_id"/>
+                <field name="vin"/>
+                <field name="license_plate"/>
+                <field name="linked_vehicle_id"/>
+                <field name="fetched_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_premafirm_geotab_device" model="ir.actions.act_window">
+        <field name="name">Geotab Device Registry</field>
+        <field name="res_model">premafirm.geotab.device</field>
+        <field name="view_mode">list</field>
+    </record>
+</odoo>

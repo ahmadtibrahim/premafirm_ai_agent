@@ -1,145 +1,265 @@
-from collections import deque
+import json
+import logging
+from datetime import datetime
 
-from odoo import api, fields, models
-from odoo.exceptions import UserError
+from odoo import api, fields, models, exceptions
+
+_logger = logging.getLogger(__name__)
+
+
+class PremafirmLoadStop(models.Model):
+    _name = "premafirm.load.stop"
+    _description = "Load Stop (POD)"
+    _order = "load_id, sequence"
+
+    load_id          = fields.Many2one("premafirm.load", required=True, ondelete="cascade", index=True)
+    sequence         = fields.Integer(default=10)
+    stop_type        = fields.Selection([("pickup", "Pickup"), ("delivery", "Delivery")],
+                                         default="pickup", required=True)
+
+    # Address
+    name             = fields.Char(string="Company Name")
+    address          = fields.Char(string="Address")
+    lat              = fields.Float(digits=(10, 6))
+    lng              = fields.Float(digits=(10, 6))
+
+    # Scheduling
+    scheduled_datetime = fields.Datetime(string="Scheduled")
+    arrival_time     = fields.Datetime(string="Actual Arrival")
+    departure_time   = fields.Datetime(string="Actual Departure")
+
+    # Load
+    pallets          = fields.Integer()
+    weight_lbs       = fields.Float(string="Weight (lbs)", digits=(10, 1))
+    product_id       = fields.Many2one("product.product", string="Product")
+
+    # POD proof
+    signature_name   = fields.Char(string="Signed By")
+    signature_image  = fields.Binary(string="Signature")
+    photo_ids        = fields.One2many("ir.attachment", "res_id",
+                                       domain=[("res_model", "=", "premafirm.load.stop")],
+                                       string="Photos")
+    notes            = fields.Text()
 
 
 class PremafirmLoad(models.Model):
     _name = "premafirm.load"
-    _description = "PremaFirm Load"
+    _description = "Load / POD Record"
+    _order = "create_date desc"
+    _inherit = ["mail.thread", "mail.activity.mixin"]
 
-    name = fields.Char(required=True, default="New")
-    sale_order_id = fields.Many2one("sale.order", required=False, ondelete="cascade")
-    lead_id = fields.Many2one("crm.lead", ondelete="cascade", index=True)
-    company_id = fields.Many2one(related="sale_order_id.company_id", store=True, readonly=True)
-    vehicle_id = fields.Many2one("fleet.vehicle", string="Vehicle")
-    driver_id = fields.Many2one(
-        "res.partner",
-        related="vehicle_id.driver_id",
-        store=True,
-        readonly=True,
-    )
-    currency_id = fields.Many2one(
-        "res.currency",
-        related="sale_order_id.currency_id",
-        store=True,
-    )
-    total_amount = fields.Monetary(
-        compute="_compute_total_amount",
-        currency_field="currency_id",
-    )
+    name             = fields.Char(compute="_compute_name", store=True)
 
-    route_reference = fields.Char(string="Route #")
-    bol_number = fields.Char(string="BOL #")
-    seal_number = fields.Char(string="Seal #")
-    pickup_signature = fields.Binary()
-    delivery_signature = fields.Binary()
+    # Relationships
+    invoice_id       = fields.Many2one("account.move", string="Invoice", ondelete="set null",
+                                        index=True)
+    estimator_id     = fields.Many2one("premafirm.rate.estimator", string="Dispatch Job",
+                                        ondelete="set null")
+    sale_order_id    = fields.Many2one("sale.order", string="Sale Order", ondelete="set null")
+    company_id       = fields.Many2one("res.company", default=lambda self: self.env.company)
 
-    total_distance_km = fields.Float(related="sale_order_id.total_distance_km", store=True, readonly=True)
-    total_pallets = fields.Integer(related="sale_order_id.total_pallets", store=True, readonly=True)
-    stop_ids = fields.One2many(related="sale_order_id.opportunity_id.dispatch_stop_ids", readonly=True)
-    reefer_required = fields.Boolean(related="sale_order_id.opportunity_id.reefer_required", readonly=True)
-    reefer_setpoint_c = fields.Float(related="sale_order_id.opportunity_id.reefer_setpoint_c", readonly=True)
-    hos_warning_text = fields.Char(related="sale_order_id.opportunity_id.hos_warning_text", readonly=True)
-    distance_km = fields.Float(compute="_compute_distance_and_drive", store=True)
-    drive_hours = fields.Float(compute="_compute_distance_and_drive", store=True)
+    # Vehicle / driver
+    vehicle_id       = fields.Many2one("fleet.vehicle", string="Truck", ondelete="set null")
+    driver_id        = fields.Many2one("res.partner", string="Driver", ondelete="set null")
 
-    @api.depends("lead_id.dispatch_stop_ids.load_id", "lead_id.dispatch_stop_ids.distance_km", "lead_id.dispatch_stop_ids.drive_hours")
-    def _compute_distance_and_drive(self):
-        for load in self:
-            if not load.lead_id:
-                load.distance_km = 0.0
-                load.drive_hours = 0.0
-                continue
-            stops = load.lead_id.dispatch_stop_ids.filtered(lambda s: s.load_id == load)
-            load.distance_km = sum(stops.mapped("distance_km"))
-            load.drive_hours = sum(stops.mapped("drive_hours"))
+    # Job info
+    fleetbase_order_id = fields.Char(string="Fleetbase Order ID", index=True)
+    job_day_ref      = fields.Char(string="Job Day")
+    bol_number       = fields.Char(string="BOL #")
+    seal_number      = fields.Char(string="Seal #")
 
-    @api.depends("sale_order_id.amount_total")
-    def _compute_total_amount(self):
-        for load in self:
-            load.total_amount = load.sale_order_id.amount_total
+    # Load specs
+    reefer_required  = fields.Boolean(string="Reefer Required")
+    reefer_setpoint_c = fields.Float(string="Reefer Setpoint (°C)", digits=(5, 1))
+    hos_warning_text = fields.Text(string="HOS Warning")
 
-    @api.model_create_multi
-    def create(self, vals_list):
-        for vals in vals_list:
-            if vals.get("name", "New") == "New":
-                vals["name"] = self.env["ir.sequence"].next_by_code("premafirm.load") or "New"
-        return super().create(vals_list)
+    # POD completion
+    stop_ids         = fields.One2many("premafirm.load.stop", "load_id", string="Stops")
+    completed_at     = fields.Datetime(string="Completed At")
+    driver_notes     = fields.Text(string="Driver Notes")
+    pod_pdf_id       = fields.Many2one("ir.attachment", string="POD PDF", readonly=True,
+                                        ondelete="set null")
 
-    def action_generate_pod(self):
+    state            = fields.Selection([
+        ("pending",       "Pending"),
+        ("in_transit",    "In Transit"),
+        ("completed",     "Completed"),
+        ("pod_generated", "POD Generated"),
+    ], default="pending", tracking=True)
+
+    @api.depends("job_day_ref", "vehicle_id")
+    def _compute_name(self):
+        for rec in self:
+            parts = []
+            if rec.job_day_ref:
+                parts.append(rec.job_day_ref)
+            elif rec.vehicle_id:
+                parts.append(rec.vehicle_id.name)
+            if not parts:
+                parts.append("Load")
+            rec.name = " — ".join(parts)
+
+    def _get_pickup_for_delivery(self, delivery_stop):
+        """Return the first pickup stop (used by POD report template)."""
+        return self.stop_ids.filtered(lambda s: s.stop_type == "pickup").sorted("sequence")[:1]
+
+    def _get_delivery_allocations(self, delivery_stop):
+        """Return allocation dicts for a delivery stop (pallets, weight)."""
+        return [{"pallets": delivery_stop.pallets, "weight_lbs": delivery_stop.weight_lbs}]
+
+    def action_generate_pod_pdf(self):
+        """Render the POD QWeb PDF and attach it to this record and the invoice."""
         self.ensure_one()
-        if not self.vehicle_id:
-            raise UserError("Vehicle must be assigned before generating POD.")
-        if not self.driver_id:
-            raise UserError("Driver must be assigned before generating POD.")
-        self._allocate_pallets()
-        return self.env.ref("premafirm_ai_engine.action_report_premafirm_load_pod").report_action(self)
-
-    def _allocate_pallets(self):
-        """Allocates pallets from pickups to deliveries for POD generation."""
-        self.ensure_one()
-        allocations = {}
-        pickup_stack = deque()
-        stops = self.stop_ids.sorted(lambda s: (s.sequence, s.id))
-
-        for stop in stops:
-            pallets = max(int(stop.pallets or 0), 0)
-            if stop.stop_type == "pickup":
-                pickup_stack.append(
-                    {
-                        "pickup": stop,
-                        "remaining": pallets,
-                    }
-                )
-                continue
-
-            if stop.stop_type != "delivery":
-                continue
-
-            delivery_remaining = pallets
-            delivery_allocations = []
-            while delivery_remaining > 0:
-                while pickup_stack and pickup_stack[-1]["remaining"] <= 0:
-                    pickup_stack.pop()
-                if not pickup_stack:
-                    raise UserError(
-                        "Delivery '%s' has no matching pickup with available pallets. "
-                        "Please correct stop sequencing/pallet counts before generating POD."
-                        % (stop.address or stop.name or stop.display_name)
-                    )
-
-                current = pickup_stack[-1]
-                allocated = min(current["remaining"], delivery_remaining)
-                current["remaining"] -= allocated
-                delivery_remaining -= allocated
-                delivery_allocations.append(
-                    {
-                        "pickup_id": current["pickup"].id,
-                        "pickup": current["pickup"],
-                        "pallets": allocated,
-                    }
-                )
-
-            allocations[stop.id] = delivery_allocations
-
-        return allocations
-
-    def _get_pickup_for_delivery(self, delivery):
-        """Returns pickup stop linked to this delivery using pallet allocation logic."""
-        self.ensure_one()
-        if not delivery or delivery.stop_type != "delivery":
-            return self.env["premafirm.dispatch.stop"]
-        allocations = self._allocate_pallets().get(delivery.id, [])
-        if not allocations:
-            raise UserError(
-                "Delivery '%s' has no pickup allocation."
-                % (delivery.address or delivery.name or delivery.display_name)
+        Report = self.env["ir.actions.report"]
+        try:
+            pdf_content, _mime = Report.sudo()._render_qweb_pdf(
+                "premafirm_ai_engine.action_report_premafirm_load_pod",
+                res_ids=[self.id],
             )
-        return allocations[0]["pickup"]
+        except Exception as e:
+            _logger.error("POD PDF generation failed for load %s: %s", self.id, e, exc_info=True)
+            raise exceptions.UserError(f"Could not generate POD PDF: {e}")
 
-    def _get_delivery_allocations(self, delivery):
+        filename = f"POD - {self.job_day_ref or self.name}.pdf"
+        Attach = self.env["ir.attachment"].sudo()
+        attachment = Attach.create({
+            "name":      filename,
+            "type":      "binary",
+            "datas":     __import__("base64").b64encode(pdf_content).decode(),
+            "res_model": "premafirm.load",
+            "res_id":    self.id,
+            "mimetype":  "application/pdf",
+        })
+        self.write({"pod_pdf_id": attachment.id, "state": "pod_generated"})
+
+        # Also attach to the invoice
+        if self.invoice_id:
+            attachment.copy({
+                "res_model": "account.move",
+                "res_id":    self.invoice_id.id,
+            })
+            self.invoice_id.message_post(
+                body=f"POD generated for {self.job_day_ref or self.name} and attached to this invoice."
+            )
+
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "POD Generated",
+                "message": f"'{filename}' has been attached to this record and the invoice.",
+                "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "reload"},
+            },
+        }
+
+    def action_fetch_from_fleetbase(self):
+        """Fetch job completion data from Fleetbase and populate stops."""
         self.ensure_one()
-        if not delivery or delivery.stop_type != "delivery":
-            return []
-        return self._allocate_pallets().get(delivery.id, [])
+        if not self.fleetbase_order_id:
+            raise exceptions.UserError("No Fleetbase Order ID is set on this load.")
+        from ..services.fleetbase_service import FleetbaseService
+        try:
+            fb = FleetbaseService(self.env)
+            completion = fb.get_order_completion(self.fleetbase_order_id)
+        except Exception as e:
+            raise exceptions.UserError(f"Could not fetch from Fleetbase: {e}")
+
+        # Populate stops from completion data
+        if completion.get("waypoints"):
+            self.stop_ids.unlink()
+            stop_vals = []
+            for i, wp in enumerate(completion["waypoints"]):
+                stop_vals.append({
+                    "load_id":            self.id,
+                    "sequence":           (i + 1) * 10,
+                    "stop_type":          wp.get("type", "delivery") if i > 0 else "pickup",
+                    "name":               wp.get("name") or wp.get("place", {}).get("name", ""),
+                    "address":            wp.get("address") or wp.get("place", {}).get("formatted_address", ""),
+                    "arrival_time":       self._parse_fb_dt(wp.get("arrived_at")),
+                    "departure_time":     self._parse_fb_dt(wp.get("departed_at")),
+                    "signature_name":     wp.get("pod_signature_name", ""),
+                    "notes":              wp.get("tracking_number") or wp.get("notes", ""),
+                })
+            self.env["premafirm.load.stop"].create(stop_vals)
+
+        update_vals = {"state": "completed"}
+        if completion.get("updated_at"):
+            update_vals["completed_at"] = self._parse_fb_dt(completion["updated_at"])
+        if completion.get("notes"):
+            update_vals["driver_notes"] = completion["notes"]
+        self.write(update_vals)
+
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Fetched from Fleetbase",
+                "message": f"Loaded {len(self.stop_ids)} stops from order {self.fleetbase_order_id}.",
+                "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "reload"},
+            },
+        }
+
+    @staticmethod
+    def _parse_fb_dt(value):
+        if not value:
+            return None
+        text = str(value).strip()
+        for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S",
+                    "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(text, fmt)
+            except Exception:
+                continue
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            return None
+
+    @api.model
+    def action_sync_completed_from_fleetbase(self):
+        """Cron entry point: find all dispatched-but-unsynced jobs and sync from Fleetbase."""
+        from ..services.fleetbase_service import FleetbaseService
+        ICP = self.env["ir.config_parameter"].sudo()
+        if not (ICP.get_param("fleetbase.enabled") == "True"):
+            return
+
+        try:
+            fb = FleetbaseService(self.env)
+            from datetime import timedelta
+            since = datetime.utcnow() - timedelta(days=7)
+            completed_orders = fb.fetch_completed_orders(since)
+        except Exception as e:
+            _logger.warning("Fleetbase sync failed: %s", e)
+            return
+
+        for order_data in completed_orders:
+            order_id = order_data.get("id")
+            if not order_id:
+                continue
+            # Find matching load record
+            existing = self.search([("fleetbase_order_id", "=", order_id)], limit=1)
+            if not existing:
+                # Find via estimator
+                estimator = self.env["premafirm.rate.estimator"].sudo().search(
+                    [("fleetbase_order_id", "=", order_id)], limit=1
+                )
+                if estimator:
+                    existing = self.create({
+                        "fleetbase_order_id": order_id,
+                        "estimator_id":       estimator.id,
+                        "invoice_id":         estimator.invoice_id.id if estimator.invoice_id else False,
+                        "vehicle_id":         estimator.vehicle_id.id if estimator.vehicle_id else False,
+                        "job_day_ref":        estimator.job_day_ref or "",
+                        "state":              "pending",
+                    })
+            if existing and existing.state not in ("pod_generated",):
+                try:
+                    existing.action_fetch_from_fleetbase()
+                    if existing.state == "completed":
+                        existing.action_generate_pod_pdf()
+                except Exception as e:
+                    _logger.warning("Could not sync/generate POD for load %s: %s", existing.id, e)

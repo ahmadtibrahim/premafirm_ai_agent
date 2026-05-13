@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         Form View — Business Profile
+    ══════════════════════════════════════════════════════════════ -->
+    <record id="view_premafirm_business_profile_form" model="ir.ui.view">
+        <field name="name">premafirm.business.profile.form</field>
+        <field name="model">premafirm.business.profile</field>
+        <field name="arch" type="xml">
+            <form string="Business Profile">
+                <header>
+                    <button name="action_save_profile" type="object"
+                            string="Save" class="btn-primary" data-hotkey="s"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="company_name" placeholder="Company Name"/>
+                        </h1>
+                    </div>
+
+                    <notebook>
+
+                        <!-- ── Tab 1: Company Identity ── -->
+                        <page string="Company Identity" name="company_identity">
+                            <group>
+                                <group>
+                                    <field name="company_name"/>
+                                    <field name="tone_of_voice"/>
+                                </group>
+                            </group>
+                            <separator string="Company Overview"/>
+                            <field name="company_overview"
+                                   placeholder="Brief description of what PremaFirm does, its mission, and value proposition..."/>
+                            <separator string="Services Description"/>
+                            <field name="services_description"
+                                   placeholder="Describe the services offered (trucking, freight brokerage, dispatch, etc.)..."/>
+                            <separator string="Key Differentiators"/>
+                            <field name="key_differentiators"
+                                   placeholder="What sets PremaFirm apart from competitors? (e.g. real-time tracking, owner-operators, lane specializations...)"/>
+                            <separator string="Pricing Context"/>
+                            <field name="pricing_context"
+                                   placeholder="General pricing approach, rate ranges, factors that affect pricing..."/>
+                            <separator string="Team Info"/>
+                            <field name="team_info"
+                                   placeholder="Key team members, roles, or relevant background..."/>
+                            <separator string="Email Signature"/>
+                            <field name="email_signature"
+                                   placeholder="Default email signature block used in outreach..."/>
+                        </page>
+
+                        <!-- ── Tab 2: Ideal Customer Profile ── -->
+                        <page string="Ideal Customer Profile (ICP)" name="icp">
+                            <group string="Target Audience">
+                                <group>
+                                    <field name="icp_industry_ids" widget="many2many_tags"/>
+                                    <field name="icp_company_size_ids" widget="many2many_tags"/>
+                                    <field name="icp_seniority_ids" widget="many2many_tags"/>
+                                </group>
+                                <group>
+                                    <field name="icp_title_ids"
+                                           widget="many2many_tags"
+                                           options="{'no_create_edit': False, 'no_create': False}"/>
+                                    <field name="icp_region_ids" widget="many2many_tags"/>
+                                </group>
+                            </group>
+                            <group string="Follow-up Settings">
+                                <field name="icp_non_response_days"
+                                       string="Non-Response Threshold (days)"
+                                       help="Number of days without a reply before the contact rotation cron triggers a new contact suggestion."/>
+                            </group>
+                        </page>
+
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         List View — Business Profile
+    ══════════════════════════════════════════════════════════════ -->
+    <record id="view_premafirm_business_profile_list" model="ir.ui.view">
+        <field name="name">premafirm.business.profile.list</field>
+        <field name="model">premafirm.business.profile</field>
+        <field name="arch" type="xml">
+            <list string="Business Profiles">
+                <field name="company_name"/>
+                <field name="tone_of_voice"/>
+                <field name="icp_non_response_days"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         Server action — always opens the singleton record
+    ══════════════════════════════════════════════════════════════ -->
+    <record id="action_premafirm_business_profile_open" model="ir.actions.server">
+        <field name="name">Business Profile</field>
+        <field name="model_id" ref="model_premafirm_business_profile"/>
+        <field name="state">code</field>
+        <field name="code">
+profile = env['premafirm.business.profile'].get_profile()
+action = {
+    'type': 'ir.actions.act_window',
+    'name': 'Business Profile',
+    'res_model': 'premafirm.business.profile',
+    'view_mode': 'form',
+    'res_id': profile.id,
+    'target': 'current',
+    'context': {},
+}
+        </field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         Menu — all under the existing Prema AI app
+         (menu_prema_root is defined in prema_ai_auditor)
+    ══════════════════════════════════════════════════════════════ -->
+
+    <menuitem
+        id="menu_premafirm_business_profile"
+        name="Business Profile"
+        parent="prema_ai_auditor.menu_prema_root"
+        action="action_premafirm_business_profile_open"
+        sequence="5"/>
+
+</odoo>

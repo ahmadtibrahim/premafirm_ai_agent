@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_premafirm_rate_estimator_list" model="ir.ui.view">
+        <field name="name">premafirm.rate.estimator.list</field>
+        <field name="model">premafirm.rate.estimator</field>
+        <field name="arch" type="xml">
+            <list string="Dispatch Estimates" create="false">
+                <field name="job_day_ref"/>
+                <field name="invoice_id"/>
+                <field name="vehicle_id"/>
+                <field name="scheduled_at"/>
+                <field name="origin_address"/>
+                <field name="destination_address"/>
+                <field name="distance_km"/>
+                <field name="suggested_rate"/>
+                <field name="fleetbase_status"/>
+                <field name="state"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_premafirm_rate_estimator_form" model="ir.ui.view">
+        <field name="name">premafirm.rate.estimator.form</field>
+        <field name="model">premafirm.rate.estimator</field>
+        <field name="arch" type="xml">
+            <form string="Dispatch Estimate" create="false">
+                <header>
+                    <button name="action_dispatch_to_fleetbase"
+                            string="Dispatch"
+                            type="object"
+                            class="btn-primary"
+                            invisible="fleetbase_order_id or not vehicle_id"/>
+                    <button name="action_open_fleetbase_tracking"
+                            string="Open Fleetbase"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="not fleetbase_url"/>
+                    <button name="action_open_invoice"
+                            string="Invoice"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="not invoice_id"/>
+                    <button name="action_open_source_invoice"
+                            string="Source Invoice"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="not source_invoice_id"/>
+                    <button name="action_open_calendar_event"
+                            string="Calendar"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="not calendar_event_id"/>
+                    <button name="action_ai_rewrite_notes"
+                            string="Rewrite Notes (AI)"
+                            type="object"
+                            class="btn-secondary"/>
+                    <button name="action_ai_review_stops"
+                            string="AI Review Stops"
+                            type="object"
+                            class="btn-secondary"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group string="Job">
+                            <field name="invoice_id"/>
+                            <field name="job_day_ref"/>
+                            <field name="job_sequence"/>
+                            <field name="source_invoice_id" readonly="1"/>
+                            <field name="calendar_event_id" readonly="1"/>
+                        </group>
+                        <group string="Dispatch">
+                            <field name="vehicle_id"/>
+                            <field name="scheduled_at"/>
+                            <field name="allow_cross_border"/>
+                            <field name="avoid_tolls"/>
+                            <field name="load_pallets"/>
+                            <field name="load_weight_lbs"/>
+                        </group>
+                    </group>
+
+                    <group>
+                        <group string="Fleetbase">
+                            <field name="fleetbase_order_id" readonly="1"/>
+                            <field name="fleetbase_tracking" readonly="1"/>
+                            <field name="fleetbase_status" readonly="1"/>
+                            <field name="fleetbase_url" readonly="1"/>
+                        </group>
+                        <group string="Route">
+                            <field name="origin_address" readonly="1"/>
+                            <field name="destination_address" readonly="1"/>
+                            <field name="distance_km" readonly="1"/>
+                            <field name="duration_hrs" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <group>
+                        <group string="Cost">
+                            <field name="total_cost" readonly="1"/>
+                            <field name="suggested_rate" readonly="1"/>
+                            <field name="margin_pct" readonly="1"/>
+                            <field name="driver_rate_per_hr" readonly="1"/>
+                            <field name="fuel_price_per_l" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Stops" name="stops">
+                            <field name="stop_ids">
+                                <list editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="stop_type"/>
+                                    <field name="is_system" readonly="1"/>
+                                    <field name="address"/>
+                                    <field name="name"/>
+                                    <field name="scheduled_time"/>
+                                    <field name="pallets"/>
+                                    <field name="weight_lbs"/>
+                                    <field name="liftgate"/>
+                                    <field name="notes"/>
+                                    <field name="lat" optional="hide"/>
+                                    <field name="lng" optional="hide"/>
+                                    <field name="place_id" optional="hide"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Notes" name="notes">
+                            <field name="notes" nolabel="1" placeholder="Trip notes and instructions..."/>
+                        </page>
+                        <page string="Attachments" name="attachments">
+                            <field name="attachment_ids" widget="many2many_binary"
+                                   string="Route Sheets &amp; Documents"/>
+                        </page>
+                        <page string="Paste Route / Text" name="text_route">
+                            <group string="Paste any text — email, WhatsApp message, rate sheet, or verbal description">
+                                <field name="x_route_sheet_text"
+                                       nolabel="1"
+                                       widget="text"
+                                       placeholder="Example: 'Pick up 18 pallets frozen at 123 Main St Mississauga ON, deliver to 456 Rue King Montreal QC, reefer set to -18C, appointment 8am Thursday'"/>
+                            </group>
+                            <div>
+                                <button name="action_parse_route_text" type="object"
+                                        string="Parse &amp; Fill Estimate" class="btn-primary" icon="fa-magic"/>
+                                <span class="text-muted ms-2">
+                                    AI will extract origin, destination, pallets, and weight from your text.
+                                </span>
+                            </div>
+                        </page>
+                        <page string="Debug" name="debug" groups="base.group_system">
+                            <group string="Stops JSON (raw)">
+                                <field name="stops_json" nolabel="1" readonly="1"/>
+                            </group>
+                            <group string="Error" invisible="not error_message">
+                                <field name="error_message" nolabel="1" readonly="1"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_premafirm_rate_estimator_search" model="ir.ui.view">
+        <field name="name">premafirm.rate.estimator.search</field>
+        <field name="model">premafirm.rate.estimator</field>
+        <field name="arch" type="xml">
+            <search string="Dispatch Estimates">
+                <field name="vehicle_id"/>
+                <field name="invoice_id"/>
+                <field name="source_invoice_id"/>
+                <field name="fleetbase_status"/>
+                <field name="job_day_ref"/>
+                <filter name="scheduled" string="Scheduled" domain="[('scheduled_at', '!=', False)]"/>
+                <filter name="dispatched" string="Dispatched" domain="[('fleetbase_order_id', '!=', False)]"/>
+                <filter name="pending" string="Pending Dispatch" domain="[('fleetbase_order_id', '=', False)]"/>
+                <filter name="errors" string="Errors" domain="[('state', '=', 'error')]"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_premafirm_rate_estimator" model="ir.actions.act_window">
+        <field name="name">Dispatch Estimates</field>
+        <field name="res_model">premafirm.rate.estimator</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_premafirm_rate_estimator_search"/>
+    </record>
+</odoo>

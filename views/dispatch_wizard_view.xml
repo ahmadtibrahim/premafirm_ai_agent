@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_premafirm_dispatch_wizard_form" model="ir.ui.view">
+        <field name="name">premafirm.dispatch.wizard.form</field>
+        <field name="model">premafirm.dispatch.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Add Dispatch Job — AI Job Planner">
+                <sheet>
+                    <!-- Draft instructions -->
+                    <div class="alert alert-info" invisible="status != 'draft'">
+                        <strong>How to use:</strong>
+                        Upload the route/load sheet (PDF or image) and enter the job date.
+                        Add any extra notes, then click <em>Analyze with AI</em>.
+                        Review the extracted stops, adjust if needed, then click <em>Create Job &amp; Schedule</em>.
+                    </div>
+
+                    <!-- Error banner -->
+                    <div class="alert alert-danger" invisible="status != 'error'">
+                        <strong>Error:</strong> <field name="error_message" readonly="1" nolabel="1"/>
+                    </div>
+
+                    <!-- Extraction status banner (shows after analyze) -->
+                    <div class="alert alert-success"
+                         invisible="status == 'draft' or not extraction_status">
+                        <field name="extraction_status" readonly="1" nolabel="1"/>
+                    </div>
+
+                    <group>
+                        <group string="Job Details">
+                            <field name="invoice_id" readonly="1"/>
+                            <field name="job_sequence"/>
+                            <field name="scheduled_date"/>
+                            <field name="job_day_ref" readonly="1"/>
+                            <field name="vehicle_id"
+                                   placeholder="Leave blank — AI will suggest best available truck"/>
+                        </group>
+                        <group string="Route Document">
+                            <field name="route_file" widget="binary" filename="route_filename"
+                                   string="Upload Route Sheet / Load Tender (PDF or image)"/>
+                            <field name="route_filename" invisible="1"/>
+                        </group>
+                    </group>
+
+                    <group string="Dispatcher Notes">
+                        <field name="notes" nolabel="1"
+                               placeholder="Describe the job: pickup location, delivery address, time windows, pallets, special requirements..."/>
+                    </group>
+
+                    <!-- Post-analysis: AI plan summary (editable) + stop edits -->
+                    <notebook invisible="status == 'draft'">
+                        <page string="Planned Stops" name="stops">
+                            <p class="text-muted" invisible="status != 'analyzed'">
+                                Review and edit the stops below. You can change stop type, address, time, pallets, etc.
+                            </p>
+                            <field name="ai_stops">
+                                <list editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="stop_type" required="1"/>
+                                    <field name="address" required="1"/>
+                                    <field name="scheduled_time"/>
+                                    <field name="pallets"/>
+                                    <field name="liftgate"/>
+                                    <field name="notes"/>
+                                    <field name="is_system" optional="hide" readonly="1"/>
+                                    <field name="lat" optional="hide"/>
+                                    <field name="lng" optional="hide"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="AI Summary &amp; Edits" name="summary">
+                            <group string="AI Plan Summary">
+                                <field name="ai_plan_result" nolabel="1"
+                                       placeholder="AI summary will appear here after analysis..."/>
+                            </group>
+                            <group string="Your Notes / Corrections"
+                                   invisible="status == 'draft'">
+                                <field name="dispatcher_notes" nolabel="1"
+                                       placeholder="Add any corrections or extra instructions here (e.g. 'Delivery window changed to 2–4pm', 'Add liftgate to stop 3')..."/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+                <footer>
+                    <button name="action_analyze"
+                            string="Analyze with AI"
+                            type="object"
+                            class="btn-primary"/>
+                    <button name="action_create_job"
+                            string="Create Job &amp; Schedule"
+                            type="object"
+                            class="btn-primary"
+                            invisible="status != 'analyzed'"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

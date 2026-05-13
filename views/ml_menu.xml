@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <menuitem id="menu_ml_pending"
+              name="Pending Review"
+              parent="prema_ai_auditor.menu_prema_root"
+              action="action_ml_drafts_pending"
+              sequence="10"/>
+
+    <menuitem id="menu_ml_all_drafts"
+              name="All Drafts"
+              parent="prema_ai_auditor.menu_prema_root"
+              action="action_ml_drafts_all"
+              sequence="11"/>
+
+    <menuitem id="menu_ml_knowledge"
+              name="Knowledge Base"
+              parent="prema_ai_auditor.menu_prema_root"
+              action="action_ml_knowledge"
+              sequence="20"/>
+
+    <menuitem id="menu_ml_ingestion"
+              name="Data Ingestion"
+              parent="prema_ai_auditor.menu_prema_root"
+              action="action_ml_ingestion"
+              sequence="21"/>
+
+    <menuitem id="menu_ml_ifta_fuel_log"
+              name="IFTA Fuel Log"
+              parent="prema_ai_auditor.menu_prema_root"
+              action="action_ifta_fuel_log"
+              sequence="22"/>
+</odoo>

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- List view -->
+    <record id="view_invoice_ai_product_list" model="ir.ui.view">
+        <field name="name">premafirm.invoice.ai.product.list</field>
+        <field name="model">premafirm.invoice.ai.product</field>
+        <field name="arch" type="xml">
+            <list string="AI Invoice Products" editable="bottom">
+                <field name="sequence" widget="handle"/>
+                <field name="product_id"/>
+                <field name="service_type"/>
+                <field name="ai_enabled"/>
+                <field name="description_hint"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form view -->
+    <record id="view_invoice_ai_product_form" model="ir.ui.view">
+        <field name="name">premafirm.invoice.ai.product.form</field>
+        <field name="model">premafirm.invoice.ai.product</field>
+        <field name="arch" type="xml">
+            <form string="AI Invoice Product">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="product_id"/>
+                            <field name="service_type"/>
+                            <field name="ai_enabled"/>
+                        </group>
+                        <group>
+                            <field name="sequence"/>
+                        </group>
+                    </group>
+                    <group string="Description Hint">
+                        <field name="description_hint" nolabel="1"
+                               placeholder="Optional: guide the AI on how to format the description for this service type..."/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_invoice_ai_product" model="ir.actions.act_window">
+        <field name="name">AI Invoice Products</field>
+        <field name="res_model">premafirm.invoice.ai.product</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- Menu under Accounting > Configuration -->
+    <menuitem id="menu_invoice_ai_product"
+              name="AI Invoice Products"
+              parent="account.menu_finance_configuration"
+              action="action_invoice_ai_product"
+              sequence="100"/>
+</odoo>

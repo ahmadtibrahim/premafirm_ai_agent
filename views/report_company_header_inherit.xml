@@ -4,32 +4,23 @@
     <template id="report_saleorder_document_inherit_company_info"
               inherit_id="sale.report_saleorder_document">
 
+        <!-- flex-basis:100% forces a new row in the #informations flex container
+             so the regulatory block sits below the date/reference columns. -->
         <xpath expr="//div[@id='informations']" position="inside">
-
-            <div class="mt16">
-                <strong>Regulatory Information</strong><br/>
-
+            <div style="flex-basis:100%;width:100%;margin-top:6pt;padding-top:4pt;border-top:1px solid #dee2e6;font-size:0.85em;">
                 <t t-if="o.company_id.x_studio_cvor_number">
-                    CVOR #:
-                    <span t-field="o.company_id.x_studio_cvor_number"/><br/>
+                    <strong>CVOR #:</strong>&#160;<span t-field="o.company_id.x_studio_cvor_number"/>&#160;&#160;&#160;
                 </t>
-
                 <t t-if="o.company_id.x_studio_usdot_">
-                    USDOT #:
-                    <span t-field="o.company_id.x_studio_usdot_"/><br/>
+                    <strong>USDOT #:</strong>&#160;<span t-field="o.company_id.x_studio_usdot_"/>&#160;&#160;&#160;
                 </t>
-
                 <t t-if="o.company_id.x_studio_mc_">
-                    MC #:
-                    <span t-field="o.company_id.x_studio_mc_"/><br/>
+                    <strong>MC #:</strong>&#160;<span t-field="o.company_id.x_studio_mc_"/>&#160;&#160;&#160;
                 </t>
-
                 <t t-if="o.company_id.vat">
-                    HST #:
-                    <span t-field="o.company_id.vat"/>
+                    <strong>HST #:</strong>&#160;<span t-field="o.company_id.vat"/>
                 </t>
             </div>
-
         </xpath>
 
     </template>
@@ -39,29 +30,60 @@
     <template id="report_invoice_document_inherit_company_info"
               inherit_id="account.report_invoice_document">
 
-        <xpath expr="//div[@id='informations']" position="inside">
+        <!--
+            Approach: do NOT touch #informations (the dates flex row) at all.
+            wkhtmltopdf uses old WebKit that does not support flex-basis:100% line
+            breaks reliably, so any injection inside that row risks date overlap.
 
-            <div class="mt16">
-                <strong>Regulatory Information</strong><br/>
+            Instead, inject everything right before the invoice lines table:
+              1. A <style> block for PDF-specific fixes (page-2 headers, note rows).
+              2. The regulatory bar as a clean standalone block.
+        -->
+        <xpath expr="//table[@name='invoice_line_table']" position="before">
 
+            <style type="text/css">
+                /*
+                 * Repeat Description / Qty / Unit Price / Taxes / Amount column
+                 * headers on every page when the invoice spans more than one page.
+                 * table-header-group is the standard CSS value; !important ensures
+                 * it wins even if another rule or inline style is present.
+                 */
+                .o_main_table thead {
+                    display: table-header-group !important;
+                }
+
+                /*
+                 * Note / description rows (line_note): remove the top border that
+                 * Bootstrap tables normally add between rows, reduce the top padding,
+                 * and indent slightly so the text reads as a continuation of the
+                 * product line immediately above — not as a floating paragraph.
+                 */
+                .o_main_table tbody tr.o_line_note td {
+                    border-top: none !important;
+                    padding-top: 1pt;
+                    padding-bottom: 5pt;
+                    padding-left: 12pt;
+                    font-style: normal;
+                    font-size: 0.88em;
+                    color: #2d2d2d;
+                }
+            </style>
+
+            <!-- Regulatory bar: clean one-liner above the invoice lines table.
+                 Completely separate from the dates row — no overlap possible. -->
+            <div t-if="o.company_id.x_studio_cvor_number or o.company_id.x_studio_usdot_ or o.company_id.x_studio_mc_ or o.company_id.vat"
+                 style="margin-bottom:6pt; padding:3pt 0; border-top:0.5pt solid #adb5bd; border-bottom:0.5pt solid #adb5bd; font-size:0.84em;">
                 <t t-if="o.company_id.x_studio_cvor_number">
-                    CVOR #:
-                    <span t-field="o.company_id.x_studio_cvor_number"/><br/>
+                    <strong>CVOR #:</strong>&#160;<span t-field="o.company_id.x_studio_cvor_number"/>&#160;&#160;&#160;
                 </t>
-
                 <t t-if="o.company_id.x_studio_usdot_">
-                    USDOT #:
-                    <span t-field="o.company_id.x_studio_usdot_"/><br/>
+                    <strong>USDOT #:</strong>&#160;<span t-field="o.company_id.x_studio_usdot_"/>&#160;&#160;&#160;
                 </t>
-
                 <t t-if="o.company_id.x_studio_mc_">
-                    MC #:
-                    <span t-field="o.company_id.x_studio_mc_"/><br/>
+                    <strong>MC #:</strong>&#160;<span t-field="o.company_id.x_studio_mc_"/>&#160;&#160;&#160;
                 </t>
-
                 <t t-if="o.company_id.vat">
-                    HST #:
-                    <span t-field="o.company_id.vat"/>
+                    <strong>HST #:</strong>&#160;<span t-field="o.company_id.vat"/>
                 </t>
             </div>
 

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Sale Order form: AI button in header for rate confirmation auto-fill -->
+    <record id="view_sale_order_form_ml_buttons" model="ir.ui.view">
+        <field name="name">sale.order.form.ml.buttons</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="action_autofill_from_rate_conf"
+                        string="AI: Fill from Rate Conf"
+                        type="object"
+                        class="btn-secondary"
+                        icon="fa-magic"
+                        invisible="state not in ('draft', 'sent')"
+                        help="Attach the customer rate confirmation PDF or image, then click here to auto-fill reference, rate, and stops."/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ML Draft: Apply to Order button visible on rate_conf_autofill drafts -->
+    <record id="view_ml_draft_rate_conf_apply" model="ir.ui.view">
+        <field name="name">premafirm.ml.draft.rate.conf.apply</field>
+        <field name="model">premafirm.ml.draft</field>
+        <field name="inherit_id" ref="premafirm_ml.view_ml_draft_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header/button[last()]" position="after">
+                <button name="action_apply_to_order"
+                        string="Apply to Order"
+                        type="object"
+                        class="btn-primary"
+                        invisible="draft_type != 'rate_conf_autofill' or status not in ('pending', 'edited')"
+                        confirm="This will update the sale order reference, rate, and notes. Continue?"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

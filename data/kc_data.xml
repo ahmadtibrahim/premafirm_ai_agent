@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+<data noupdate="1">
+
+    <!-- Knowledge Center tag -->
+    <record id="tag_knowledge_center" model="documents.tag">
+        <field name="name">Knowledge Center</field>
+        <field name="color">10</field>
+        <field name="tooltip">File is linked to the Knowledge Center folder for AI indexing</field>
+    </record>
+
+    <!-- Knowledge Center folder ID system parameter (folder id=189 created via shell) -->
+    <record id="param_kc_folder_id" model="ir.config_parameter">
+        <field name="key">premafirm.kc_folder_id</field>
+        <field name="value">189</field>
+    </record>
+
+</data>
+</odoo>

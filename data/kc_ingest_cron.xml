@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         Knowledge Center: Index New Documents — every hour (ACTIVE)
+    ══════════════════════════════════════════════════════════════ -->
+    <record id="cron_kc_index_documents" model="ir.cron">
+        <field name="name">Knowledge Center: Index New Documents</field>
+        <field name="model_id" ref="model_premafirm_ml_ingest_queue"/>
+        <field name="state">code</field>
+        <field name="code">model.action_index_kc_documents()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">hours</field>
+        <field name="active" eval="True"/>
+        <field name="priority">10</field>
+    </record>
+
+</odoo>

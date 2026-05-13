@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_geotab" model="ir.ui.view">
+        <field name="name">res.config.settings.view.geotab</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base_setup.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <div class="app_settings_block" data-string="Geotab / ELD" string="Geotab / ELD" data-key="geotab_eld" id="geotab_eld_settings">
+                    <h2>Geotab / ELD Integration</h2>
+
+                    <div class="row mt16 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane">
+                                <field name="geotab_enabled" widget="boolean_toggle"/>
+                            </div>
+                            <div class="o_setting_right_pane">
+                                <label for="geotab_enabled" string="Enable Geotab Integration"/>
+                                <div class="text-muted">
+                                    Connect to MyGeotab ELD to sync vehicle telematics, driver profiles, and logs.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Google Maps API key (used for address autocomplete on vehicle forms) -->
+                    <div class="row mt16 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <label for="google_maps_api_key" string="Google Maps API Key"/>
+                                <field name="google_maps_api_key" password="True" placeholder="AIza…"/>
+                                <div class="text-muted">
+                                    Required for address autocomplete (Places API). Shared with routing calculations.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div invisible="not geotab_enabled">
+                        <h3 class="mt16">Connection</h3>
+                        <div class="row mt8 o_settings_container">
+                            <div class="col-12 col-lg-6 o_setting_box">
+                                <div class="o_setting_right_pane">
+                                    <label for="geotab_database"/>
+                                    <field name="geotab_database" placeholder="e.g. premafirm"/>
+                                    <label for="geotab_username" class="mt8"/>
+                                    <field name="geotab_username" placeholder="username@example.com"/>
+                                    <label for="geotab_password" class="mt8"/>
+                                    <field name="geotab_password" password="True"/>
+                                    <label for="geotab_server_url" class="mt8"/>
+                                    <field name="geotab_server_url" placeholder="my.geotab.com"/>
+                                </div>
+                            </div>
+                            <div class="col-12 col-lg-6 o_setting_box">
+                                <div class="o_setting_right_pane">
+                                    <label for="geotab_default_timezone"/>
+                                    <field name="geotab_default_timezone" placeholder="America/Toronto"/>
+                                    <div class="mt16">
+                                        <button
+                                            name="action_test_geotab_connection"
+                                            string="Test Connection"
+                                            type="object"
+                                            class="btn btn-secondary"
+                                        />
+                                        <button
+                                            name="action_run_geotab_sync_now"
+                                            string="Run Sync Now"
+                                            type="object"
+                                            class="btn btn-primary ms-2"
+                                        />
+                                    </div>
+                                    <div class="text-muted mt8" invisible="not geotab_last_sync_at">
+                                        Last sync: <field name="geotab_last_sync_at" readonly="1"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h3 class="mt16">Sync Options</h3>
+                        <div class="row mt8 o_settings_container">
+                            <div class="col-12 col-lg-6 o_setting_box">
+                                <div class="o_setting_right_pane">
+                                    <div class="d-flex gap-2 align-items-center mb-2">
+                                        <field name="geotab_sync_vehicles_enabled" widget="boolean_toggle"/>
+                                        <span>Sync Vehicles / Devices</span>
+                                    </div>
+                                    <div class="d-flex gap-2 align-items-center mb-2">
+                                        <field name="geotab_sync_telematics_enabled" widget="boolean_toggle"/>
+                                        <span>Sync Live Telematics (odometer, fuel, location)</span>
+                                    </div>
+                                    <div class="d-flex gap-2 align-items-center">
+                                        <field name="geotab_sync_fuel_enabled" widget="boolean_toggle"/>
+                                        <span>Sync Weekly Fuel Averages</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-12 col-lg-6 o_setting_box">
+                                <div class="o_setting_right_pane">
+                                    <div class="d-flex gap-2 align-items-center mb-2">
+                                        <field name="geotab_sync_drivers_enabled" widget="boolean_toggle"/>
+                                        <span>Sync Driver Profiles</span>
+                                    </div>
+                                    <div class="d-flex gap-2 align-items-center mb-2">
+                                        <field name="geotab_sync_driver_logs_enabled" widget="boolean_toggle"/>
+                                        <span>Sync Driver Work Logs</span>
+                                    </div>
+                                    <div class="d-flex gap-2 align-items-center">
+                                        <field name="geotab_auto_create_drivers" widget="boolean_toggle"/>
+                                        <span>Auto-Create Driver Contacts from Geotab</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── Fleetbase Dispatch Integration ── -->
+                <div class="app_settings_block" data-string="Fleetbase Dispatch" string="Fleetbase Dispatch" data-key="fleetbase_dispatch" id="fleetbase_settings">
+                    <h2>Fleetbase Dispatch Integration</h2>
+
+                    <div class="row mt16 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_left_pane">
+                                <field name="fleetbase_enabled" widget="boolean_toggle"/>
+                            </div>
+                            <div class="o_setting_right_pane">
+                                <label for="fleetbase_enabled" string="Enable Fleetbase Integration"/>
+                                <div class="text-muted">
+                                    Connect to Fleetbase to create dispatch orders from the Prema AI Estimator.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div invisible="not fleetbase_enabled">
+                        <div class="row mt16 o_settings_container">
+                            <div class="col-12 col-lg-6 o_setting_box">
+                                <div class="o_setting_right_pane">
+                                    <label for="fleetbase_api_url" string="Fleetbase API URL"/>
+                                    <field name="fleetbase_api_url" placeholder="https://api.fleetbase.io"/>
+                                    <label for="fleetbase_api_key" string="API Key" class="mt8"/>
+                                    <field name="fleetbase_api_key" password="True" placeholder="Bearer token from Fleetbase › Settings › API Keys"/>
+                                    <div class="mt16">
+                                        <button
+                                            name="action_test_fleetbase_connection"
+                                            string="Test Connection"
+                                            type="object"
+                                            class="btn btn-secondary"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="res_config_settings_view_invoice_bcc" model="ir.ui.view">
+        <field name="name">res.config.settings.view.invoice.bcc</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base_setup.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <div class="app_settings_block" data-string="Invoicing" string="Invoicing" data-key="invoice_bcc" id="invoice_bcc_settings">
+                    <h2>Invoice Sending</h2>
+                    <div class="row mt16 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <label for="invoice_bcc_partner_id" string="BCC Contact on Invoice Emails"/>
+                                <field name="invoice_bcc_partner_id" placeholder="e.g. Riviera Finance"/>
+                                <div class="text-muted">
+                                    This contact silently receives a copy of every invoice email. Customers cannot see this recipient.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </xpath>
+        </field>
+    </record>
+</odoo>

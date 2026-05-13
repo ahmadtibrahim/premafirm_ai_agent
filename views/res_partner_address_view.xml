@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Wire Google address autocomplete onto the street field of the contact form.
+         On selection, fills city/zip and resolves state_id + country_id via Odoo ORM
+         so no raw strings are written to the DB. -->
+    <record id="view_partner_form_google_address_inherit" model="ir.ui.view">
+        <field name="name">res.partner.form.google.address.inherit</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='street']" position="attributes">
+                <attribute name="widget">google_address</attribute>
+                <attribute name="options">{"city_field": "city", "zip_field": "zip", "state_field": "state_id", "country_field": "country_id"}</attribute>
+                <attribute name="placeholder">Start typing address to search…</attribute>
+            </xpath>
+        </field>
+    </record>
+</odoo>

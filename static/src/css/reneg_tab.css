@@ -1,0 +1,29 @@
+/* Re-Negotiation tab flash animation */
+@keyframes reneg-tab-flash {
+    0%, 100% {
+        background-color: #dc3545 !important;
+        color: #fff !important;
+        border-color: #dc3545 !important;
+    }
+    50% {
+        background-color: transparent !important;
+        color: #dc3545 !important;
+    }
+}
+
+.o_notebook .nav-link.o_reneg_flash {
+    animation: reneg-tab-flash 0.9s ease-in-out infinite;
+    font-weight: bold;
+    border-color: #dc3545 !important;
+    border-width: 2px !important;
+}
+
+/* Red alert banner pulse inside the tab */
+@keyframes reneg-banner-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.65; }
+}
+
+.o_reneg_banner {
+    animation: reneg-banner-pulse 1.2s ease-in-out infinite;
+}

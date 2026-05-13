@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="crm_stage_suggestion" model="crm.stage">
+            <field name="name">Suggestion</field>
+            <field name="sequence">15</field>
+            <field name="requirements">Lead not responding — Snov.io suggested contact pending Ahmad approval</field>
+        </record>
+    </data>
+</odoo>

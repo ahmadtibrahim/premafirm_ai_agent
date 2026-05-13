@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <record id="view_ml_ingestion_list" model="ir.ui.view">
+        <field name="name">premafirm.ml.ingestion.list</field>
+        <field name="model">premafirm.ml.ingestion</field>
+        <field name="arch" type="xml">
+            <list string="Ingestion Jobs" default_order="create_date desc"
+                  decoration-success="state == 'done'"
+                  decoration-warning="state == 'running'">
+                <field name="name"/>
+                <field name="create_date" string="Started"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'done'"
+                       decoration-warning="state == 'running'"/>
+                <field name="total_done" string="Total Entries"/>
+                <field name="sale_orders_done" string="Sale Orders" optional="show"/>
+                <field name="invoices_done" string="Invoices" optional="show"/>
+                <field name="vendor_bills_done" string="Vendor Bills" optional="show"/>
+                <field name="customer_invoices_done" string="Customer Invoices" optional="show"/>
+                <field name="whatsapp_done" string="WA Convos" optional="show"/>
+                <field name="partners_done" string="Contacts" optional="show"/>
+                <field name="crm_done" string="CRM" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ml_ingestion_form" model="ir.ui.view">
+        <field name="name">premafirm.ml.ingestion.form</field>
+        <field name="model">premafirm.ml.ingestion</field>
+        <field name="arch" type="xml">
+            <form string="ML Ingestion Job">
+                <header>
+                    <button name="action_run" type="object"
+                            string="Run Full Ingestion" class="btn-primary"
+                            icon="fa-play"
+                            invisible="state != 'draft'"
+                            confirm="This will ingest all historical data into the ML knowledge base. Continue?"/>
+                    <button name="action_ingest_vendor_bills_only" type="object"
+                            string="Learn Bills Only" class="btn-secondary"
+                            icon="fa-file-text"
+                            confirm="Ingest all posted vendor bills into the ML knowledge base?"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,running,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name"/></h1>
+                    </div>
+                    <group string="Results">
+                        <group>
+                            <field name="sale_orders_done" string="Sale Orders + Negotiations"/>
+                            <field name="invoices_done" string="Anomaly Baselines"/>
+                            <field name="vendor_bills_done" string="Vendor Bills"/>
+                            <field name="customer_invoices_done" string="Customer Invoices"/>
+                            <field name="whatsapp_done" string="WA Conversations"/>
+                        </group>
+                        <group>
+                            <field name="partners_done" string="Contacts + Fleet"/>
+                            <field name="crm_done" string="CRM Messages"/>
+                            <field name="total_done" string="Total Entries"/>
+                        </group>
+                    </group>
+                    <group string="Log">
+                        <field name="log" nolabel="1"
+                               style="min-height:120px; font-family:monospace; font-size:0.85em;"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_ml_ingestion" model="ir.actions.act_window">
+        <field name="name">Data Ingestion</field>
+        <field name="res_model">premafirm.ml.ingestion</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

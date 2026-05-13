@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- ─── CRM Lead: AI Assistant tab ─────────────────────────────────────── -->
+    <record id="view_crm_lead_ai_assistant" model="ir.ui.view">
+        <field name="name">crm.lead.ai.assistant</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Add AI Assistant tab after the existing tabs -->
+            <xpath expr="//notebook" position="inside">
+                <page name="ai_assistant" string="AI Assistant">
+
+                    <!-- Chat input -->
+                    <group string="Ask AI">
+                        <field name="x_ai_chat_input"
+                               nolabel="1"
+                               widget="text"
+                               placeholder="Type anything: 'Draft a follow-up email', 'Summarize this account', 'What should I say next?', 'Write a cold outreach for this company'…"/>
+                    </group>
+                    <div class="mb-2">
+                        <button name="action_ai_chat_send" type="object"
+                                string="Ask AI" class="btn-primary" icon="fa-paper-plane"/>
+                    </div>
+
+                    <!-- AI Response -->
+                    <group string="AI Response" invisible="not x_ai_chat_response">
+                        <field name="x_ai_chat_response" nolabel="1" readonly="1" widget="text"/>
+                    </group>
+
+                    <!-- Action buttons -->
+                    <div invisible="not x_ai_chat_response" class="mb-3">
+                        <button name="action_ai_compose_email" type="object"
+                                string="Compose Email" class="btn-primary me-2" icon="fa-envelope"/>
+                        <button name="action_ai_append_company" type="object"
+                                string="→ Company Notes" class="btn-secondary me-1" icon="fa-building"/>
+                        <button name="action_ai_append_contact" type="object"
+                                string="→ Contact Notes" class="btn-secondary me-1" icon="fa-user"/>
+                        <button name="action_ai_append_lead" type="object"
+                                string="→ Lead Notes" class="btn-secondary" icon="fa-file-text"/>
+                    </div>
+
+                    <separator string="Outreach Tracking"/>
+                    <group col="4">
+                        <field name="x_last_outreach_at"/>
+                        <field name="x_response_status"/>
+                        <field name="x_rotation_count" string="Contacts Tried"/>
+                        <field name="x_snov_enrichment_requested" string="Snov Searched"/>
+                        <field name="x_followup_1_sent_at"/>
+                        <field name="x_followup_2_sent_at"/>
+                    </group>
+
+                </page>
+            </xpath>
+
+        </field>
+    </record>
+
+    <!-- ─── Partner: Account Summary button + field ─────────────────────────── -->
+    <record id="view_partner_account_summary" model="ir.ui.view">
+        <field name="name">res.partner.account.summary</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Generate Summary stat button -->
+            <xpath expr="//div[hasclass('oe_button_box')]" position="inside">
+                <button name="action_generate_account_summary" type="object"
+                        class="oe_stat_button" icon="fa-file-text-o"
+                        string="Generate Summary"
+                        invisible="not is_company"/>
+            </xpath>
+
+            <!-- Summary display before the first group on the sheet -->
+            <xpath expr="//sheet//group[1]" position="before">
+                <group invisible="not x_account_summary" string="AI Account Summary">
+                    <field name="x_account_summary" nolabel="1" readonly="1" widget="text"/>
+                </group>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

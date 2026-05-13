@@ -1,157 +1,183 @@
+"""
+Trip cost calculation engine.
+
+Uses previous calendar month's actual km driven (from fleet.daily.odometer)
+to amortise fixed costs (maintenance, insurance) per km. Fuel is calculated
+from GeoTab's weekly avg km/L. Driver cost uses a configurable hourly rate.
+"""
 import logging
-from importlib.util import module_from_spec, spec_from_file_location
-from pathlib import Path
+from datetime import date, timedelta
 
 _logger = logging.getLogger(__name__)
-
-try:
-    from .dispatch_rules_engine import DispatchRulesEngine
-except ImportError:
-    module_path = Path(__file__).resolve().parent / "dispatch_rules_engine.py"
-    spec = spec_from_file_location("dispatch_rules_engine", module_path)
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    DispatchRulesEngine = module.DispatchRulesEngine
 
 
 class PricingEngine:
     def __init__(self, env):
         self.env = env
-        self.rules = DispatchRulesEngine(env).rules
 
-    def _load_dispatch_rules(self):
-        return DispatchRulesEngine(self.env).rules
+    # ── Config params (admin-configurable, self-creating with defaults) ─
 
-    @staticmethod
-    def _resolve_product_category_key(lead):
-        product = getattr(lead, "product_id", None)
-        category = (product.categ_id.name if product and getattr(product, "categ_id", None) else "").strip().lower()
-        if category in {"ftl dry", "dry"}:
-            return "ftl_dry"
-        if category in {"ftl reefer", "reefer"}:
-            return "ftl_reefer"
-        if category == "ltl dry":
-            return "ltl_dry"
-        if category == "ltl reefer":
-            return "ltl_reefer"
-        if category == "express":
-            return "express"
-        return "ftl_dry"
+    def _cfg(self):
+        ICP = self.env["ir.config_parameter"].sudo()
+        return {
+            "fuel_price_per_l":         float(ICP.get_param("estimator.fuel_price_per_l",         "1.55")),
+            "driver_rate_per_hr":       float(ICP.get_param("estimator.driver_rate_per_hr",       "40.00")),
+            "margin_pct":               float(ICP.get_param("estimator.margin_pct",               "20.0")),
+            # Weight surcharge: applied to load weight over the threshold
+            "weight_threshold_lbs":     float(ICP.get_param("estimator.weight_threshold_lbs",     "3000")),
+            "weight_surcharge_per_cwt": float(ICP.get_param("estimator.weight_surcharge_per_cwt", "5.00")),
+            # Fuel load penalty: fractional increase in fuel consumption at 100% payload vs 0%
+            # 0.12 means full load uses 12% more fuel than empty (applied linearly)
+            "fuel_load_penalty":        float(ICP.get_param("estimator.fuel_load_penalty",        "0.12")),
+        }
 
-    @staticmethod
-    def _resolve_base_rate(pricing_rules, category_key):
-        base = float(pricing_rules.get("dry_rate_km", 2.25))
-        multipliers = {"ftl_dry": 1.0, "ftl_reefer": 1.15, "ltl_dry": 0.9, "ltl_reefer": 1.0, "express": 1.35}
-        return base * multipliers.get(category_key, 1.0)
+    # ── Previous calendar month km from daily odometer ─────────────────
 
-    @staticmethod
-    def _extract_city(address):
-        if not address:
-            return ""
-        return (address.split(",", 1)[0] or "").strip().lower()
+    def get_prev_month_km(self, vehicle_id):
+        """Return km driven in the previous calendar month.
 
-    def _history_rate_adjustment(self, lead):
-        return None
+        Queries fleet.daily.odometer for MAX-MIN odometer reading in the
+        previous calendar month. Falls back to vehicle.x_monthly_avg_km
+        if no odometer rows exist.
 
-    def calculate_pricing(self, lead):
-        pricing_rules = self.rules["pricing"]
-        costing_rules = self.rules["costing"]
-        hos_rules = self.rules.get("hos_rules", {})
-        limits = self.rules.get("dispatcher_limits", {})
+        Raises ValueError if no data is available at all.
+        """
+        today = date.today()
+        last_of_prev = today.replace(day=1) - timedelta(days=1)
+        first_of_prev = last_of_prev.replace(day=1)
 
-        dispatch_stops = list(getattr(lead, "dispatch_stop_ids", []) or [])
-        stop_count = len(dispatch_stops)
-        extra_stops = max(0, stop_count - 2)
+        self.env.cr.execute(
+            """
+            SELECT MAX(odometer_km) - MIN(odometer_km)
+            FROM   fleet_daily_odometer
+            WHERE  vehicle_id = %s
+              AND  log_date  >= %s
+              AND  log_date  <= %s
+            """,
+            (vehicle_id, first_of_prev, last_of_prev),
+        )
+        row = self.env.cr.fetchone()
+        km = row[0] if row and row[0] is not None else 0.0
 
-        loaded_km = float(getattr(lead, "total_distance_km", 0.0) or 0.0)
-        deadhead_km = float(getattr(lead, "deadhead_km", 0.0) or 0.0)
-        total_km = loaded_km + deadhead_km
-        deadhead_percent = (deadhead_km / total_km) if total_km else 0.0
+        if km > 0:
+            _logger.debug(
+                "PricingEngine: vehicle %s prev-month (%s) km = %.1f",
+                vehicle_id, last_of_prev.strftime("%B %Y"), km,
+            )
+            return float(km)
 
-        vehicle = getattr(lead, "assigned_vehicle_id", None)
-        load_weight_lbs = float(getattr(lead, "total_weight_lbs", 0.0) or 0.0)
-        pallet_count = int(getattr(lead, "total_pallets", 0) or 0)
-        max_payload_lbs = float(getattr(vehicle, "payload_limit_lbs", 0.0) or limits.get("max_payload_lbs", 13000))
-        max_pallets = int(getattr(vehicle, "max_pallets", 0) or limits.get("max_pallets", 12))
-        heavy_load_flag = load_weight_lbs >= float(limits.get("heavy_load_threshold_lbs", 11500))
+        # Fallback to manually-set monthly avg
+        vehicle = self.env["fleet.vehicle"].sudo().browse(vehicle_id)
+        if vehicle.x_monthly_avg_km and vehicle.x_monthly_avg_km > 0:
+            _logger.info(
+                "PricingEngine: no odometer rows for %s in %s, "
+                "using x_monthly_avg_km=%.1f",
+                vehicle.name, last_of_prev.strftime("%B %Y"), vehicle.x_monthly_avg_km,
+            )
+            return float(vehicle.x_monthly_avg_km)
 
-        fuel_cost = total_km * float(costing_rules.get("fuel_cost_km", 0.5))
-        maintenance_cost = total_km * 0.22
-        base_cost = fuel_cost + maintenance_cost
+        raise ValueError(
+            f"No monthly km data available for {vehicle.name}. "
+            "Either set 'Monthly Avg km (for costing)' manually on the vehicle form, "
+            "or ensure GeoTab Daily Odometer Sync has run for the previous month."
+        )
 
-        cross_border = any((getattr(s, "country", "") or "").upper() in {"US", "USA", "UNITED STATES"} for s in dispatch_stops)
-        drive_hours = total_km / 85.0 if total_km else 0.0
-        non_drive_time = float(hos_rules.get("pickup_hours", 1.0)) + float(hos_rules.get("delivery_hours", 1.0))
-        non_drive_time += float(hos_rules.get("extra_stop_hours", 0.75)) * extra_stops
-        if cross_border:
-            max_drive_hours = float(hos_rules.get("cross_border_max_drive_hours", 11))
-            non_drive_time += float(hos_rules.get("cross_border_buffer_hours", 2.0))
+    # ── Full cost calculation ──────────────────────────────────────────
+
+    def calculate(self, vehicle_id, distance_km, duration_hrs, overrides=None, load_weight_lbs=0.0):
+        """Return a full cost breakdown dict for a trip of distance_km / duration_hrs.
+
+        overrides (optional dict) can supply user-entered values that take priority:
+          fuel_price_per_l      – already normalised to $/L (Gal converted by caller)
+          driver_rate_per_hr    – $/hr
+          insurance_monthly     – monthly insurance budget (replaces vehicle field)
+          maintenance_monthly   – monthly maintenance budget (replaces vehicle field)
+        Any override value of 0 / falsy → falls back to vehicle field / config default.
+
+        load_weight_lbs is used for:
+          • Fuel load factor  – heavier loads burn more fuel (linear adjustment)
+          • Weight surcharge  – $/cwt for load above the configured threshold
+        """
+        overrides = overrides or {}
+        vehicle = self.env["fleet.vehicle"].sudo().browse(vehicle_id)
+        cfg = self._cfg()
+
+        # Fuel efficiency guard
+        avg_km_l = vehicle.x_avg_km_per_l_last_week or 0.0
+        if avg_km_l <= 0:
+            raise ValueError(
+                f"No fuel efficiency data for {vehicle.name}. "
+                "Run Geotab › Weekly Fuel Average Sync or enter fuel data manually."
+            )
+
+        prev_km = self.get_prev_month_km(vehicle_id)
+
+        # Effective cost params — user overrides take priority when > 0
+        fuel_price   = overrides.get("fuel_price_per_l")   or cfg["fuel_price_per_l"]
+        driver_rate  = overrides.get("driver_rate_per_hr") or cfg["driver_rate_per_hr"]
+        margin_pct   = overrides.get("margin_pct")         or cfg["margin_pct"]
+        ins_budget   = overrides.get("insurance_monthly")   or (vehicle.x_monthly_insurance_budget   or 0.0)
+        maint_budget = overrides.get("maintenance_monthly") or (vehicle.x_monthly_maintenance_budget or 0.0)
+
+        # ── Fuel load factor ─────────────────────────────────────────────
+        # avg_km_per_l is measured across all trips (mix of loaded/empty).
+        # A heavier load increases fuel consumption proportionally.
+        # fuel_load_penalty (default 0.12) = extra fraction burned at 100% payload vs 0%.
+        # load_factor is centred at 50% payload (no adjustment at avg load).
+        max_payload = vehicle.x_max_payload_lbs or 0.0
+        load_weight = float(load_weight_lbs or 0.0)
+        if max_payload > 0 and load_weight > 0:
+            load_ratio = min(load_weight / max_payload, 1.0)   # clamp at 100%
+            # Centre around 50%: factor = 1 + (load_ratio - 0.5) * penalty
+            fuel_load_factor = 1.0 + (load_ratio - 0.5) * cfg["fuel_load_penalty"]
+            fuel_load_factor = max(fuel_load_factor, 0.85)     # never below 85%
         else:
-            max_drive_hours = float(hos_rules.get("canada_max_drive_hours", 13))
-        total_on_duty = drive_hours + non_drive_time
-        max_on_duty_hours = float(hos_rules.get("max_on_duty_hours", 14))
-        overnight_required = drive_hours > max_drive_hours or total_on_duty > max_on_duty_hours
-        nights_required = int(drive_hours // max_drive_hours) if max_drive_hours else 0
-        overnight_cost = nights_required * float(limits.get("overnight_cost_per_night", 130))
+            fuel_load_factor = 1.0
 
-        product_category = self._resolve_product_category_key(lead)
-        base_distance_rate = self._resolve_base_rate(pricing_rules, product_category)
-        flat_rate = float(getattr(lead, "final_rate", 0.0) or getattr(lead, "suggested_rate", 0.0) or 0.0)
-        distance_rate = base_distance_rate
+        # Fuel
+        effective_km_l = avg_km_l / fuel_load_factor
+        fuel_liters    = distance_km / effective_km_l
+        fuel_cost      = fuel_liters * fuel_price
 
-        # flat mode assumed by default
-        gross_revenue = flat_rate or max(loaded_km * distance_rate, pricing_rules["min_load_charge"])
+        # Fixed-cost amortisation per km (monthly budget ÷ monthly km × trip km)
+        maint_per_km = maint_budget / prev_km if maint_budget and prev_km else 0.0
+        ins_per_km   = ins_budget   / prev_km if ins_budget   and prev_km else 0.0
+        maintenance_cost = distance_km * maint_per_km
+        insurance_cost   = distance_km * ins_per_km
 
-        detention_hours = float(getattr(lead, "detention_hours", 0.0) or (1.0 if getattr(lead, "detention_requested", False) else 0.0))
-        detention_cost = max(0.0, detention_hours - 2.0) * float(pricing_rules.get("detention_per_hour", 75))
-        net_profit = gross_revenue - base_cost - overnight_cost - detention_cost
+        # Driver
+        driver_cost = duration_hrs * driver_rate
 
-        zone = getattr(lead, "zone", False) or ("CROSS_BORDER" if cross_border else "GTA" if loaded_km <= 120 else "REGIONAL" if loaded_km <= 700 else "CROSS_COUNTRY")
-        decision = None
-        if load_weight_lbs > max_payload_lbs:
-            decision = "REJECT_OVER_PAYLOAD"
-        elif pallet_count > max_pallets:
-            decision = "REJECT_OVER_PALLETS"
-        elif deadhead_percent > float(limits.get("deadhead_reject_percent", 0.4)):
-            decision = "REJECT_HIGH_DEADHEAD"
-        elif net_profit < 0:
-            decision = "REJECT_LOSS"
+        # ── Weight surcharge ─────────────────────────────────────────────
+        # Applied per 100 lbs (per CWT) of load above the threshold.
+        # Configurable via Settings › Technical › System Parameters.
+        weight_surcharge = 0.0
+        if load_weight > cfg["weight_threshold_lbs"]:
+            excess_lbs = load_weight - cfg["weight_threshold_lbs"]
+            weight_surcharge = (excess_lbs / 100.0) * cfg["weight_surcharge_per_cwt"]
 
-        score = 100
-        if deadhead_percent > 0.35:
-            score -= 25
-        elif deadhead_percent > 0.25:
-            score -= 15
-        elif deadhead_percent > 0.15:
-            score -= 5
-        if overnight_required:
-            score -= 15
-        if heavy_load_flag:
-            score -= 10
-
-        if not decision:
-            decision = "ACCEPT" if score >= 75 else "REVIEW" if score >= 60 else "REJECT"
-
-        target_min_profit = float(limits.get("regional_min_profit", 500)) if zone != "GTA" else float(limits.get("local_min_profit", 250))
-        suggested_rate = round(max(gross_revenue, base_cost + overnight_cost + detention_cost + target_min_profit), 0)
-        estimated_cost = round(base_cost + overnight_cost + detention_cost, 0)
-
-        recommendation = f"Start-to-load deadhead {deadhead_km:.1f} km, loaded {loaded_km:.1f} km (total {total_km:.1f} km). Gross ${gross_revenue:.0f}, cost ${estimated_cost:.0f}, net ${net_profit:.0f}. Score {score} => {decision}."
+        total = fuel_cost + maintenance_cost + insurance_cost + driver_cost + weight_surcharge
+        suggested_rate = total * (1 + margin_pct / 100.0)
 
         return {
-            "estimated_cost": estimated_cost,
-            "suggested_rate": suggested_rate,
-            "recommendation": recommendation,
-            "warnings": [],
-            "service_type": product_category,
-            "start_location": getattr(vehicle, "home_location", False) if vehicle else getattr(lead, "manual_origin", False),
-            "deadhead_km": round(deadhead_km, 2),
-            "total_km": round(total_km, 2),
-            "gross_revenue": round(gross_revenue, 2),
-            "base_cost": round(base_cost, 2),
-            "overnight_cost": round(overnight_cost, 2),
-            "detention_cost": round(detention_cost, 2),
-            "NET_profit": round(net_profit, 2),
-            "score": score,
-            "decision": decision,
+            "prev_month_km":          round(prev_km, 1),
+            "fuel_liters":            round(fuel_liters, 2),
+            "fuel_load_factor":       round(fuel_load_factor, 3),
+            "fuel_cost":              round(fuel_cost, 2),
+            "maintenance_cost":       round(maintenance_cost, 2),
+            "insurance_cost":         round(insurance_cost, 2),
+            "driver_cost":            round(driver_cost, 2),
+            "weight_surcharge":       round(weight_surcharge, 2),
+            "total_cost":             round(total, 2),
+            "margin_pct":             margin_pct,
+            "suggested_rate":         round(suggested_rate, 2),
+            "fuel_price_per_l":       round(fuel_price, 4),
+            "driver_rate_per_hr":     round(driver_rate, 2),
+            "avg_km_per_l":           round(avg_km_l, 2),
+            "effective_km_per_l":     round(effective_km_l, 2),
+            "insurance_budget":       round(ins_budget, 2),
+            "maintenance_budget":     round(maint_budget, 2),
+            "weight_threshold_lbs":   cfg["weight_threshold_lbs"],
+            "weight_surcharge_per_cwt": cfg["weight_surcharge_per_cwt"],
+            "load_weight_lbs":        round(load_weight, 0),
         }

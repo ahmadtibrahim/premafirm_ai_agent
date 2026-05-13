@@ -1,7 +1,9 @@
-import base64
+import json
+import logging
 
 from odoo import api, fields, models
-from odoo.exceptions import UserError
+
+_logger = logging.getLogger(__name__)
 
 
 class SaleOrder(models.Model):
@@ -10,118 +12,188 @@ class SaleOrder(models.Model):
     premafirm_po = fields.Char("PO #")
     premafirm_bol = fields.Char("BOL #")
     premafirm_pod = fields.Char("POD #")
-
     pickup_city = fields.Char()
     delivery_city = fields.Char()
-
-    total_pallets = fields.Integer()
-    total_weight_lbs = fields.Float()
-    total_distance_km = fields.Float()
-
     load_reference = fields.Char()
-    load_ids = fields.One2many("premafirm.load", "sale_order_id", string="Loads")
 
-    def action_generate_pod(self):
+    # Re-Negotiation
+    x_reneg_status = fields.Selection([
+        ("none", "Normal"),
+        ("requested", "Re-Negotiation Requested"),
+        ("counter_sent", "Counter Offer Sent"),
+    ], string="Re-Negotiation Status", default="none", required=True, tracking=True)
+    x_reneg_customer_note = fields.Text("Customer Note")
+    x_reneg_internal_note = fields.Text("Internal Notes")
+    x_reneg_proposed_price = fields.Float("Counter Offer Price", digits=(16, 2))
+    x_reneg_validity_date = fields.Date("Counter Offer Valid Until")
+    x_reneg_counter_sent_at = fields.Datetime("Counter Offer Sent At", readonly=True)
+
+    # ── AI Generate for Quotations ────────────────────────────
+    x_ai_summary = fields.Text("AI Summary", copy=False)
+    x_ai_summary_instruction = fields.Char(
+        "Describe the load / Tell AI what to generate",
+        copy=False,
+        help="Type a plain-English description (e.g. 'Reefer delivery Toronto→Montreal, 24 pallets, liftgate') then click AI Generate.",
+    )
+    x_ai_summary_at = fields.Datetime("Summary Generated At", readonly=True, copy=False)
+
+    def action_ai_generate_quote(self):
+        """AI Generate for sale.order — reads x_ai_summary_instruction and fills product + description."""
         self.ensure_one()
-        if len(self.load_ids) == 1:
-            return self.load_ids.action_generate_pod()
+        from ..services.openai_utils import openai_chat, DEFAULT_MODEL
+        ICP = self.env["ir.config_parameter"].sudo()
+        api_key = ICP.get_param("openai.api_key") or ICP.get_param("prema_ai.api_key")
+        if not api_key:
+            return {
+                "type": "ir.actions.client", "tag": "display_notification",
+                "params": {"title": "AI Generate", "message": "AI API key not configured.", "type": "warning"},
+            }
+
+        instruction = (self.x_ai_summary_instruction or "").strip()
+        if not instruction:
+            return {
+                "type": "ir.actions.client", "tag": "display_notification",
+                "params": {
+                    "title": "AI Generate",
+                    "message": "Type a load description in the 'Describe the load' field first, then click AI Generate.",
+                    "type": "warning", "sticky": False,
+                },
+            }
+
+        partner_name = self.partner_id.name if self.partner_id else ""
+        model = ICP.get_param("prema_ai.fast_model") or DEFAULT_MODEL
+
+        system = (
+            "You are a freight quotation assistant at PremaFirm Inc., a Canadian trucking company. "
+            "Given a plain-English load description, return ONLY a JSON object with these keys:\n"
+            "  product_keyword: single word to search for the right service product (e.g. 'reefer', 'flatbed', 'freight')\n"
+            "  service_name: short professional service line name for the quotation (max 80 chars)\n"
+            "  service_description: 2-3 sentence professional description of the service, route, and key details\n"
+            "  ai_summary: 2-3 sentence internal operational summary including route, commodity, and any risk notes\n"
+            "Return ONLY the JSON. No markdown, no explanation."
+        )
+        user_msg = f"Load description: {instruction}\nCustomer: {partner_name or 'Unknown'}"
+
+        try:
+            raw = openai_chat(
+                messages=[{"role": "user", "content": user_msg}],
+                system=system, max_tokens=400, api_key=api_key, model=model, timeout=30,
+            )
+            # Robust JSON extraction
+            parsed = None
+            try:
+                parsed = json.loads(raw.strip())
+            except Exception:
+                import re
+                m = re.search(r"\{.*\}", raw, re.DOTALL)
+                if m:
+                    try:
+                        parsed = json.loads(m.group(0))
+                    except Exception:
+                        pass
+            if not parsed:
+                raise ValueError(f"AI returned non-JSON: {raw[:200]}")
+        except Exception as e:
+            _logger.exception("AI Generate Quote failed for %s", self.name)
+            return {
+                "type": "ir.actions.client", "tag": "display_notification",
+                "params": {"title": "AI Generate Failed", "message": str(e)[:200], "type": "danger", "sticky": False},
+            }
+
+        # Find best matching product
+        keyword = (parsed.get("product_keyword") or "freight").strip().lower()
+        product = self.env["product.product"].sudo().search([
+            ("type", "=", "service"), ("active", "=", True),
+            ("name", "ilike", keyword),
+        ], limit=1)
+        if not product:
+            product = self.env["product.product"].sudo().search([
+                ("type", "=", "service"), ("active", "=", True),
+                '|', ("name", "ilike", "freight"), ("name", "ilike", "transport"),
+            ], limit=1)
+
+        svc_name = (parsed.get("service_name") or "Freight Service").strip()[:80]
+        svc_desc = (parsed.get("service_description") or "").strip()
+        summary = (parsed.get("ai_summary") or "").strip()
+
+        # Apply to existing draft lines if there's already one service product line
+        existing = self.order_line.filtered(lambda l: l.display_type == "product" and l.product_id)
+        if existing and product:
+            existing[0].write({"product_id": product.id, "name": svc_name})
+        elif existing:
+            existing[0].write({"name": svc_name})
+        elif product:
+            self.order_line = [(0, 0, {
+                "product_id": product.id,
+                "name": svc_name,
+                "product_uom_qty": 1,
+                "price_unit": 0,
+            })]
+
+        # Add/update description note line
+        note_lines = self.order_line.filtered(lambda l: l.display_type == "line_note")
+        if note_lines and svc_desc:
+            note_lines[0].write({"name": svc_desc})
+        elif svc_desc:
+            self.order_line = [(0, 0, {"display_type": "line_note", "name": svc_desc})]
+
+        # Update AI summary + clear instruction
+        self.write({
+            "x_ai_summary": summary,
+            "x_ai_summary_at": fields.Datetime.now(),
+            "x_ai_summary_instruction": False,
+        })
+
         return {
-            "type": "ir.actions.act_window",
-            "name": "Loads",
-            "res_model": "premafirm.load",
-            "view_mode": "list,form",
-            "domain": [("sale_order_id", "=", self.id)],
-            "context": {"default_sale_order_id": self.id},
+            "type": "ir.actions.client", "tag": "display_notification",
+            "params": {
+                "title": "AI Generate Complete",
+                "message": f"Quotation filled using '{keyword}' product.",
+                "type": "success", "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "reload"},
+            },
         }
 
-    @api.model_create_multi
-    def create(self, vals_list):
-        orders = super().create(vals_list)
-        for order in orders:
-            if not order.load_ids:
-                order.load_ids = [
-                    (
-                        0,
-                        0,
-                        {
-                            "vehicle_id": order.opportunity_id.assigned_vehicle_id.id,
-                            "route_reference": order.load_reference,
-                            "bol_number": order.premafirm_bol,
-                        },
-                    )
-                ]
-        return orders
+    def action_request_renegotiation(self):
+        self.ensure_one()
+        self.x_reneg_status = "requested"
+
+    def action_send_counter_offer(self):
+        self.ensure_one()
+        self.write({
+            "x_reneg_status": "counter_sent",
+            "x_reneg_counter_sent_at": fields.Datetime.now(),
+        })
+        return self.action_quotation_send()
 
     def action_confirm(self):
-        result = super().action_confirm()
-        for order in self:
-            if order.opportunity_id:
-                order.opportunity_id.ai_locked = True
-            for load in order.load_ids:
-                if not load.vehicle_id or not load.driver_id:
-                    continue
-                report_action_id = self.env["ir.model.data"]._xmlid_to_res_id(
-                    "premafirm_ai_engine.action_report_premafirm_load_pod",
-                    raise_if_not_found=False,
-                )
-                report_action = self.env["ir.actions.report"].browse(report_action_id).exists() if report_action_id else self.env["ir.actions.report"]
-                if not report_action:
-                    order.message_post(body="POD report template is missing; POD PDF generation was skipped.")
-                    continue
-                pdf_content, _ = report_action._render_qweb_pdf(load.id)
-                self.env["ir.attachment"].create(
-                    {
-                        "name": f"POD-{order.name}-{load.name}.pdf",
-                        "datas": base64.b64encode(pdf_content),
-                        "res_model": "premafirm.load",
-                        "res_id": load.id,
-                        "mimetype": "application/pdf",
-                    }
-                )
-        return result
-
-
-    def _validate_pod_before_invoice(self):
-        self.ensure_one()
-        stops = self.opportunity_id.dispatch_stop_ids.filtered(lambda s: s.stop_type == "delivery")
-        for stop in stops:
-            if stop.delivery_status != "delivered":
-                raise UserError("Invoice blocked: all delivery stops must be delivered.")
-            if not stop.receiver_signature and not stop.no_signature_approved:
-                raise UserError("Invoice blocked: delivery signature missing and not approved.")
-
-    def _create_invoices(self, grouped=False, final=False, date=None):
-        for order in self:
-            order._validate_pod_before_invoice()
-        return super()._create_invoices(grouped=grouped, final=final, date=date)
+        return super().action_confirm()
 
     def _prepare_invoice(self):
         vals = super()._prepare_invoice()
-        vals.update(
-            {
-                "ref": self.premafirm_po,
-                "premafirm_po": self.premafirm_po,
-                "premafirm_bol": self.premafirm_bol,
-                "premafirm_pod": self.premafirm_pod,
-                "load_reference": self.load_reference,
-                "payment_reference": self.client_order_ref,
-                "invoice_origin": self.name,
-            }
-        )
+        ref = self.premafirm_bol or self.premafirm_po or ""
+        update = {
+            "premafirm_po": self.premafirm_po or "",
+            "premafirm_bol": self.premafirm_bol or "",
+            "premafirm_pod": self.premafirm_pod or "",
+            "load_reference": self.load_reference or "",
+            "payment_reference": self.client_order_ref or "",
+            "invoice_origin": self.name or "",
+        }
+        if ref:
+            update["ref"] = ref
+        vals.update(update)
         partner_country = self.partner_id.country_id.code
         usa_company = self.env["res.company"].search([("name", "ilike", "usa")], limit=1)
         canada_company = self.env["res.company"].search([("name", "ilike", "can")], limit=1)
         company = usa_company if partner_country == "US" and usa_company else canada_company if canada_company else self.company_id
         vals["company_id"] = company.id
 
-        journal = self.env["account.journal"].search(
-            [
-                ("type", "=", "sale"),
-                ("company_id", "=", company.id),
-                ("name", "ilike", "USA" if partner_country == "US" else "CAN"),
-            ],
-            limit=1,
-        )
+        journal = self.env["account.journal"].search([
+            ("type", "=", "sale"),
+            ("company_id", "=", company.id),
+            ("name", "ilike", "USA" if partner_country == "US" else "CAN"),
+        ], limit=1)
         if journal:
             vals["journal_id"] = journal.id
         return vals
@@ -130,17 +202,4 @@ class SaleOrder(models.Model):
 class SaleOrderLine(models.Model):
     _inherit = "sale.order.line"
 
-    load_id = fields.Many2one("premafirm.load")
-    stop_type = fields.Selection([("pickup", "Pickup"), ("delivery", "Delivery")])
-    stop_address = fields.Char()
-    stop_map_url = fields.Char()
     scheduled_time = fields.Datetime(related="scheduled_date", store=True, readonly=False)
-    eta_datetime = fields.Datetime()
-    stop_distance_km = fields.Float()
-    stop_drive_hours = fields.Float()
-
-    def _prepare_invoice_line(self, **optional_values):
-        vals = super()._prepare_invoice_line(**optional_values)
-        if self.stop_distance_km:
-            vals["name"] = f"{self.name or ''} ({self.stop_distance_km:.2f} km)"
-        return vals

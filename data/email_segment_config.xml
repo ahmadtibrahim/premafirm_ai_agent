@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo noupdate="1">
+    <!--
+        From addresses used when emailing CRM leads based on partner tags.
+        noupdate="1" — changes you make in Settings > System Parameters are preserved on upgrade.
+
+        INC segment tags : b2b, retail, wholesale
+        Logistics segment tags : logistics, carrier, broker, freight forwarder, 3pl, etc.
+
+        Format: "Display Name <email@domain.com>"  — or just the email address.
+    -->
+    <record id="param_email_from_inc" model="ir.config_parameter">
+        <field name="key">premafirm.email_from_inc</field>
+        <field name="value">PremaFirm Inc &lt;sales@premafirm.com&gt;</field>
+    </record>
+
+    <record id="param_email_from_logistics" model="ir.config_parameter">
+        <field name="key">premafirm.email_from_logistics</field>
+        <field name="value">PremaFirm Logistics &lt;dispatch@logistics.premafirm.com&gt;</field>
+    </record>
+</odoo>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Extend the standard Fleet Odometers list to show Engine Hours -->
+    <record id="fleet_vehicle_odometer_view_tree_engine_hours" model="ir.ui.view">
+        <field name="name">fleet.vehicle.odometer.list.engine_hours</field>
+        <field name="model">fleet.vehicle.odometer</field>
+        <field name="inherit_id" ref="fleet.fleet_vehicle_odometer_view_tree"/>
+        <field name="arch" type="xml">
+            <field name="value" position="after">
+                <field name="engine_hours" optional="show"/>
+            </field>
+        </field>
+    </record>
+</odoo>

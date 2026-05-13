@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Extend res.partner form to show driver fields for Driver-tagged contacts -->
+    <record id="view_partner_form_driver_inherit" model="ir.ui.view">
+        <field name="name">res.partner.form.driver.inherit</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Smart buttons for driver contacts -->
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button
+                    type="object"
+                    name="action_open_driver_logs"
+                    class="oe_stat_button"
+                    icon="fa-list-alt"
+                    invisible="not x_is_driver_profile">
+                    <field name="x_driver_log_count" widget="statinfo" string="Driver Logs"/>
+                </button>
+                <button
+                    type="object"
+                    name="action_open_driver_assignments"
+                    class="oe_stat_button"
+                    icon="fa-truck"
+                    invisible="not x_is_driver_profile">
+                    <field name="x_driver_assignment_count" widget="statinfo" string="Assignments"/>
+                </button>
+            </xpath>
+
+            <!-- Driver Profile tab (only visible for Driver-tagged contacts) -->
+            <xpath expr="//notebook" position="inside">
+                <page string="Driver Profile" name="driver_profile"
+                      invisible="not x_is_driver_profile">
+
+                    <div class="mb-3" invisible="x_geotab_driver_id">
+                        <button name="action_open_geotab_driver_link_wizard"
+                                string="Link to Geotab Driver"
+                                type="object"
+                                class="btn btn-warning"
+                                icon="fa-link"/>
+                        <span class="ms-2 text-muted">No Geotab driver profile linked yet.</span>
+                    </div>
+
+                    <group string="Geotab Link">
+                        <group>
+                            <field name="x_geotab_driver_id" readonly="1"/>
+                            <field name="x_geotab_driver_key" readonly="1"/>
+                            <field name="x_driver_sync_status" widget="badge"/>
+                        </group>
+                        <group>
+                            <field name="x_last_driver_sync_at" readonly="1"/>
+                            <field name="x_driver_sync_error" readonly="1"
+                                   invisible="x_driver_sync_status != 'error'"/>
+                        </group>
+                    </group>
+
+                    <div class="mb-3" invisible="not x_geotab_driver_id">
+                        <button name="action_open_geotab_driver_link_wizard"
+                                string="Change Geotab Driver Link"
+                                type="object"
+                                class="btn btn-secondary"
+                                icon="fa-exchange"/>
+                    </div>
+
+                    <group string="Driver Info">
+                        <group>
+                            <field name="x_driver_license_number"/>
+                            <field name="x_driver_status" widget="badge"/>
+                            <field name="x_driver_active" widget="boolean_toggle"/>
+                            <field name="x_driver_hire_date"/>
+                        </group>
+                        <group>
+                            <field name="x_driver_timezone"/>
+                            <field name="x_driver_home_terminal"/>
+                            <field name="x_last_known_vehicle_id" readonly="1"/>
+                            <field name="x_last_duty_status" widget="badge" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <group string="Today">
+                        <group>
+                            <field name="x_today_driving_hours" readonly="1"/>
+                            <field name="x_today_on_duty_hours" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="x_today_idle_hours" readonly="1"/>
+                            <field name="x_today_distance_km" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <group string="This Week">
+                        <group>
+                            <field name="x_week_driving_hours" readonly="1"/>
+                            <field name="x_week_on_duty_hours" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="x_week_distance_km" readonly="1"/>
+                            <field name="x_last_log_sync_at" readonly="1"/>
+                        </group>
+                    </group>
+
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Driver Log list view -->
+    <record id="view_fleet_driver_log_list" model="ir.ui.view">
+        <field name="name">fleet.driver.log.list</field>
+        <field name="model">fleet.driver.log</field>
+        <field name="arch" type="xml">
+            <list string="Driver Logs" decoration-info="duty_status == 'D'">
+                <field name="driver_contact_id"/>
+                <field name="vehicle_id"/>
+                <field name="log_date"/>
+                <field name="start_datetime"/>
+                <field name="duty_status" widget="badge"/>
+                <field name="driving_hours"/>
+                <field name="on_duty_hours"/>
+                <field name="distance_km"/>
+                <field name="source" widget="badge" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Driver Log action -->
+    <record id="action_fleet_driver_log" model="ir.actions.act_window">
+        <field name="name">Driver Logs</field>
+        <field name="res_model">fleet.driver.log</field>
+        <field name="view_mode">list</field>
+    </record>
+</odoo>

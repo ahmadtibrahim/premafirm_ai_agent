@@ -1,107 +1,90 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+    <!-- Fetch Emails button on CRM list views -->
+    <record id="view_crm_leads_list_fetch_email" model="ir.ui.view">
+        <field name="name">crm.lead.list.fetch.email</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_case_tree_view_leads"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list" position="inside">
+                <header>
+                    <button name="action_fetch_emails" type="object"
+                            string="Fetch Emails" icon="fa-refresh"
+                            display="always" class="btn-secondary"/>
+                </header>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_crm_oppor_list_fetch_email" model="ir.ui.view">
+        <field name="name">crm.lead.oppor.list.fetch.email</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_case_tree_view_oppor"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list" position="inside">
+                <header>
+                    <button name="action_fetch_emails" type="object"
+                            string="Fetch Emails" icon="fa-refresh"
+                            display="always" class="btn-secondary"/>
+                </header>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Fetch Emails button on CRM pipeline kanban view -->
+    <record id="view_crm_pipeline_kanban_fetch_email" model="ir.ui.view">
+        <field name="name">crm.lead.kanban.fetch.email</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.view_crm_lead_kanban"/>
+        <field name="arch" type="xml">
+            <xpath expr="//kanban" position="inside">
+                <header>
+                    <button name="action_fetch_emails" type="object"
+                            string="Fetch Emails" icon="fa-refresh"
+                            display="always" class="btn-secondary"/>
+                </header>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- CRM Lead form: Google autocomplete + Fetch Emails + Email Segment badge -->
     <record id="view_crm_lead_form_premafirm_ai" model="ir.ui.view">
         <field name="name">crm.lead.form.premafirm.ai</field>
         <field name="model">crm.lead</field>
         <field name="inherit_id" ref="crm.crm_lead_view_form"/>
         <field name="arch" type="xml">
+
+            <!-- Company name autocomplete on the Lead contact group (type == lead) -->
+            <xpath expr="//group[@name='lead_partner']//field[@name='partner_name']" position="attributes">
+                <attribute name="widget">google_company</attribute>
+                <attribute name="options">{"phone_field": "phone", "website_field": "website", "street_field": "street", "city_field": "city", "zip_field": "zip", "state_field": "state_id", "country_field": "country_id"}</attribute>
+                <attribute name="placeholder">Company name — type to search (Google)…</attribute>
+            </xpath>
+
+            <!-- Company name autocomplete on the Extra Info tab (type == opportunity) -->
+            <xpath expr="//page[@name='lead']//field[@name='partner_name']" position="attributes">
+                <attribute name="widget">google_company</attribute>
+                <attribute name="options">{"phone_field": "phone", "website_field": "website", "street_field": "street", "city_field": "city", "zip_field": "zip", "state_field": "state_id", "country_field": "country_id"}</attribute>
+                <attribute name="placeholder">Company name — type to search (Google)…</attribute>
+            </xpath>
+
+            <!-- Fetch Emails button + Email Segment badge in form header -->
             <xpath expr="//header" position="inside">
-                <button name="action_ai_calculate" type="object" string="AI Calculate" class="btn-primary"/>
-                <button name="action_create_sales_order" type="object" string="Create Sales Order" class="btn-success"/>
-                <button name="action_ai_optimize_schedule" type="object" string="AI Optimize Schedule" class="btn-secondary"/>
-                <button name="action_reset_ai" type="object" string="Reset AI" class="btn-secondary" invisible="load_status not in ('draft','quoted')"/>
-                <button name="action_unlock_ai" type="object" string="Unlock AI" class="btn-secondary" groups="base.group_system"/>
-                <button name="action_mark_quoted" type="object" string="Mark Quoted" class="btn-secondary"/>
+                <button name="action_fetch_emails" type="object"
+                        string="Fetch Emails" class="btn-secondary"
+                        icon="fa-refresh"/>
+                <button name="action_snov_escalate_now" type="object"
+                        string="Find New Contact (Snov)" class="btn-secondary"
+                        icon="fa-search"
+                        title="Search Snov.io for a new contact at this company and create a Suggestion lead"/>
+                <field name="email_segment" widget="badge"
+                       decoration-info="email_segment == 'inc'"
+                       decoration-warning="email_segment == 'logistics'"
+                       invisible="not email_segment"
+                       readonly="1"
+                       string="Email Via"/>
             </xpath>
 
-            <xpath expr="//sheet/notebook" position="inside">
-                <page string="Load Info">
-                    <group>
-                        <group>
-                            <field name="total_distance_km" readonly="1"/>
-                            <field name="total_drive_hours" readonly="1"/>
-                            <field name="total_pallets" readonly="1"/>
-                            <field name="total_weight_lbs" readonly="1"/>
-                        </group>
-                        <group>
-                                                        <field name="po_number"/>
-                            <field name="bol_number"/>
-                            <field name="pod_reference"/>
-                            <field name="payment_terms"/>
-                            <field name="final_rate"/>
-                            <field name="departure_time" readonly="1"/>
-                            <field name="strict_pickup_start"/>
-                            <field name="strict_pickup_end"/>
-                            <field name="strict_delivery_start"/>
-                            <field name="strict_delivery_end"/>
-                            <field name="notify_driver"/>
-                            <field name="inside_delivery"/>
-                            <field name="liftgate"/>
-                            <field name="detention_requested"/>
-                            <field name="reefer_required"/>
-                            <field name="reefer_setpoint_c"/>
-                            <field name="pump_truck_required"/>
-                            <field name="assigned_vehicle_id"/>
-                            <field name="ai_locked" readonly="1"/>
-                            <field name="dispatch_run_id" readonly="1"/>
-                            <field name="schedule_locked"/>
-                            <field name="schedule_conflict" readonly="1"/>
-                            <field name="schedule_api_warning" readonly="1"/>
-                        </group>
-                    </group>
-
-                    <field name="dispatch_stop_ids">
-                        <list editable="bottom">
-                            <field name="sequence"/>
-                            <field name="load_id" string="Load #" options="{'no_create': True}"/>
-                            <field name="stop_type"/>
-                            <field name="product_id" string="Service"/>
-                            <field name="address_link_html" widget="html" string="Address"/>
-                            <field name="full_address" optional="hide"/>
-                            <field name="postal_code" optional="hide"/>
-                            <field name="latitude" optional="hide"/>
-                            <field name="longitude" optional="hide"/>
-                            <field name="map_url" widget="url" optional="show"/>
-                            <field name="service_type"/>
-                            <field name="pallets"/>
-                            <field name="weight_lbs"/>
-                            <field name="scheduled_datetime"/>
-                            <field name="service_duration"/>
-                            <field name="time_window_start" optional="show"/>
-                            <field name="time_window_end" optional="show"/>
-                            <field name="auto_scheduled"/>
-                            <field name="estimated_arrival"/>
-                            <field name="distance_km"/>
-                            <field name="drive_minutes"/>
-                            <field name="drive_hours" readonly="1"/>
-                            <field name="equipment_required" optional="hide"/>
-                            <field name="pickup_window_start" optional="hide"/>
-                            <field name="pickup_window_end" optional="hide"/>
-                            <field name="delivery_window_start" optional="hide"/>
-                            <field name="delivery_window_end" optional="hide"/>
-                            <field name="special_instructions" optional="hide"/>
-                        </list>
-                    </field>
-
-                    <group>
-                        <field name="estimated_cost" readonly="1"/>
-                        <field name="suggested_rate" readonly="1"/>
-                        <field name="ai_override_command" placeholder="e.g. make it flat rate 800 reefer canada"/>
-                        <button name="action_ai_override" type="object" string="Apply AI Command" class="btn-secondary"/>
-                        <field name="ai_internal_summary" readonly="1" nolabel="1"/>
-                        <field name="ai_customer_email" readonly="1" nolabel="1"/>
-                        <field name="ai_recommendation" readonly="1" nolabel="1"/>
-                        <field name="ai_warning_text" readonly="1" nolabel="1"/>
-                        <field name="hos_warning_text" readonly="1"/>
-                        <field name="ai_optimization_suggestion" readonly="1" nolabel="1"/>
-                        <button name="action_rebuild_loads_from_ai" type="object" string="Rebuild from AI" class="btn-secondary"/>
-                    </group>
-                </page>
-
-                <page string="Vehicle Schedule">
-                    <field name="vehicle_booking_ids" context="{'default_lead_id': id}" mode="calendar,list,form"/>
-                </page>
-            </xpath>
         </field>
     </record>
 </odoo>

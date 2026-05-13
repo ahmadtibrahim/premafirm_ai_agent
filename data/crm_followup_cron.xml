@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="ir_cron_crm_followup" model="ir.cron">
+            <field name="name">CRM: AI Follow-up Draft Generator</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="state">code</field>
+            <field name="code">model.run_followup_cron()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active">True</field>
+            <field name="nextcall">2026-05-14 07:00:00</field>
+        </record>
+
+        <record id="ir_cron_cold_reactivation" model="ir.cron">
+            <field name="name">CRM: Cold Lead Reactivation</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="state">code</field>
+            <field name="code">model.run_cold_reactivation_cron()</field>
+            <field name="interval_number">7</field>
+            <field name="interval_type">days</field>
+            <field name="active">True</field>
+            <field name="nextcall">2026-05-20 07:00:00</field>
+        </record>
+
+    </data>
+</odoo>

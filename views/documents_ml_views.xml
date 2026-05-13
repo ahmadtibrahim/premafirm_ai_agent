@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Show AI status columns in the Documents list view -->
+    <record id="view_documents_list_ml_columns" model="ir.ui.view">
+        <field name="name">documents.document.list.ml</field>
+        <field name="model">documents.document</field>
+        <field name="inherit_id" ref="documents.documents_view_list_main"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list" position="inside">
+                <field name="x_processed"    string="AI Processed" optional="show"
+                       widget="boolean"
+                       decoration-success="x_processed == True"/>
+                <field name="x_bill_id"       string="Bill Created"  optional="show"/>
+                <field name="x_process_error" string="Error"         optional="hide"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

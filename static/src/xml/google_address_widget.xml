@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!-- Option template for Google Places / Nominatim results in the partner_id dropdown -->
+    <t t-name="premafirm_ai_engine.GooglePlaceOption">
+        <span class="fa fa-map-marker text-danger me-1" title="Google Places / OpenStreetMap"/>
+        <b t-esc="option.label"/>
+        <span t-if="option.description" class="ms-2 text-muted" style="font-size:.85em" t-esc="option.description"/>
+    </t>
+
+    <t t-name="premafirm_ai_engine.GoogleAddressField">
+        <t t-if="props.readonly">
+            <span class="o_field_char" t-esc="value"/>
+        </t>
+        <t t-else="">
+            <input
+                t-ref="input"
+                class="o_input"
+                type="text"
+                t-att-value="value"
+                t-att-placeholder="props.placeholder or 'Search address...'"
+                t-on-input="_onInput"
+                autocomplete="off"
+            />
+        </t>
+    </t>
+</templates>

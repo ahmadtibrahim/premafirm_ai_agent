@@ -1,11 +1,57 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_premafirm_dispatch_stop_user,access_premafirm_dispatch_stop_user,model_premafirm_dispatch_stop,base.group_user,1,1,1,0
-access_premafirm_pricing_history_user,access_premafirm_pricing_history_user,model_premafirm_pricing_history,base.group_user,1,1,1,0
 access_sale_order_premafirm,sale order premafirm,model_sale_order,base.group_user,1,1,1,0
 access_account_move_premafirm,invoice premafirm,model_account_move,base.group_user,1,1,1,0
-access_premafirm_dispatch_run_user,access_premafirm_dispatch_run_user,model_premafirm_dispatch_run,base.group_user,1,1,1,0
-access_premafirm_ai_log_user,access_premafirm_ai_log_user,model_premafirm_ai_log,base.group_user,1,1,1,0
-access_premafirm_load_user,access_premafirm_load_user,model_premafirm_load,base.group_user,1,1,1,0
-access_premafirm_booking_user,access_premafirm_booking_user,model_premafirm_booking,base.group_user,1,1,1,0
-access_premafirm_ai_correction_user,access_premafirm_ai_correction_user,model_premafirm_ai_correction,base.group_user,1,1,1,0
-access_premafirm_mapbox_cache_user,access_premafirm_mapbox_cache_user,model_premafirm_mapbox_cache,base.group_user,1,1,1,0
+access_fleet_driver_assignment_user,fleet driver assignment user,model_fleet_driver_assignment,base.group_user,1,1,1,0
+access_fleet_driver_log_user,fleet driver log user,model_fleet_driver_log,base.group_user,1,1,1,0
+access_fleet_trip_log_user,fleet trip log user,model_fleet_trip_log,base.group_user,1,1,1,0
+access_premafirm_geotab_sync_user,premafirm geotab sync user,model_premafirm_geotab_sync,base.group_user,1,1,1,0
+access_premafirm_geotab_device_user,premafirm geotab device user,model_premafirm_geotab_device,base.group_user,1,1,1,0
+access_fleet_geotab_link_wizard_user,fleet geotab link wizard user,model_fleet_geotab_link_wizard,base.group_user,1,1,1,0
+access_premafirm_geotab_driver_user,premafirm geotab driver user,model_premafirm_geotab_driver,base.group_user,1,1,1,0
+access_contact_geotab_link_wizard_user,contact geotab link wizard user,model_contact_geotab_link_wizard,base.group_user,1,1,1,0
+access_fleet_daily_odometer_user,fleet daily odometer user,model_fleet_daily_odometer,base.group_user,1,1,1,0
+access_premafirm_invoice_ai_product_user,invoice ai product user,model_premafirm_invoice_ai_product,base.group_user,1,0,0,0
+access_premafirm_invoice_ai_product_manager,invoice ai product manager,model_premafirm_invoice_ai_product,account.group_account_manager,1,1,1,1
+access_premafirm_rate_estimator_user,rate estimator,model_premafirm_rate_estimator,base.group_user,1,1,1,0
+access_premafirm_rate_estimator_mgr,rate estimator mgr,model_premafirm_rate_estimator,base.group_system,1,1,1,1
+access_premafirm_estimator_truck_pref_user,estimator truck pref,model_premafirm_estimator_truck_pref,base.group_user,1,1,1,0
+access_premafirm_estimator_stop_user,estimator stop user,model_premafirm_estimator_stop,base.group_user,1,1,1,1
+access_premafirm_notes_rewrite_wizard,notes rewrite wizard,model_premafirm_notes_rewrite_wizard,base.group_user,1,1,1,1
+access_premafirm_stops_review_wizard,stops review wizard,model_premafirm_stops_review_wizard,base.group_user,1,1,1,1
+access_premafirm_ml_learning,ml learning hooks,model_premafirm_ml_learning,base.group_user,1,1,1,1
+access_premafirm_dispatch_wizard,dispatch wizard,model_premafirm_dispatch_wizard,base.group_user,1,1,1,1
+access_premafirm_dispatch_wizard_stop,dispatch wizard stop,model_premafirm_dispatch_wizard_stop,base.group_user,1,1,1,1
+access_premafirm_load_user,premafirm load user,model_premafirm_load,base.group_user,1,1,1,0
+access_premafirm_load_mgr,premafirm load mgr,model_premafirm_load,base.group_system,1,1,1,1
+access_premafirm_load_stop_user,premafirm load stop user,model_premafirm_load_stop,base.group_user,1,1,1,1
+access_premafirm_bill_scan_import_user,bill scan import user,model_premafirm_bill_scan_import,base.group_user,1,1,1,0
+access_premafirm_bill_scan_import_manager,bill scan import manager,model_premafirm_bill_scan_import,account.group_account_manager,1,1,1,1
+access_premafirm_snov_industry,snov industry,model_premafirm_snov_industry,base.group_user,1,1,1,0
+access_premafirm_snov_industry_mgr,snov industry mgr,model_premafirm_snov_industry,base.group_system,1,1,1,1
+access_premafirm_snov_company_size,snov company size,model_premafirm_snov_company_size,base.group_user,1,1,1,0
+access_premafirm_snov_company_size_mgr,snov company size mgr,model_premafirm_snov_company_size,base.group_system,1,1,1,1
+access_premafirm_snov_seniority,snov seniority,model_premafirm_snov_seniority,base.group_user,1,1,1,0
+access_premafirm_snov_seniority_mgr,snov seniority mgr,model_premafirm_snov_seniority,base.group_system,1,1,1,1
+access_premafirm_snov_job_title,snov job title,model_premafirm_snov_job_title,base.group_user,1,1,1,1
+access_premafirm_snov_job_title_mgr,snov job title mgr,model_premafirm_snov_job_title,base.group_system,1,1,1,1
+access_premafirm_snov_region,snov region,model_premafirm_snov_region,base.group_user,1,1,1,0
+access_premafirm_snov_region_mgr,snov region mgr,model_premafirm_snov_region,base.group_system,1,1,1,1
+access_premafirm_business_profile,business profile,model_premafirm_business_profile,base.group_user,1,1,1,0
+access_premafirm_business_profile_mgr,business profile mgr,model_premafirm_business_profile,base.group_system,1,1,1,1
+access_premafirm_ml_ingest_queue,ml ingest queue,model_premafirm_ml_ingest_queue,base.group_user,1,0,0,0
+access_premafirm_ml_ingest_queue_mgr,ml ingest queue mgr,model_premafirm_ml_ingest_queue,base.group_system,1,1,1,1
+access_premafirm_ml_response_cache,ml response cache,model_premafirm_ml_response_cache,base.group_user,1,0,0,0
+access_premafirm_ml_response_cache_mgr,ml response cache mgr,model_premafirm_ml_response_cache,base.group_system,1,1,1,1
+access_premafirm_crm_contact_rotation,crm contact rotation,model_premafirm_crm_contact_rotation,base.group_user,1,1,1,0
+access_premafirm_crm_contact_rotation_mgr,crm contact rotation mgr,model_premafirm_crm_contact_rotation,base.group_system,1,1,1,1
+access_premafirm_crm_bulk_email_batch,crm bulk email batch,model_premafirm_crm_bulk_email_batch,base.group_user,1,1,1,1
+access_premafirm_crm_bulk_email_queue,crm bulk email queue,model_premafirm_crm_bulk_email_queue,base.group_user,1,1,1,1
+access_premafirm_crm_bulk_email_wizard,crm bulk email wizard,model_premafirm_crm_bulk_email_wizard,base.group_user,1,1,1,1
+access_premafirm_ml_draft_user,premafirm.ml.draft user,model_premafirm_ml_draft,base.group_user,1,1,1,0
+access_premafirm_ml_draft_manager,premafirm.ml.draft manager,model_premafirm_ml_draft,base.group_system,1,1,1,1
+access_premafirm_ml_knowledge_user,premafirm.ml.knowledge user,model_premafirm_ml_knowledge,base.group_user,1,0,0,0
+access_premafirm_ml_knowledge_manager,premafirm.ml.knowledge manager,model_premafirm_ml_knowledge,base.group_system,1,1,1,1
+access_premafirm_ml_ingestion_user,premafirm.ml.ingestion user,model_premafirm_ml_ingestion,base.group_user,1,0,0,0
+access_premafirm_ml_ingestion_manager,premafirm.ml.ingestion manager,model_premafirm_ml_ingestion,base.group_system,1,1,1,1
+access_premafirm_ifta_fuel_log_user,premafirm.ifta.fuel.log user,model_premafirm_ifta_fuel_log,base.group_user,1,1,1,0
+access_premafirm_ifta_fuel_log_manager,premafirm.ifta.fuel.log manager,model_premafirm_ifta_fuel_log,base.group_system,1,1,1,1

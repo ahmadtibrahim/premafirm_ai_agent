@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- ── Wizard form ── -->
+    <record id="view_crm_bulk_email_wizard_form" model="ir.ui.view">
+        <field name="name">premafirm.crm.bulk.email.wizard.form</field>
+        <field name="model">premafirm.crm.bulk.email.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Schedule Bulk Email">
+                <sheet>
+                    <group>
+                        <group string="Email">
+                            <field name="lead_count" string="Leads Selected" readonly="1"/>
+                            <field name="template_id" required="1"/>
+                        </group>
+                        <group string="Timing">
+                            <field name="send_mode" widget="radio"/>
+                            <field name="scheduled_at"
+                                   invisible="send_mode != 'scheduled'"
+                                   required="send_mode == 'scheduled'"/>
+                            <field name="delay_seconds" string="Delay Between Each Email (sec)"/>
+                        </group>
+                    </group>
+                    <div class="alert alert-info" role="alert">
+                        Emails are sent one at a time with the configured delay between each.
+                        Open the batch report after launching to monitor delivery status.
+                    </div>
+                </sheet>
+                <footer>
+                    <button string="Launch" name="action_launch" type="object" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- ── Batch form ── -->
+    <record id="view_crm_bulk_email_batch_form" model="ir.ui.view">
+        <field name="name">premafirm.crm.bulk.email.batch.form</field>
+        <field name="model">premafirm.crm.bulk.email.batch</field>
+        <field name="arch" type="xml">
+            <form string="Bulk Email Batch">
+                <header>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="scheduled,in_progress,done"/>
+                    <button name="action_cancel" type="object" string="Cancel Remaining"
+                            class="btn-danger"
+                            invisible="state in ('done', 'cancelled')"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name"/></h1>
+                    </div>
+                    <group>
+                        <group string="Configuration">
+                            <field name="template_id" readonly="1"/>
+                            <field name="scheduled_at" readonly="1"/>
+                            <field name="delay_seconds" readonly="1" string="Delay (sec)"/>
+                        </group>
+                        <group string="Progress">
+                            <field name="total_count" readonly="1"/>
+                            <field name="sent_count" readonly="1"/>
+                            <field name="pending_count" readonly="1"/>
+                            <field name="failed_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <separator string="Email Queue"/>
+                    <field name="queue_ids" readonly="1">
+                        <list>
+                            <field name="lead_id"/>
+                            <field name="email_to"/>
+                            <field name="scheduled_at"/>
+                            <field name="sent_at" optional="show"/>
+                            <field name="state" widget="badge"
+                                   decoration-success="state == 'sent'"
+                                   decoration-danger="state in ('failed', 'bounced')"
+                                   decoration-warning="state == 'queued'"
+                                   decoration-muted="state == 'cancelled'"/>
+                            <field name="error_msg" optional="hide"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ── Batch list ── -->
+    <record id="view_crm_bulk_email_batch_list" model="ir.ui.view">
+        <field name="name">premafirm.crm.bulk.email.batch.list</field>
+        <field name="model">premafirm.crm.bulk.email.batch</field>
+        <field name="arch" type="xml">
+            <list string="Bulk Email Batches" default_order="create_date desc">
+                <field name="name"/>
+                <field name="template_id"/>
+                <field name="scheduled_at"/>
+                <field name="delay_seconds" string="Delay (sec)"/>
+                <field name="total_count" string="Total"/>
+                <field name="sent_count" string="Sent"/>
+                <field name="failed_count" string="Failed"/>
+                <field name="pending_count" string="Queued"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'done'"
+                       decoration-warning="state == 'in_progress'"
+                       decoration-info="state == 'scheduled'"
+                       decoration-muted="state == 'cancelled'"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ── Batch window action ── -->
+    <record id="action_crm_bulk_email_batches" model="ir.actions.act_window">
+        <field name="name">Bulk Email Batches</field>
+        <field name="res_model">premafirm.crm.bulk.email.batch</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- ── CRM menu: Bulk Email Batches ── -->
+    <menuitem id="menu_crm_bulk_email_batches"
+              name="Bulk Email Batches"
+              parent="crm.crm_menu_root"
+              action="action_crm_bulk_email_batches"
+              sequence="25"/>
+
+</odoo>

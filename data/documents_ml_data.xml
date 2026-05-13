@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Folders + Embedded Action
+         noupdate=1: only created on first install, never reset on upgrade
+         ════════════════════════════════════════════════════════════ -->
+    <data noupdate="1">
+
+        <!-- bills-entry: root-level pinned folder -->
+        <record id="documents_folder_bills_entry" model="documents.document">
+            <field name="name">bills-entry</field>
+            <field name="type">folder</field>
+            <field name="access_internal">edit</field>
+        </record>
+
+        <!-- Processed Bills: nested under Finance -->
+        <record id="documents_folder_processed_bills" model="documents.document">
+            <field name="name">Processed Bills</field>
+            <field name="type">folder</field>
+            <field name="access_internal">view</field>
+            <field name="folder_id" ref="documents.document_finance_folder"/>
+        </record>
+
+        <!--
+            Embed "Process with AI" as an action button in the bills-entry folder.
+            Created directly (NOT via action_folder_embed_action) because that method
+            is a TOGGLE — calling it twice on upgrade would remove the button.
+            parent_action_id = documents.document_action is required by
+            _get_folder_embedded_actions() for the button to appear in the UI.
+        -->
+        <record id="embedded_action_process_with_ml" model="ir.embedded.actions">
+            <field name="name">Process with AI</field>
+            <field name="parent_action_id" ref="documents.document_action"/>
+            <field name="action_id" ref="premafirm_ml.ir_actions_server_process_with_ml"/>
+            <field name="parent_res_model">documents.document</field>
+            <field name="parent_res_id" eval="ref('premafirm_ml.documents_folder_bills_entry')"/>
+            <field name="groups_ids" eval="[(4, ref('base.group_user'))]"/>
+            <field name="sequence">200</field>
+        </record>
+
+    </data>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Server Action  (noupdate=0 — updated on every upgrade)
+         ════════════════════════════════════════════════════════════ -->
+
+    <!-- Binding to documents.document makes it appear in the Actions dropdown
+         on multi-select in list/kanban as a fallback. The primary UX is the
+         embedded folder button above. -->
+    <record id="ir_actions_server_process_with_ml" model="ir.actions.server">
+        <field name="name">Process with AI</field>
+        <field name="model_id" ref="documents.model_documents_document"/>
+        <field name="binding_model_id" ref="documents.model_documents_document"/>
+        <field name="binding_view_types">list,kanban</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_process_with_ml()</field>
+    </record>
+
+    <!-- ════════════════════════════════════════════════════════════
+         Cron  (inactive by default — enable in Technical → Scheduled Actions)
+         ════════════════════════════════════════════════════════════ -->
+
+    <record id="ir_cron_process_bills_entry" model="ir.cron">
+        <field name="name">Bill Scan: Auto-process bills-entry folder</field>
+        <field name="model_id" ref="documents.model_documents_document"/>
+        <field name="state">code</field>
+        <field name="code">model.action_cron_process_bills_entry()</field>
+        <field name="interval_number">5</field>
+        <field name="interval_type">minutes</field>
+        <field name="active">False</field>
+    </record>
+
+</odoo>

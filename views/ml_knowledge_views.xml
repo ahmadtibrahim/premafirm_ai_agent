@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <record id="view_ml_knowledge_list" model="ir.ui.view">
+        <field name="name">premafirm.ml.knowledge.list</field>
+        <field name="model">premafirm.ml.knowledge</field>
+        <field name="arch" type="xml">
+            <list string="Knowledge Base" default_order="weight desc, create_date desc">
+                <field name="knowledge_type" widget="badge"/>
+                <field name="input_context" string="Situation"/>
+                <field name="good_output" string="Good Output"/>
+                <field name="correction_note" string="Why It Changed" optional="show"/>
+                <field name="origin" widget="badge"
+                       decoration-success="origin == 'approved'"
+                       decoration-info="origin == 'edited'"
+                       decoration-warning="origin == 'rejected'"
+                       decoration-muted="origin == 'ingested' or origin == 'manual'"
+                       optional="show"/>
+                <field name="weight" optional="show"/>
+                <field name="create_date" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ml_knowledge_form" model="ir.ui.view">
+        <field name="name">premafirm.ml.knowledge.form</field>
+        <field name="model">premafirm.ml.knowledge</field>
+        <field name="arch" type="xml">
+            <form string="Knowledge Entry">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="knowledge_type"/>
+                            <field name="origin"/>
+                            <field name="weight"/>
+                            <field name="active"/>
+                            <field name="source_draft_id" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Situation (Input)">
+                            <field name="input_context" nolabel="1"
+                                   style="min-height:100px; font-family:inherit;"/>
+                        </page>
+                        <page string="Good Output">
+                            <field name="good_output" nolabel="1"
+                                   style="min-height:100px; font-family:inherit;"/>
+                        </page>
+                        <page string="Correction Note">
+                            <div class="alert alert-info">
+                                This note was left by the reviewer explaining why the AI suggestion
+                                was changed. It's included in future prompts to prevent the same mistake.
+                            </div>
+                            <field name="correction_note" nolabel="1"
+                                   style="min-height:80px; font-family:inherit;"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ml_knowledge_search" model="ir.ui.view">
+        <field name="name">premafirm.ml.knowledge.search</field>
+        <field name="model">premafirm.ml.knowledge</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="input_context" string="Search"/>
+                <field name="good_output"/>
+                <filter name="rate_quote" string="Rate Quotes"
+                        domain="[('knowledge_type','=','rate_quote')]"/>
+                <filter name="wa_reply" string="WA Replies"
+                        domain="[('knowledge_type','=','wa_reply')]"/>
+                <filter name="crm_reply" string="CRM Replies"
+                        domain="[('knowledge_type','=','crm_reply')]"/>
+                <filter name="invoice_flag" string="Invoice Flags"
+                        domain="[('knowledge_type','=','invoice_flag')]"/>
+                <filter name="customer_tag" string="Customer Tags"
+                        domain="[('knowledge_type','=','customer_tag')]"/>
+                <separator/>
+                <filter name="approved" string="Approved as-is"
+                        domain="[('origin','=','approved')]"/>
+                <filter name="edited" string="Human-edited"
+                        domain="[('origin','=','edited')]"/>
+                <filter name="ingested" string="Bulk ingested"
+                        domain="[('origin','=','ingested')]"/>
+                <filter name="load_tender" string="Load Tender"
+                        domain="[('knowledge_type','=','load_tender')]"/>
+                <group expand="0" string="Group By">
+                    <filter name="by_type" string="Type"
+                            context="{'group_by':'knowledge_type'}"/>
+                    <filter name="by_origin" string="Origin"
+                            context="{'group_by':'origin'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ml_knowledge" model="ir.actions.act_window">
+        <field name="name">Knowledge Base</field>
+        <field name="res_model">premafirm.ml.knowledge</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- Buttons on CRM lead form -->
+    <record id="view_crm_lead_ml_buttons" model="ir.ui.view">
+        <field name="name">crm.lead.ml.buttons</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="action_ml_draft_reply" type="object"
+                        string="AI Draft Reply" class="btn-secondary"
+                        icon="fa-magic"/>
+                <button name="action_ml_rate_quote" type="object"
+                        string="AI Rate Quote" class="btn-secondary"
+                        icon="fa-usd"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Button on invoice form -->
+    <record id="view_account_move_ml_button" model="ir.ui.view">
+        <field name="name">account.move.ml.button</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_move_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[hasclass('oe_button_box')]" position="inside">
+                <button name="action_ml_flag_invoice" type="object"
+                        class="oe_stat_button" icon="fa-search"
+                        string="AI Review"
+                        invisible="move_type not in ('out_invoice','in_invoice','out_refund','in_refund')"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Button on partner form -->
+    <record id="view_res_partner_ml_button" model="ir.ui.view">
+        <field name="name">res.partner.ml.button</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[hasclass('oe_button_box')]" position="inside">
+                <button name="action_ml_suggest_tags" type="object"
+                        class="oe_stat_button" icon="fa-tags"
+                        string="AI Tag"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="ir_cron_pod_sync_fleetbase" model="ir.cron">
+        <field name="name">PremaFirm: Sync Completed Jobs &amp; Generate PODs</field>
+        <field name="model_id" ref="premafirm_ai_engine.model_premafirm_load"/>
+        <field name="state">code</field>
+        <field name="code">model.action_sync_completed_from_fleetbase()</field>
+        <field name="interval_number">4</field>
+        <field name="interval_type">hours</field>
+        <field name="active">True</field>
+    </record>
+</odoo>

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         1. ML: Process Ingest Queue — every 10 minutes (ACTIVE)
+    ══════════════════════════════════════════════════════════════ -->
+    <record id="cron_ml_process_ingest_queue" model="ir.cron">
+        <field name="name">ML: Process Ingest Queue</field>
+        <field name="model_id" ref="model_premafirm_ml_ingest_queue"/>
+        <field name="state">code</field>
+        <field name="code">model.action_process_queue()</field>
+        <field name="interval_number">10</field>
+        <field name="interval_type">minutes</field>
+
+        <field name="active" eval="True"/>
+        <field name="priority">5</field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         2. ML: CRM Contact Rotation Check — daily (INACTIVE)
+    ══════════════════════════════════════════════════════════════ -->
+    <record id="cron_ml_crm_contact_rotation" model="ir.cron">
+        <field name="name">ML: CRM Contact Rotation Check</field>
+        <field name="model_id" ref="model_premafirm_crm_contact_rotation"/>
+        <field name="state">code</field>
+        <field name="code">model.run_contact_rotation()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+
+        <field name="active" eval="False"/>
+        <field name="priority">10</field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         3. ML: Purge Response Cache — weekly (ACTIVE)
+    ══════════════════════════════════════════════════════════════ -->
+    <record id="cron_ml_purge_response_cache" model="ir.cron">
+        <field name="name">ML: Purge Response Cache</field>
+        <field name="model_id" ref="model_premafirm_ml_response_cache"/>
+        <field name="state">code</field>
+        <field name="code">model.action_purge_expired()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">weeks</field>
+
+        <field name="active" eval="True"/>
+        <field name="priority">10</field>
+    </record>
+
+</odoo>

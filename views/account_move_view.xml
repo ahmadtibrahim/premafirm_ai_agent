@@ -5,18 +5,162 @@
         <field name="model">account.move</field>
         <field name="inherit_id" ref="account.view_move_form"/>
         <field name="arch" type="xml">
+
+            <!-- Header buttons -->
+            <xpath expr="//header/field[@name='state']" position="before">
+                <button name="action_add_dispatch_job"
+                        string="+ Add Job / Dispatch"
+                        type="object"
+                        class="btn-primary"
+                        icon="fa-truck"
+                        invisible="move_type not in ('out_invoice','out_refund')"/>
+                <button name="action_dispatch_all_jobs"
+                        string="Dispatch All Pending"
+                        type="object"
+                        class="btn-secondary"
+                        icon="fa-send"
+                        invisible="move_type not in ('out_invoice','out_refund') or dispatched_count == job_count or job_count == 0"/>
+                <button name="action_ai_prepare_dispatch_estimate"
+                        string="AI Estimate (Legacy)"
+                        type="object"
+                        class="btn-secondary"
+                        icon="fa-magic"
+                        invisible="move_type not in ('out_invoice','out_refund')"/>
+                <button name="action_open_dispatch_estimate"
+                        string="Open Estimate"
+                        type="object"
+                        class="btn-secondary"
+                        icon="fa-external-link"
+                        invisible="move_type not in ('out_invoice','out_refund') or not dispatch_estimator_id"/>
+                <button name="action_ai_generate_invoice"
+                        string="AI Generate"
+                        type="object"
+                        class="btn-secondary"
+                        icon="fa-magic"
+                        invisible="move_type not in ('out_invoice','out_refund')"/>
+            </xpath>
+
+            <!-- Smart buttons area — job count badges -->
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_open_dispatch_jobs"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-truck"
+                        invisible="move_type not in ('out_invoice','out_refund') or job_count == 0">
+                    <div class="o_field_widget o_stat_info">
+                        <span class="o_stat_value">
+                            <field name="dispatched_count"/>/<field name="job_count"/>
+                        </span>
+                        <span class="o_stat_text">Jobs Dispatched</span>
+                    </div>
+                </button>
+            </xpath>
+
+            <!-- Dispatch Jobs notebook page -->
+            <xpath expr="//page[@id='other_tab']" position="after">
+                <page string="Dispatch Jobs" name="dispatch_jobs_tab"
+                      invisible="move_type not in ('out_invoice','out_refund')">
+                    <group>
+                        <field name="week_reference"
+                               placeholder="e.g. Week of May 04 2026"/>
+                    </group>
+                    <field name="dispatch_estimator_ids" readonly="1">
+                        <list string="Jobs" create="false" delete="false">
+                            <field name="job_sequence" string="#"/>
+                            <field name="job_day_ref" string="Day"/>
+                            <field name="vehicle_id"/>
+                            <field name="scheduled_at"/>
+                            <field name="origin_address"/>
+                            <field name="destination_address"/>
+                            <field name="suggested_rate"/>
+                            <field name="fleetbase_status"/>
+                            <field name="fleetbase_tracking"/>
+                            <field name="state"/>
+                        </list>
+                    </field>
+                    <div class="mt-2">
+                        <button name="action_add_dispatch_job"
+                                string="+ Add Job / Dispatch"
+                                type="object"
+                                class="btn btn-primary"/>
+                        <button name="action_dispatch_all_jobs"
+                                string="Dispatch All Pending"
+                                type="object"
+                                class="btn btn-secondary ml-2"
+                                invisible="dispatched_count == job_count or job_count == 0"/>
+                    </div>
+                </page>
+            </xpath>
+
+            <!-- AI Summary section — shown on all invoice/bill types once a summary exists -->
+            <xpath expr="//page[@id='other_tab']" position="before">
+                <page string="AI Summary" name="ai_summary_tab"
+                      invisible="not x_ai_summary and not x_ai_summary_instruction">
+                    <group>
+                        <field name="x_ai_summary" widget="text" nolabel="1"
+                               readonly="1"
+                               style="min-height:90px; background:#f0f4ff; border-left:3px solid #6c7dd1; padding:10px; border-radius:4px; white-space:pre-wrap;"/>
+                    </group>
+                    <group string="Refine this summary">
+                        <field name="x_ai_summary_instruction"
+                               placeholder="e.g. make shorter · explain fuel surcharge · remove cost info · customer-friendly version"/>
+                        <div>
+                            <button name="action_generate_ai_summary" type="object"
+                                    string="Regenerate Summary"
+                                    class="btn btn-secondary btn-sm"
+                                    icon="fa-refresh"/>
+                            <small class="text-muted ml-2"
+                                   invisible="not x_ai_summary_at">
+                                Last updated: <field name="x_ai_summary_at" widget="datetime" readonly="1"/>
+                            </small>
+                        </div>
+                    </group>
+                </page>
+            </xpath>
+
+            <!-- AI Summary button on vendor bills (AI Generate not available there) -->
+            <xpath expr="//header/field[@name='state']" position="before">
+                <button name="action_generate_ai_summary"
+                        string="AI Summary"
+                        type="object"
+                        class="btn-secondary"
+                        icon="fa-file-text-o"
+                        invisible="move_type not in ('in_invoice','in_refund')"/>
+            </xpath>
+
+            <!-- Auto-fill reference button -->
+            <xpath expr="//group[@name='sale_info_group']/field[@name='ref']" position="after">
+                <button name="action_ai_extract_reference" type="object"
+                        string="⚡ Auto-fill from attachments"
+                        class="btn btn-link btn-sm p-0 text-primary"
+                        title="Scan attachments and extract BOL, PO, Packing Slip numbers into the Customer Reference field above"
+                        invisible="move_type not in ('out_invoice','out_refund')"/>
+            </xpath>
+
+            <!-- Hidden internal fields -->
             <xpath expr="//sheet/group" position="after">
-                <group string="PremaFirm References">
-                    <group>
-                        <field name="premafirm_po"/>
-                        <field name="premafirm_bol"/>
-                        <field name="premafirm_pod"/>
-                    </group>
-                    <group>
-                        <field name="load_reference"/>
-                    </group>
+                <field name="premafirm_po" invisible="1"/>
+                <field name="premafirm_bol" invisible="1"/>
+                <field name="premafirm_pod" invisible="1"/>
+                <field name="load_reference" invisible="1"/>
+                <field name="dispatch_estimator_id" invisible="1"/>
+                <field name="job_count" invisible="1"/>
+                <field name="dispatched_count" invisible="1"/>
+                <field name="x_ai_summary" invisible="1"/>
+                <field name="x_ai_summary_instruction" invisible="1"/>
+                <field name="x_ai_summary_at" invisible="1"/>
+            </xpath>
+
+            <!-- IFTA Province field — shown on vendor bills only -->
+            <xpath expr="//page[@id='other_tab']//group[@name='accounting_info_group']" position="after">
+                <group name="ifta_group" string="IFTA Fuel Reporting"
+                       invisible="move_type != 'in_invoice'">
+                    <field name="x_ifta_province"
+                           string="Fuel Purchase Province / State"
+                           placeholder="Select only for fuel bills…"/>
                 </group>
             </xpath>
+
         </field>
     </record>
 </odoo>

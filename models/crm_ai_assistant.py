@@ -147,9 +147,7 @@ class CrmLeadAIAssistant(models.Model):
             'view_mode': 'form',
             'target': 'new',
             'context': {
-                # Both forms needed — res_id for threading, res_ids for composer logic
                 'default_model':            'crm.lead',
-                'default_res_id':           self.id,
                 'default_res_ids':          [self.id],
                 'default_composition_mode': 'comment',
                 'default_subject':          subject,

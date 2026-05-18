@@ -34,9 +34,13 @@
                             <field name="vehicle_id"
                                    placeholder="Leave blank — AI will suggest best available truck"/>
                         </group>
-                        <group string="Route Document">
+                        <group string="Route Documents">
+                            <field name="route_attachment_ids"
+                                   widget="many2many_binary"
+                                   string="Upload BOLs / Route Sheets (PDF or images — multiple allowed)"/>
+                            <!-- Legacy single-file fallback (hidden) -->
                             <field name="route_file" widget="binary" filename="route_filename"
-                                   string="Upload Route Sheet / Load Tender (PDF or image)"/>
+                                   string="Single File (legacy)" invisible="1"/>
                             <field name="route_filename" invisible="1"/>
                         </group>
                     </group>

@@ -1,0 +1,226 @@
+/* ── Prema AI Estimator Chat Panel ───────────────────────────────── */
+
+.o_premafirm_est_btn {
+    background: #f39c12;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+.o_premafirm_est_btn:hover { background: #e67e22; color: #fff; }
+
+/* Backdrop */
+.o_premafirm_est_backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 1040;
+    animation: est-fade-in 0.18s ease;
+}
+
+/* Sliding panel */
+.o_premafirm_est_panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 500px;
+    max-width: 100vw;
+    height: 100vh;
+    background: #fff;
+    box-shadow: -6px 0 28px rgba(0, 0, 0, 0.18);
+    z-index: 1050;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: est-slide-in 0.22s ease;
+}
+
+@keyframes est-fade-in  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes est-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+/* Panel header */
+.o_premafirm_est_header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid #e9ecef;
+    flex-shrink: 0;
+    background: #fff8e1;
+}
+.o_premafirm_est_header h5 { margin: 0; font-size: 15px; font-weight: 700; }
+
+/* Panel body — scrollable */
+.o_premafirm_est_body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+}
+
+/* Mode toggle */
+.o_premafirm_est_mode {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+    padding: 4px;
+    background: #f1f3f5;
+    border-radius: 8px;
+}
+.o_premafirm_est_mode button {
+    flex: 1;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    color: #495057;
+    transition: background 0.15s, color 0.15s;
+}
+.o_premafirm_est_mode button.active {
+    background: #fff;
+    color: #212529;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+
+/* Form elements */
+.o_premafirm_est_body label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 4px;
+    display: block;
+}
+.o_premafirm_est_body select,
+.o_premafirm_est_body textarea {
+    width: 100%;
+    font-size: 13px;
+}
+.o_premafirm_est_body textarea {
+    resize: vertical;
+    min-height: 140px;
+    line-height: 1.5;
+}
+
+/* File drop zone */
+.o_premafirm_est_dropzone {
+    border: 2px dashed #ced4da;
+    border-radius: 10px;
+    padding: 28px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    background: #fafafa;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+}
+.o_premafirm_est_dropzone:hover,
+.o_premafirm_est_dropzone.drag-over {
+    border-color: #f39c12;
+    background: #fff8e1;
+}
+.o_premafirm_est_dropzone .dz-icon { font-size: 28px; color: #adb5bd; }
+.o_premafirm_est_dropzone p  { margin: 0; font-size: 13px; color: #6c757d; }
+.o_premafirm_est_dropzone .dz-hint { font-size: 11px; color: #adb5bd; }
+
+/* Uploaded file chips */
+.o_premafirm_est_file_list { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+.o_premafirm_est_file_chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    font-size: 12px;
+}
+.o_premafirm_est_file_chip .fc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.o_premafirm_est_file_chip .fc-size { color: #adb5bd; white-space: nowrap; }
+.o_premafirm_est_file_chip .fc-remove {
+    background: none;
+    border: none;
+    color: #adb5bd;
+    cursor: pointer;
+    padding: 0 2px;
+    line-height: 1;
+    font-size: 14px;
+}
+.o_premafirm_est_file_chip .fc-remove:hover { color: #dc3545; }
+
+/* Options row */
+.o_premafirm_est_options {
+    display: flex;
+    gap: 16px;
+    margin: 10px 0;
+    flex-wrap: wrap;
+}
+.o_premafirm_est_options .form-check-label { font-size: 12px; }
+
+/* Submit button */
+.o_premafirm_est_submit {
+    width: 100%;
+    background: #f39c12;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.15s;
+    margin-top: 14px;
+}
+.o_premafirm_est_submit:hover:not(:disabled) { background: #e67e22; }
+.o_premafirm_est_submit:disabled { opacity: 0.7; cursor: not-allowed; }
+
+/* Results */
+.o_premafirm_est_result {
+    margin-top: 14px;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    overflow: hidden;
+}
+.o_premafirm_est_result_body {
+    padding: 12px;
+    font-size: 12.5px;
+    overflow-x: auto;
+    max-height: 500px;
+    overflow-y: auto;
+}
+.o_premafirm_est_result_footer {
+    padding: 10px 12px;
+    border-top: 1px solid #e9ecef;
+    background: #f8f9fa;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.o_premafirm_est_result table { font-size: 12px; }
+
+/* Error */
+.o_premafirm_est_error {
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: #fff5f5;
+    border: 1px solid #ffc9c9;
+    border-radius: 8px;
+    color: #c92a2a;
+    font-size: 12.5px;
+}

@@ -56,8 +56,16 @@ class PremafirmDispatchWizard(models.TransientModel):
     job_day_ref    = fields.Char(string="Job Label", compute="_compute_job_day_ref", store=True)
     vehicle_id     = fields.Many2one("fleet.vehicle", string="Truck (optional — AI will suggest)")
 
-    route_file     = fields.Binary(string="Route List / Load Sheet")
+    route_file     = fields.Binary(string="Route List / Load Sheet (single)")
     route_filename = fields.Char()
+    route_attachment_ids = fields.Many2many(
+        "ir.attachment",
+        "premafirm_dispatch_wizard_att_rel",
+        "wizard_id",
+        "attachment_id",
+        string="Route Sheets / BOLs (multiple)",
+        help="Upload one or more Bills of Lading, load tenders, or route sheets.",
+    )
     notes          = fields.Text(string="Job Notes")
 
     ai_plan_result      = fields.Text(string="AI Plan Summary")
@@ -233,15 +241,18 @@ class PremafirmDispatchWizard(models.TransientModel):
         extracted_notes = ""
         extraction_error = ""
 
-        # ── Phase 1: extract from uploaded file ───────────────────────────
+        # ── Phase 1: extract from uploaded file(s) ───────────────────────
+        # Build a unified list of (file_b64, mimetype, filename) from ALL sources:
+        # 1. Legacy single-file binary field
+        # 2. New multi-file Many2many attachments
+        files_to_process = []
+
         if self.route_file:
-            # Odoo Binary fields return raw bytes — must base64-encode for the RPC
             raw_bytes = self.route_file
             if isinstance(raw_bytes, bytes):
                 file_b64 = base64.b64encode(raw_bytes).decode("utf-8")
             else:
-                file_b64 = raw_bytes  # already base64 string
-
+                file_b64 = raw_bytes
             fname = (self.route_filename or "upload").lower()
             if fname.endswith(".pdf"):
                 mimetype = "application/pdf"
@@ -249,24 +260,55 @@ class PremafirmDispatchWizard(models.TransientModel):
                 mimetype = "image/png"
             else:
                 mimetype = "image/jpeg"
+            files_to_process.append((file_b64, mimetype, self.route_filename or "upload"))
 
-            _logger.info("Dispatch wizard: extracting stops from %s (%s)", fname, mimetype)
-            extract_result = Estimator.extract_stops_from_file_rpc(
-                file_b64=file_b64,
-                mimetype=mimetype,
-                filename=self.route_filename or "upload",
-                extra_notes=self.notes or "",
-            )
-            _logger.info("Dispatch wizard extraction result: error=%s stops=%s",
-                         extract_result.get("error"), len(extract_result.get("stops") or []))
-            if extract_result.get("error"):
-                extraction_error = extract_result["error"]
-                extraction_status = f"⚠ File extraction failed: {extraction_error[:80]}"
+        for att in self.route_attachment_ids:
+            if not att.datas:
+                continue
+            att_b64 = att.datas if isinstance(att.datas, str) else att.datas.decode("utf-8")
+            att_mime = att.mimetype or "application/pdf"
+            files_to_process.append((att_b64, att_mime, att.name or "attachment"))
+
+        if files_to_process:
+            all_file_stops = []
+            all_file_notes = []
+            parser_labels  = []
+            errors         = []
+            for (f_b64, f_mime, f_name) in files_to_process:
+                _logger.info("Dispatch wizard: extracting stops from %s (%s)", f_name, f_mime)
+                extract_result = Estimator.extract_stops_from_file_rpc(
+                    file_b64=f_b64,
+                    mimetype=f_mime,
+                    filename=f_name,
+                    extra_notes=self.notes or "",
+                )
+                _logger.info(
+                    "Dispatch wizard extraction result for %s: error=%s stops=%s",
+                    f_name, extract_result.get("error"), len(extract_result.get("stops") or []),
+                )
+                if extract_result.get("error"):
+                    errors.append(f"{f_name}: {extract_result['error'][:60]}")
+                else:
+                    all_file_stops.extend(extract_result.get("stops") or [])
+                    if extract_result.get("notes"):
+                        all_file_notes.append(extract_result["notes"])
+                    parser_labels.append(extract_result.get("parser_used", "local"))
+
+            if all_file_stops:
+                extracted_stops = all_file_stops
+                extracted_notes = " | ".join(all_file_notes)
+                parser = ", ".join(dict.fromkeys(parser_labels))
+                extraction_status = (
+                    f"✓ Extracted {len(extracted_stops)} stop(s) from "
+                    f"{len(files_to_process)} file(s) [{parser}]"
+                )
+                if errors:
+                    extraction_status += f" — {len(errors)} file(s) failed"
+            elif errors:
+                extraction_error = "; ".join(errors)
+                extraction_status = f"⚠ File extraction failed: {extraction_error[:120]}"
             else:
-                extracted_stops = extract_result.get("stops", [])
-                extracted_notes = extract_result.get("notes", "")
-                parser = extract_result.get("parser_used", "local")
-                extraction_status = f"✓ Extracted {len(extracted_stops)} stop(s) from file [{parser}]"
+                extraction_status = "No stops found in uploaded file(s)"
         else:
             extraction_status = "No file uploaded — using notes only"
 

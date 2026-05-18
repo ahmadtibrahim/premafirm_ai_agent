@@ -69,11 +69,14 @@
     "assets": {
         "web.assets_backend": [
             "premafirm_ai_engine/static/src/css/crm_kanban.css",
+            "premafirm_ai_engine/static/src/css/estimator_chat_panel.css",
             "premafirm_ai_engine/static/src/xml/google_address_widget.xml",
+            "premafirm_ai_engine/static/src/xml/estimator_chat_panel.xml",
             "premafirm_ai_engine/static/src/js/google_places_utils.js",
             "premafirm_ai_engine/static/src/js/google_address_widget.js",
             "premafirm_ai_engine/static/src/js/google_company_widget.js",
             "premafirm_ai_engine/static/src/js/google_partner_m2o.js",
+            "premafirm_ai_engine/static/src/js/estimator_chat_panel.js",
         ],
     },
     "installable": True,

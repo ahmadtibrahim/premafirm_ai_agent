@@ -1906,3 +1906,291 @@ class PremafirmRateEstimator(models.Model):
         rec._json_to_stops(new_stops)
         rec._stops_to_json()
         return {"success": True, "stop_count": len(rec.stop_ids)}
+
+    # ── Chat-style estimator panel RPC ─────────────────────────────────
+
+    @api.model
+    def chat_rate_request_rpc(
+        self,
+        vehicle_id,
+        text_message,
+        files,
+        avoid_tolls=True,
+        allow_cross_border=False,
+        scheduled_at=None,
+    ):
+        """Unified RPC for the chat-style Estimator panel.
+
+        text_message : free-form text (WhatsApp, email, pasted message)
+        files        : list of {file_b64, mimetype, filename} — zero or many BOLs
+        Returns      : {html, record_id, suggested_rate} or {error}
+        """
+        from ..services.mapbox_service import MapboxService
+        from ..services.pricing_engine import PricingEngine
+
+        try:
+            vehicle = self.env["fleet.vehicle"].sudo().browse(int(vehicle_id))
+            if not vehicle.exists():
+                return {"error": f"Truck ID {vehicle_id} not found."}
+
+            all_stops = []
+            all_notes = []
+
+            # 1. Extract stops from free-form text
+            if text_message and text_message.strip():
+                t_stops, t_notes = self._extract_stops_from_text(text_message)
+                all_stops.extend(t_stops)
+                if t_notes:
+                    all_notes.append(t_notes)
+
+            # 2. Extract stops from each uploaded file
+            for f in (files or []):
+                f_result = self.extract_stops_from_file_rpc(
+                    f["file_b64"], f["mimetype"], f["filename"], extra_notes=""
+                )
+                if f_result.get("error"):
+                    _logger.warning(
+                        "chat_rate_request_rpc: file parse error for %s: %s",
+                        f.get("filename"), f_result["error"],
+                    )
+                    continue
+                f_stops = f_result.get("stops") or []
+                for s in f_stops:
+                    s["type"] = s.get("type") or "delivery"
+                all_stops.extend(f_stops)
+                if f_result.get("notes"):
+                    all_notes.append(f_result["notes"])
+
+            if not all_stops:
+                return {
+                    "error": (
+                        "Could not detect any stops from the provided input. "
+                        "Please check your message or file content and try again."
+                    )
+                }
+
+            # 3. Create estimator record
+            rec = self.sudo().create({
+                "vehicle_id":        vehicle.id,
+                "avoid_tolls":       avoid_tolls,
+                "allow_cross_border": allow_cross_border,
+                "notes":             "\n".join(all_notes) if all_notes else "",
+            })
+
+            # 4. Persist stops
+            seq = 10
+            for s in all_stops:
+                self.env["premafirm.estimator.stop"].sudo().create({
+                    "estimator_id": rec.id,
+                    "sequence":     seq,
+                    "stop_type":    s.get("type", "delivery"),
+                    "name":         s.get("company_name", ""),
+                    "address":      s.get("address", ""),
+                    "lat":          float(s.get("lat") or 0),
+                    "lng":          float(s.get("lng") or 0),
+                    "pallets":      int(s.get("pallets") or 0),
+                    "weight_lbs":   float(s.get("weight_lbs") or 0),
+                    "liftgate":     bool(s.get("liftgate")),
+                    "notes":        s.get("stop_notes", ""),
+                })
+                seq += 10
+
+            # 5. Add origin / return home stops from truck GPS
+            rec.add_system_stops()
+
+            # 6. Set load totals from pickup stops
+            total_pallets = sum(
+                int(s.get("pallets") or 0)
+                for s in all_stops
+                if (s.get("type") or "").lower() in ("pickup",)
+            )
+            if total_pallets:
+                rec.load_pallets = total_pallets
+
+            # 7. Build multi-stop route
+            ordered = rec.stop_ids.sorted("sequence")
+            waypoints = [
+                {"lat": s.lat, "lng": s.lng}
+                for s in ordered
+                if s.lat and s.lng
+            ]
+            if len(waypoints) < 2:
+                return {
+                    "error": (
+                        "Could not geocode enough stops to calculate a route. "
+                        "Please verify the addresses."
+                    ),
+                    "record_id": rec.id,
+                }
+
+            mbx   = MapboxService(self.env)
+            route = mbx.get_route_multi(
+                waypoints,
+                max_height_ft=vehicle.x_vehicle_height_ft or 0.0,
+                gvwr_lbs=vehicle.x_gvwr_lbs or 0.0,
+                allow_cross_border=allow_cross_border,
+                avoid_tolls=avoid_tolls,
+            )
+
+            # 8. Calculate costs
+            defaults = rec.get_defaults_rpc(vehicle.id)
+            eng      = PricingEngine(self.env)
+            costs    = eng.calculate(
+                vehicle.id,
+                route["distance_km"],
+                route["duration_hrs"],
+                overrides={
+                    "fuel_price_per_l":    defaults.get("fuel_price_per_l", 0),
+                    "driver_rate_per_hr":  defaults.get("driver_rate_per_hr", 0),
+                    "insurance_monthly":   defaults.get("insurance_monthly", 0),
+                    "maintenance_monthly": defaults.get("maintenance_monthly", 0),
+                    "margin_pct":          defaults.get("margin_pct", 0),
+                },
+                load_weight_lbs=rec.load_weight_lbs,
+            )
+
+            # 9. Persist computed values on the record
+            rec.write({
+                "origin_address":      ordered[0].address,
+                "destination_address": ordered[-1].address,
+                "distance_km":         route["distance_km"],
+                "duration_hrs":        route["duration_hrs"],
+                "fuel_liters":         costs["fuel_liters"],
+                "fuel_load_factor":    costs["fuel_load_factor"],
+                "fuel_cost":           costs["fuel_cost"],
+                "maintenance_cost":    costs["maintenance_cost"],
+                "insurance_cost":      costs["insurance_cost"],
+                "driver_cost":         costs["driver_cost"],
+                "weight_surcharge":    costs["weight_surcharge"],
+                "total_cost":          costs["total_cost"],
+                "margin_pct":          costs["margin_pct"],
+                "suggested_rate":      costs["suggested_rate"],
+                "fuel_price_per_l":    costs["fuel_price_per_l"],
+                "driver_rate_per_hr":  costs["driver_rate_per_hr"],
+                "state":               "saved",
+            })
+
+            # 10. Build formatted HTML summary
+            html = self._build_chat_estimate_html(vehicle, ordered, route, costs)
+
+            return {
+                "html":           html,
+                "record_id":      rec.id,
+                "suggested_rate": costs["suggested_rate"],
+            }
+
+        except Exception as exc:
+            _logger.error("chat_rate_request_rpc error: %s", exc, exc_info=True)
+            return {"error": str(exc)}
+
+    def _build_chat_estimate_html(self, vehicle, ordered_stops, route, costs):
+        """Return an HTML string summarising the estimate for display in the panel."""
+        avg_kml_src = (
+            "GeoTab ELD (last 7 days)"
+            if vehicle.x_avg_km_per_l_last_week
+            else "Manual entry"
+        )
+
+        stop_rows = ""
+        for s in ordered_stops:
+            icon = (
+                "🏠" if s.stop_type in ("origin", "return")
+                else ("📦" if s.stop_type == "pickup" else "📍")
+            )
+            pallet_txt = f"{s.pallets} plt" if s.pallets else "—"
+            stop_rows += (
+                f"<tr>"
+                f"<td style='padding:3px 6px'>{icon} {s.stop_type.title()}</td>"
+                f"<td style='padding:3px 6px'>{s.name or '—'}</td>"
+                f"<td style='padding:3px 6px'>{s.address}</td>"
+                f"<td style='padding:3px 6px;text-align:center'>{pallet_txt}</td>"
+                f"</tr>"
+            )
+
+        legs      = route.get("legs", [])
+        leg_rows  = ""
+        for i, leg in enumerate(legs):
+            leg_rows += (
+                f"<tr>"
+                f"<td style='padding:3px 6px'>Leg {i + 1}</td>"
+                f"<td style='padding:3px 6px'>{leg.get('distance_km', 0):.1f} km</td>"
+                f"<td style='padding:3px 6px'>{leg.get('duration_hrs', 0):.1f} hrs</td>"
+                f"</tr>"
+            )
+
+        weight_row = ""
+        if costs["weight_surcharge"]:
+            weight_row = (
+                f"<tr><td style='padding:3px 6px'>⚖️ Weight Surcharge</td>"
+                f"<td style='padding:3px 6px'>${costs['weight_surcharge']:.2f}</td></tr>"
+            )
+
+        th = "style='text-align:left;padding:4px 6px;background:#f5f5f5;font-weight:600'"
+
+        html = f"""
+<div style="font-family:system-ui,sans-serif;font-size:12.5px;line-height:1.55">
+  <p style="margin:0 0 10px;font-weight:700;font-size:14px">
+    🚛 {vehicle.name}
+    <span style="float:right;color:#27ae60;font-size:16px">${costs['suggested_rate']:.2f}</span>
+  </p>
+
+  <table style="width:100%;border-collapse:collapse;margin-bottom:12px;font-size:12px">
+    <thead>
+      <tr>
+        <th {th}>Stop</th><th {th}>Company</th>
+        <th {th}>Address</th><th {th}>Plt</th>
+      </tr>
+    </thead>
+    <tbody>{stop_rows}</tbody>
+  </table>
+
+  <table style="width:100%;border-collapse:collapse;margin-bottom:12px;font-size:12px">
+    <thead>
+      <tr><th {th}>Route</th><th {th}>Distance</th><th {th}>Drive</th></tr>
+    </thead>
+    <tbody>
+      {leg_rows}
+      <tr style="font-weight:bold">
+        <td style='padding:3px 6px'>Total</td>
+        <td style='padding:3px 6px'>{route['distance_km']:.1f} km</td>
+        <td style='padding:3px 6px'>{route['duration_hrs']:.1f} hrs</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <tbody>
+      <tr>
+        <td style='padding:3px 6px'>⛽ Fuel ({costs['fuel_liters']:.1f} L × ${costs['fuel_price_per_l']:.3f}/L)</td>
+        <td style='padding:3px 6px;text-align:right'>${costs['fuel_cost']:.2f}</td>
+      </tr>
+      <tr>
+        <td style='padding:3px 6px'>🔧 Maintenance</td>
+        <td style='padding:3px 6px;text-align:right'>${costs['maintenance_cost']:.2f}</td>
+      </tr>
+      <tr>
+        <td style='padding:3px 6px'>🛡️ Insurance</td>
+        <td style='padding:3px 6px;text-align:right'>${costs['insurance_cost']:.2f}</td>
+      </tr>
+      <tr>
+        <td style='padding:3px 6px'>👤 Driver ({route['duration_hrs']:.1f} hrs × ${costs['driver_rate_per_hr']:.2f}/hr)</td>
+        <td style='padding:3px 6px;text-align:right'>${costs['driver_cost']:.2f}</td>
+      </tr>
+      {weight_row}
+      <tr style="font-weight:700;background:#fff3cd">
+        <td style='padding:4px 6px'>Total Cost</td>
+        <td style='padding:4px 6px;text-align:right'>${costs['total_cost']:.2f}</td>
+      </tr>
+      <tr style="font-weight:700;background:#d4edda">
+        <td style='padding:4px 6px'>Suggested Rate ({costs['margin_pct']:.0f}% margin)</td>
+        <td style='padding:4px 6px;text-align:right'>${costs['suggested_rate']:.2f}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p style="color:#999;font-size:10.5px;margin-top:8px;margin-bottom:0">
+    Fuel efficiency: {costs['avg_km_per_l']:.2f} km/L ({avg_kml_src}) ·
+    Fuel price: ${costs['fuel_price_per_l']:.3f}/L
+  </p>
+</div>"""
+        return html

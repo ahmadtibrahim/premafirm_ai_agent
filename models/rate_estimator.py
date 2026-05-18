@@ -7,6 +7,7 @@ Each successful calculation creates a record for historical reference.
 import json
 import logging
 import math
+import re
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta

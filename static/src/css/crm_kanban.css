@@ -1,0 +1,8 @@
+@keyframes premafirm-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.2; }
+}
+
+.premafirm-attention {
+    animation: premafirm-pulse 1.4s ease-in-out infinite;
+}

@@ -54,6 +54,8 @@ class PremafirmRateEstimator(models.Model):
         help="Paste any text — email, WhatsApp, rate sheet, or spoken description. "
              "Click 'Parse & Fill' to extract origin, destination, pallets, and weight.",
     )
+    x_chat_message = fields.Text(string="Work Order / Message")
+    x_chat_response = fields.Html(string="AI Estimate Response", readonly=True)
     source_invoice_id = fields.Many2one("account.move", string="Source Invoice", readonly=True, ondelete="set null")
 
     # ── Fleetbase dispatch ─────────────────────────────────────────────
@@ -1492,7 +1494,7 @@ class PremafirmRateEstimator(models.Model):
         }
 
     def action_parse_route_text(self):
-        """Parse x_route_sheet_text with GPT and pre-fill origin, destination, pallets, weight."""
+        """Parse x_route_sheet_text → extract all stops → populate stop_ids + add home/return."""
         self.ensure_one()
         text = (self.x_route_sheet_text or '').strip()
         if not text:
@@ -1502,53 +1504,307 @@ class PremafirmRateEstimator(models.Model):
                 'params': {'title': 'No text', 'message': 'Paste your route sheet text first.', 'type': 'warning'},
             }
         try:
-            import json as _json
-            result_text = self._call_openai(
-                system=(
-                    'You are a freight logistics data extractor. '
-                    'Extract trip details from the given text and return ONLY a JSON object with these keys: '
-                    'origin (full address or city/province), destination (full address or city/province), '
-                    'pallets (integer, 0 if unknown), weight_lbs (float, 0 if unknown), notes (any other relevant info). '
-                    'If a field cannot be determined, use null. Return only the JSON.'
-                ),
-                user=f'Extract freight trip details:\n\n{text[:2000]}',
-                max_tokens=300,
-            )
-            # Strip markdown code fences if GPT added them
-            clean = result_text.strip()
-            if clean.startswith('```'):
-                clean = '\n'.join(clean.split('\n')[1:])
-            if clean.endswith('```'):
-                clean = '\n'.join(clean.split('\n')[:-1])
-            data = _json.loads(clean.strip())
-            vals = {}
-            if data.get('origin'):
-                vals['origin_address'] = data['origin']
-            if data.get('destination'):
-                vals['destination_address'] = data['destination']
-            if data.get('pallets'):
-                vals['load_pallets'] = int(data['pallets'])
-            if data.get('weight_lbs'):
-                vals['load_weight_lbs'] = float(data['weight_lbs'])
-            if data.get('notes') and not self.notes:
-                vals['notes'] = data['notes']
-            if vals:
-                self.write(vals)
+            stops, notes = self._extract_stops_from_text(text)
+            if not stops:
+                return {
+                    'type': 'ir.actions.client',
+                    'tag': 'display_notification',
+                    'params': {'title': 'Nothing found', 'message': 'AI could not detect any stops. Check the text and try again.', 'type': 'warning'},
+                }
+            self.stop_ids.filtered(lambda s: not s.is_system).unlink()
+            seq = 10
+            for s in stops:
+                self.env['premafirm.estimator.stop'].create({
+                    'estimator_id': self.id,
+                    'sequence': seq,
+                    'stop_type': s.get('type', 'delivery'),
+                    'name': s.get('company_name', ''),
+                    'address': s.get('address', ''),
+                    'lat': float(s.get('lat') or 0),
+                    'lng': float(s.get('lng') or 0),
+                    'pallets': int(s.get('pallets') or 0),
+                    'weight_lbs': float(s.get('weight_lbs') or 0),
+                    'liftgate': bool(s.get('liftgate')),
+                    'notes': s.get('stop_notes', ''),
+                })
+                seq += 10
+            if notes and not self.notes:
+                self.notes = notes
+            self.add_system_stops()
+            total_pallets = sum(int(s.get('pallets') or 0) for s in stops if s.get('type') == 'pickup')
+            if total_pallets:
+                self.load_pallets = total_pallets
             return {
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
                 'params': {
-                    'title': 'Route Parsed',
-                    'message': f'Filled: {", ".join(vals.keys()) or "nothing detected"}. Review and adjust before calculating.',
+                    'title': 'Stops Extracted',
+                    'message': f'{len(stops)} stops loaded (home + return added automatically). Review stops then run Calculate.',
                     'type': 'success',
+                    'sticky': False,
+                    'next': {'type': 'ir.actions.client', 'tag': 'reload'},
                 },
             }
         except Exception as exc:
+            _logger.error("action_parse_route_text error: %s", exc, exc_info=True)
             return {
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
                 'params': {'title': 'Parse Error', 'message': str(exc), 'type': 'danger'},
             }
+
+    def action_chat_estimate(self):
+        """Chat-style: paste work order text → extract stops → calculate full estimate → show formatted result."""
+        self.ensure_one()
+        text = (self.x_chat_message or '').strip()
+        if not text:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {'title': 'No message', 'message': 'Paste your work order or text message first.', 'type': 'warning'},
+            }
+        if not self.vehicle_id:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {'title': 'Select a Truck', 'message': 'Choose a truck first so the estimate can include your home location and ELD fuel data.', 'type': 'warning'},
+            }
+        try:
+            from ..services.mapbox_service import MapboxService
+            from ..services.pricing_engine import PricingEngine
+
+            stops, notes = self._extract_stops_from_text(text)
+            if not stops:
+                self.x_chat_response = '<p class="text-danger">⚠️ Could not detect any stops from this text. Please check the message and try again.</p>'
+                return {'type': 'ir.actions.client', 'tag': 'reload'}
+
+            # Populate stop_ids
+            self.stop_ids.filtered(lambda s: not s.is_system).unlink()
+            seq = 10
+            for s in stops:
+                self.env['premafirm.estimator.stop'].create({
+                    'estimator_id': self.id,
+                    'sequence': seq,
+                    'stop_type': s.get('type', 'delivery'),
+                    'name': s.get('company_name', ''),
+                    'address': s.get('address', ''),
+                    'lat': float(s.get('lat') or 0),
+                    'lng': float(s.get('lng') or 0),
+                    'pallets': int(s.get('pallets') or 0),
+                    'weight_lbs': float(s.get('weight_lbs') or 0),
+                    'liftgate': bool(s.get('liftgate')),
+                    'notes': s.get('stop_notes', ''),
+                })
+                seq += 10
+            if notes and not self.notes:
+                self.notes = notes
+            self.add_system_stops()
+            total_pallets = sum(int(s.get('pallets') or 0) for s in stops if s.get('type') == 'pickup')
+            if total_pallets:
+                self.load_pallets = total_pallets
+
+            # Build route using all stop_ids (includes home origin + return)
+            vehicle = self.vehicle_id
+            all_stops = self.stop_ids.sorted('sequence')
+            waypoints = [{'lat': s.lat, 'lng': s.lng} for s in all_stops if s.lat and s.lng]
+            if len(waypoints) < 2:
+                self.x_chat_response = '<p class="text-danger">⚠️ Could not geocode enough stops to calculate a route. Check the addresses.</p>'
+                return {'type': 'ir.actions.client', 'tag': 'reload'}
+
+            mbx = MapboxService(self.env)
+            route = mbx.get_route_multi(
+                waypoints,
+                max_height_ft=vehicle.x_vehicle_height_ft or 0.0,
+                gvwr_lbs=vehicle.x_gvwr_lbs or 0.0,
+                allow_cross_border=self.allow_cross_border,
+                avoid_tolls=self.avoid_tolls,
+            )
+
+            eng = PricingEngine(self.env)
+            defaults = self.get_defaults_rpc(vehicle.id)
+            costs = eng.calculate(
+                vehicle.id,
+                route['distance_km'],
+                route['duration_hrs'],
+                overrides={
+                    'fuel_price_per_l':    defaults.get('fuel_price_per_l', 0),
+                    'driver_rate_per_hr':  defaults.get('driver_rate_per_hr', 0),
+                    'insurance_monthly':   defaults.get('insurance_monthly', 0),
+                    'maintenance_monthly': defaults.get('maintenance_monthly', 0),
+                    'margin_pct':          defaults.get('margin_pct', 0),
+                },
+                load_weight_lbs=self.load_weight_lbs or 0.0,
+            )
+
+            # Persist cost result
+            self.write({
+                'origin_address':      all_stops[0].address,
+                'destination_address': all_stops[-1].address,
+                'distance_km':         route['distance_km'],
+                'duration_hrs':        route['duration_hrs'],
+                'fuel_liters':         costs['fuel_liters'],
+                'fuel_load_factor':    costs['fuel_load_factor'],
+                'fuel_cost':           costs['fuel_cost'],
+                'maintenance_cost':    costs['maintenance_cost'],
+                'insurance_cost':      costs['insurance_cost'],
+                'driver_cost':         costs['driver_cost'],
+                'weight_surcharge':    costs['weight_surcharge'],
+                'total_cost':          costs['total_cost'],
+                'margin_pct':          costs['margin_pct'],
+                'suggested_rate':      costs['suggested_rate'],
+                'fuel_price_per_l':    costs['fuel_price_per_l'],
+                'driver_rate_per_hr':  costs['driver_rate_per_hr'],
+                'avg_km_per_l':        costs['avg_km_per_l'],
+                'state':               'saved',
+            })
+
+            # Build source labels for transparency
+            avg_kml_src = 'GeoTab ELD (last 7 days)' if vehicle.x_avg_km_per_l_last_week else 'Manual entry'
+            prev_km_src = 'GeoTab Daily Odometer' if costs['prev_month_km'] != (vehicle.x_monthly_avg_km or 0) else 'Manual (Monthly Avg km field)'
+
+            # Build formatted response
+            legs = route.get('legs', [])
+            stop_rows = ''
+            for s in all_stops:
+                icon = '🏠' if s.stop_type in ('origin', 'return') else ('📦' if s.stop_type == 'pickup' else '📍')
+                pallet_txt = f' — {s.pallets} plt' if s.pallets else ''
+                stop_rows += f'<tr><td>{icon} {s.stop_type.title()}</td><td>{s.name or ""}</td><td>{s.address}</td><td>{pallet_txt}</td></tr>'
+
+            leg_rows = ''
+            for i, leg in enumerate(legs):
+                leg_rows += f'<tr><td>Leg {i+1}</td><td>{leg.get("distance_km", 0):.1f} km</td><td>{leg.get("duration_hrs", 0):.1f} hrs</td></tr>'
+
+            html = f'''
+<div style="font-family:sans-serif;font-size:13px;line-height:1.6">
+  <h4 style="margin-bottom:8px">🚛 Estimate: {vehicle.name}</h4>
+
+  <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+    <thead><tr style="background:#f0f0f0"><th style="text-align:left;padding:4px">Stop</th><th>Company</th><th>Address</th><th>Pallets</th></tr></thead>
+    <tbody>{stop_rows}</tbody>
+  </table>
+
+  <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+    <thead><tr style="background:#f0f0f0"><th style="text-align:left;padding:4px">Route</th><th>Distance</th><th>Drive Time</th></tr></thead>
+    <tbody>
+      {leg_rows}
+      <tr style="font-weight:bold"><td>Total</td><td>{route["distance_km"]:.1f} km</td><td>{route["duration_hrs"]:.1f} hrs</td></tr>
+    </tbody>
+  </table>
+
+  <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+    <thead><tr style="background:#f0f0f0"><th style="text-align:left;padding:4px">Cost</th><th>Amount</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td>⛽ Fuel ({costs["fuel_liters"]:.1f} L × ${costs["fuel_price_per_l"]:.3f}/L)</td><td>${costs["fuel_cost"]:.2f}</td><td>{avg_kml_src} — {costs["avg_km_per_l"]:.2f} km/L</td></tr>
+      <tr><td>🔧 Maintenance</td><td>${costs["maintenance_cost"]:.2f}</td><td>Monthly budget ÷ {prev_km_src} km</td></tr>
+      <tr><td>🛡️ Insurance</td><td>${costs["insurance_cost"]:.2f}</td><td>Monthly budget ÷ {prev_km_src} km</td></tr>
+      <tr><td>👤 Driver ({route["duration_hrs"]:.1f} hrs × ${costs["driver_rate_per_hr"]:.2f}/hr)</td><td>${costs["driver_cost"]:.2f}</td><td>Truck prefs / system default</td></tr>
+      {"<tr><td>⚖️ Weight Surcharge</td><td>$" + f"{costs['weight_surcharge']:.2f}" + "</td><td>Load over threshold</td></tr>" if costs["weight_surcharge"] else ""}
+      <tr style="font-weight:bold;background:#fff3cd"><td>Total Cost</td><td>${costs["total_cost"]:.2f}</td><td></td></tr>
+      <tr style="font-weight:bold;background:#d4edda"><td>Suggested Rate ({costs["margin_pct"]:.0f}% margin)</td><td>${costs["suggested_rate"]:.2f}</td><td></td></tr>
+    </tbody>
+  </table>
+
+  <p style="color:#888;font-size:11px">
+    📡 Data sources: Fuel efficiency {costs["avg_km_per_l"]:.2f} km/L ({avg_kml_src}) ·
+    Prev month km: {costs["prev_month_km"]:.0f} km ({prev_km_src}) ·
+    Fuel price: ${costs["fuel_price_per_l"]:.3f}/L (truck prefs / system param)
+  </p>
+</div>'''
+
+            self.x_chat_response = html
+            return {'type': 'ir.actions.client', 'tag': 'reload'}
+
+        except Exception as exc:
+            _logger.error("action_chat_estimate error: %s", exc, exc_info=True)
+            self.x_chat_response = f'<p class="text-danger">⚠️ Error: {exc}</p>'
+            return {'type': 'ir.actions.client', 'tag': 'reload'}
+
+    def _extract_stops_from_text(self, text):
+        """Use AI to extract all stops from a freeform text message.
+
+        Returns (stops_list, notes_string).
+        Each stop: {type, company_name, address, pallets, weight_lbs, liftgate, stop_notes, lat, lng}
+        """
+        import json as _json
+        system_prompt = (
+            'You are a Canadian freight dispatch assistant. Extract ALL pickup and delivery stops '
+            'from the work order text. Return ONLY a JSON object:\n'
+            '{"stops": [{"type": "pickup|delivery", "company_name": "...", '
+            '"address": "full street address, city, province, Canada", '
+            '"pallets": 0, "weight_lbs": 0, "liftgate": false, "stop_notes": "..."}], '
+            '"notes": "any general trip notes"}\n'
+            'Rules:\n'
+            '- type must be "pickup" or "delivery"\n'
+            '- address must be a full geocodable address (include city and province)\n'
+            '- If only a business name is given with no address, use the name as address\n'
+            '- pallets: integer count if mentioned, else 0\n'
+            '- Keep stops in the order they appear in the text\n'
+            '- Return ONLY the JSON, no explanation'
+        )
+        result_text = self._call_openai(
+            system=system_prompt,
+            user=f'Work order:\n\n{text[:3000]}',
+            max_tokens=1200,
+        )
+        # Robust JSON extraction
+        clean = result_text.strip()
+        parsed = None
+        for attempt in [clean,
+                        re.sub(r'^```(?:json)?\s*', '', clean, flags=re.IGNORECASE).rstrip('`').strip()]:
+            try:
+                parsed = _json.loads(attempt)
+                break
+            except Exception:
+                pass
+        if parsed is None:
+            start = clean.find('{')
+            if start != -1:
+                depth = 0
+                in_str = esc = False
+                for ci, ch in enumerate(clean[start:], start):
+                    if esc:
+                        esc = False
+                        continue
+                    if ch == '\\' and in_str:
+                        esc = True
+                        continue
+                    if ch == '"':
+                        in_str = not in_str
+                        continue
+                    if in_str:
+                        continue
+                    if ch == '{':
+                        depth += 1
+                    elif ch == '}':
+                        depth -= 1
+                        if depth == 0:
+                            try:
+                                parsed = _json.loads(clean[start:ci + 1])
+                            except Exception:
+                                pass
+                            break
+        if not parsed:
+            raise ValueError(f'AI returned unparseable response: {result_text[:200]}')
+
+        stops = parsed.get('stops') or []
+        notes = parsed.get('notes') or ''
+
+        # Geocode each stop
+        for stop in stops:
+            addr = (stop.get('address') or '').strip()
+            if addr and not (stop.get('lat') and stop.get('lng')):
+                try:
+                    hits = self.geocode_address_rpc(addr)
+                    if hits:
+                        stop['address'] = hits[0]['place_name']
+                        stop['lat'] = hits[0]['lat']
+                        stop['lng'] = hits[0]['lng']
+                except Exception:
+                    pass
+            stop.setdefault('lat', 0)
+            stop.setdefault('lng', 0)
+
+        return stops, notes
 
     def _call_openai(self, system, user, max_tokens=600):
         """AI call via OpenAI."""

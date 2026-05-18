@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- Ontario food distributors, produce importers, meat processors, logistics companies -->
+        <!-- noupdate=1: user can edit/delete without losing changes on upgrade -->
+
+        <record id="pd_sofina"         model="premafirm.prospect.domain"><field name="company_name">Sofina Foods Inc</field><field name="domain">sofina.ca</field><field name="industry">Meat / Poultry Processing</field></record>
+        <record id="pd_mapleleaf"      model="premafirm.prospect.domain"><field name="company_name">Maple Leaf Foods</field><field name="domain">mapleleaf.com</field><field name="industry">Meat Processing</field></record>
+        <record id="pd_nortera"        model="premafirm.prospect.domain"><field name="company_name">Nortera Foods</field><field name="domain">norterafoods.com</field><field name="industry">Frozen Vegetables</field></record>
+        <record id="pd_maplelodge"     model="premafirm.prospect.domain"><field name="company_name">Maple Lodge Farms</field><field name="domain">maplelodgefarms.com</field><field name="industry">Poultry</field></record>
+        <record id="pd_bimbo"          model="premafirm.prospect.domain"><field name="company_name">Bimbo Canada</field><field name="domain">bimbocanada.com</field><field name="industry">Bakery / Distribution</field></record>
+        <record id="pd_lactalis"       model="premafirm.prospect.domain"><field name="company_name">Lactalis Canada</field><field name="domain">lactalis.ca</field><field name="industry">Dairy</field></record>
+        <record id="pd_cavendish"      model="premafirm.prospect.domain"><field name="company_name">Cavendish Farms</field><field name="domain">cavendishfarms.com</field><field name="industry">Frozen Foods</field></record>
+        <record id="pd_treeoflife"     model="premafirm.prospect.domain"><field name="company_name">Tree of Life Canada</field><field name="domain">treeoflifecanada.ca</field><field name="industry">Natural Foods Distribution</field></record>
+        <record id="pd_gfs"            model="premafirm.prospect.domain"><field name="company_name">Gordon Food Service Canada</field><field name="domain">gordonfoodservice.ca</field><field name="industry">Foodservice Distribution</field></record>
+        <record id="pd_sysco"          model="premafirm.prospect.domain"><field name="company_name">Sysco Canada</field><field name="domain">sysco.ca</field><field name="industry">Foodservice Distribution</field></record>
+        <record id="pd_marsan"         model="premafirm.prospect.domain"><field name="company_name">Marsan Foods</field><field name="domain">marsanfoods.com</field><field name="industry">Ready Meals / Distribution</field></record>
+        <record id="pd_dare"           model="premafirm.prospect.domain"><field name="company_name">Dare Foods</field><field name="domain">darefoods.com</field><field name="industry">Snack Foods</field></record>
+        <record id="pd_voortman"       model="premafirm.prospect.domain"><field name="company_name">Voortman Cookies</field><field name="domain">voortman.com</field><field name="industry">Cookies / Snacks</field></record>
+        <record id="pd_weston"         model="premafirm.prospect.domain"><field name="company_name">Weston Foods</field><field name="domain">westonfoods.com</field><field name="industry">Bread / Bakery</field></record>
+        <record id="pd_harvestOntario" model="premafirm.prospect.domain"><field name="company_name">Harvest Ontario</field><field name="domain">harvestontario.com</field><field name="industry">Produce Distribution</field></record>
+        <record id="pd_lantic"         model="premafirm.prospect.domain"><field name="company_name">Lantic Inc</field><field name="domain">lantic.ca</field><field name="industry">Sugar / Sweeteners</field></record>
+        <record id="pd_bonduelle"      model="premafirm.prospect.domain"><field name="company_name">Bonduelle Canada</field><field name="domain">bonduelle.com</field><field name="industry">Canned / Frozen Vegetables</field></record>
+        <record id="pd_unilatefca"     model="premafirm.prospect.domain"><field name="company_name">Unilever Canada</field><field name="domain">unilever.ca</field><field name="industry">Consumer Goods / Food</field></record>
+        <record id="pd_premier"        model="premafirm.prospect.domain"><field name="company_name">Premier Nutrition</field><field name="domain">premierprotein.com</field><field name="industry">Nutrition / Protein</field></record>
+        <record id="pd_exceldor"       model="premafirm.prospect.domain"><field name="company_name">Exceldor</field><field name="domain">exceldor.ca</field><field name="industry">Poultry Processing</field></record>
+        <record id="pd_sunrise"        model="premafirm.prospect.domain"><field name="company_name">Sunrise Poultry Processors</field><field name="domain">sunrisepoultry.ca</field><field name="industry">Poultry</field></record>
+        <record id="pd_flanagan"       model="premafirm.prospect.domain"><field name="company_name">Flanagan Foodservice</field><field name="domain">flanaganfoodservice.com</field><field name="industry">Foodservice Distribution</field></record>
+        <record id="pd_coldstarlogis"  model="premafirm.prospect.domain"><field name="company_name">Cold Star Logistics</field><field name="domain">coldstarlogistics.ca</field><field name="industry">Cold Chain Logistics</field></record>
+        <record id="pd_armour"         model="premafirm.prospect.domain"><field name="company_name">Armour Transport</field><field name="domain">armourtransport.com</field><field name="industry">Freight Brokerage</field></record>
+        <record id="pd_target"         model="premafirm.prospect.domain"><field name="company_name">Target Logistics</field><field name="domain">targetlogistics.ca</field><field name="industry">Freight / Logistics</field></record>
+
+    </data>
+</odoo>

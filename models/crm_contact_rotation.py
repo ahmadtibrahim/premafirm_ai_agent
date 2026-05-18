@@ -309,6 +309,9 @@ class PremafirmCrmContactRotation(models.Model):
             subtype_xmlid='mail.mt_note',
         )
 
+        # Flag suggestion lead so the red badge appears in Kanban
+        suggestion_lead.sudo().write({'x_needs_attention': True})
+
         # Log to suggestion lead
         suggestion_lead.message_post(
             body=(

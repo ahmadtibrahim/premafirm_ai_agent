@@ -47,6 +47,57 @@
         </field>
     </record>
 
+    <!-- Opportunities kanban (main desktop pipeline): sort oldest-activity-first -->
+    <record id="view_crm_case_kanban_order" model="ir.ui.view">
+        <field name="name">crm.lead.kanban.opportunities.order</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_case_kanban_view_leads"/>
+        <field name="arch" type="xml">
+            <xpath expr="//kanban" position="attributes">
+                <attribute name="default_order">x_kanban_sort_date asc, id asc</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Kanban pipeline: sort oldest-outreach-first + x_needs_attention badge -->
+    <record id="view_crm_lead_kanban_attention" model="ir.ui.view">
+        <field name="name">crm.lead.kanban.attention</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.view_crm_lead_kanban"/>
+        <field name="arch" type="xml">
+            <!-- Sort: oldest activity at top (x_last_outreach_at → create_date fallback), newest at bottom -->
+            <xpath expr="//kanban" position="attributes">
+                <attribute name="default_order">x_kanban_sort_date asc, id asc</attribute>
+            </xpath>
+            <!-- Declare fields for card template -->
+            <xpath expr="//templates" position="before">
+                <field name="x_needs_attention"/>
+                <field name="x_last_outreach_at"/>
+                <field name="x_kanban_sort_date"/>
+            </xpath>
+            <!-- Pulsing red badge before the card footer -->
+            <xpath expr="//t[@t-name='card']/footer" position="before">
+                <t t-if="record.x_needs_attention.raw_value">
+                    <div class="text-danger small fw-bold mt-1 mb-1 premafirm-attention">
+                        <i class="fa fa-reply me-1"/>Needs Attention
+                    </div>
+                </t>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Leads list view: sort by oldest outreach first (untouched leads rise to top) -->
+    <record id="view_crm_leads_list_outreach_order" model="ir.ui.view">
+        <field name="name">crm.lead.list.outreach.order</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_case_tree_view_oppor"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list" position="attributes">
+                <attribute name="default_order">x_kanban_sort_date asc</attribute>
+            </xpath>
+        </field>
+    </record>
+
     <!-- CRM Lead form: Google autocomplete + Fetch Emails + Email Segment badge -->
     <record id="view_crm_lead_form_premafirm_ai" model="ir.ui.view">
         <field name="name">crm.lead.form.premafirm.ai</field>

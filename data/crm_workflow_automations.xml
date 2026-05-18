@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- ── Server action: set stage to Outreach ───────────────────────── -->
+        <record id="action_server_new_to_outreach" model="ir.actions.server">
+            <field name="name">CRM: Set Stage → Outreach</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="state">code</field>
+            <field name="code">
+stage = env['crm.stage'].search([('name', '=', 'Outreach')], limit=1)
+if stage:
+    record.write({'stage_id': stage.id})
+            </field>
+        </record>
+
+        <!-- ── Automated action: New → Outreach when contact details complete ── -->
+        <record id="automation_new_to_outreach" model="base.automation">
+            <field name="name">CRM: New → Outreach (contact details complete)</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="trigger">on_write</field>
+            <field name="active" eval="True"/>
+            <!-- Filter: must be in New stage, have a tag, have an email, and contact must be under a company -->
+            <field name="filter_domain">[('stage_id.name', '=', 'New'), ('tag_ids', '!=', False), ('email_from', '!=', False), ('partner_id', '!=', False), ('partner_id.parent_id', '!=', False)]</field>
+            <field name="action_server_ids" eval="[(4, ref('action_server_new_to_outreach'))]"/>
+        </record>
+
+        <!-- ── Cron: Contact rotation check (daily) ──────────────────────────── -->
+        <record id="ir_cron_contact_rotation" model="ir.cron">
+            <field name="name">CRM: Contact Rotation — Suggest Next Contact / Snov Escalation</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="state">code</field>
+            <field name="code">env['premafirm.crm.contact.rotation'].run_contact_rotation()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active">True</field>
+            <field name="nextcall">2026-05-18 07:30:00</field>
+        </record>
+
+        <!-- ── Cron: Outreach/Contacted no reply → Data Collection ─────────── -->
+        <record id="ir_cron_outreach_stale" model="ir.cron">
+            <field name="name">CRM: Outreach/Contacted — No Reply → Data Collection</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="state">code</field>
+            <field name="code">model.run_outreach_stale_cron()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active">True</field>
+            <field name="nextcall">2026-05-18 08:00:00</field>
+        </record>
+
+        <!-- ── Cron: Replied +3 days → warning activity ───────────────────── -->
+        <record id="ir_cron_replied_warning" model="ir.cron">
+            <field name="name">CRM: Replied Stage — 3-Day Follow-up Warning</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="state">code</field>
+            <field name="code">model.run_replied_warning_cron()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active">True</field>
+            <field name="nextcall">2026-05-14 08:00:00</field>
+        </record>
+
+        <!-- ── Cron: Replied +6 days → move to Data Collection ───────────── -->
+        <record id="ir_cron_replied_stale" model="ir.cron">
+            <field name="name">CRM: Replied Stage — 6-Day Stale → Data Collection</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="state">code</field>
+            <field name="code">model.run_replied_stale_cron()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active">True</field>
+            <field name="nextcall">2026-05-14 08:00:00</field>
+        </record>
+
+    </data>
+</odoo>

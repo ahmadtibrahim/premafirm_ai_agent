@@ -92,19 +92,23 @@ class CrmLeadML(models.Model):
                 _logger.warning('ML lost-learning failed for lead %s: %s', lead.id, e)
         return result
 
-    # ── Outgoing email hook ──────────────────────────────────────────
+    # ── Full conversation learning hook ─────────────────────────────
 
     def message_post(self, **kwargs):
         result = super().message_post(**kwargs)
-        # Capture outgoing staff emails — but throttle to once per 7 days per lead
-        if (result
-                and kwargs.get('message_type') == 'email'
-                and result.author_id
-                and result.author_id.user_ids):
-            try:
-                self._ml_learn_from_email(result)
-            except Exception as e:
-                _logger.warning('ML email-learning failed for lead %s: %s', self.id, e)
+        if not result:
+            return result
+        try:
+            is_internal = bool(result.author_id and result.author_id.user_ids)
+            if result.message_type == 'email':
+                if is_internal:
+                    self._ml_learn_from_message(result, 'outgoing_email', weight=1.0, throttle_days=7)
+                else:
+                    self._ml_learn_from_message(result, 'incoming_email', weight=0.9, throttle_days=3)
+            elif result.message_type == 'comment' and is_internal:
+                self._ml_learn_from_message(result, 'note', weight=0.6, throttle_days=5)
+        except Exception as e:
+            _logger.warning('ML learning failed for lead %s: %s', self.id, e)
         return result
 
     # ── Manual bookmark ──────────────────────────────────────────────
@@ -275,32 +279,41 @@ class CrmLeadML(models.Model):
         else:
             KB.create(vals)
 
-    def _ml_learn_from_email(self, message):
+    def _ml_learn_from_message(self, message, msg_type, weight, throttle_days):
         """
-        Capture an outgoing staff email as a crm_reply example.
-        Throttled: saves at most once per 7 days per lead to avoid flooding.
+        Capture any message (outgoing email, incoming email, staff note) as a crm_reply example.
+        Uses a type-specific anchor so each type has its own throttle window.
         """
         body = re.sub(r'<[^>]+>', ' ', message.body or '').strip()
         if not body or len(body) < 30:
             return
 
-        anchor = f'[crm:{self.id}]'
+        anchor = f'[crm:{self.id}:{msg_type}]'
         KB = self.env['premafirm.ml.knowledge']
-        cutoff = fields.Datetime.now() - relativedelta(days=7)
-        recent = KB.search([
+        cutoff = fields.Datetime.now() - relativedelta(days=throttle_days)
+        if KB.search([
             ('knowledge_type', '=', 'crm_reply'),
             ('input_context', 'like', anchor),
             ('create_date', '>=', cutoff),
-        ], limit=1)
-        if recent:
-            return  # Already have a recent example for this lead
+        ], limit=1):
+            return
 
-        context = f"{anchor}\n{self._ml_build_context()}"
+        author_name = message.author_id.name if message.author_id else 'Unknown'
+        labels = {
+            'outgoing_email': f'Staff ({author_name})',
+            'incoming_email': f'Customer ({author_name})',
+            'note': f'Note ({author_name})',
+        }
+        context = (
+            f"{anchor}\n"
+            f"{self._ml_build_context()}\n\n"
+            f"[{labels.get(msg_type, author_name)}]: {body[:400]}"
+        )
         KB.create({
             'knowledge_type': 'crm_reply',
             'input_context':  context,
             'good_output':    body[:600],
             'origin':         'approved',
-            'weight':         1.0,
+            'weight':         weight,
         })
-        _logger.info('ML: outgoing email on lead %s saved as crm_reply example', self.id)
+        _logger.info('ML: %s on lead %s saved (weight %.1f)', msg_type, self.id, weight)

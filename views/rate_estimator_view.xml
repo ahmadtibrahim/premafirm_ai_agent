@@ -101,6 +101,14 @@
                             <field name="margin_pct" readonly="1"/>
                             <field name="driver_rate_per_hr" readonly="1"/>
                             <field name="fuel_price_per_l" readonly="1"/>
+                            <field name="avg_km_per_l" readonly="1" string="Avg km/L (ELD)"/>
+                        </group>
+                        <group string="Cost Breakdown">
+                            <field name="fuel_cost" readonly="1" string="Fuel"/>
+                            <field name="driver_cost" readonly="1" string="Driver"/>
+                            <field name="maintenance_cost" readonly="1" string="Maintenance"/>
+                            <field name="insurance_cost" readonly="1" string="Insurance"/>
+                            <field name="weight_surcharge" readonly="1" string="Weight Surcharge"/>
                         </group>
                     </group>
 
@@ -131,19 +139,38 @@
                             <field name="attachment_ids" widget="many2many_binary"
                                    string="Route Sheets &amp; Documents"/>
                         </page>
-                        <page string="Paste Route / Text" name="text_route">
-                            <group string="Paste any text — email, WhatsApp message, rate sheet, or verbal description">
+                        <page string="AI Chat Estimator" name="text_route">
+                            <group string="Paste your work order, text message, or email — AI will extract all stops and calculate the full cost">
+                                <field name="vehicle_id" string="Select Truck First"
+                                       placeholder="Choose truck to include home base and ELD fuel data"/>
+                                <field name="x_chat_message"
+                                       nolabel="1"
+                                       widget="text"
+                                       style="min-height:120px"
+                                       placeholder="Example:&#10;Tomorrow's Run&#10;Pickup at 115 Chambers Drive Ajax ON&#10;Deliver to Sal's Grocery&#10;Pickup 1 pallet for F4L Lindsay at Grandview Discount Foods&#10;Deliver 7 pallets to F4L Lindsay, 62 Riverview Road Lindsay ON"/>
+                            </group>
+                            <div class="mb-3">
+                                <button name="action_chat_estimate" type="object"
+                                        string="Run AI Estimate" class="btn-primary" icon="fa-calculator"/>
+                                <span class="text-muted ms-3 small">
+                                    Extracts all stops · Adds home→pickup and last stop→home · Calculates fuel, driver, maintenance from your ELD data
+                                </span>
+                            </div>
+                            <div invisible="not x_chat_response">
+                                <field name="x_chat_response" nolabel="1" widget="html" readonly="1"/>
+                            </div>
+                            <separator string="Or: paste text to extract stops only (no calculation)"/>
+                            <group>
                                 <field name="x_route_sheet_text"
                                        nolabel="1"
                                        widget="text"
-                                       placeholder="Example: 'Pick up 18 pallets frozen at 123 Main St Mississauga ON, deliver to 456 Rue King Montreal QC, reefer set to -18C, appointment 8am Thursday'"/>
+                                       style="min-height:80px"
+                                       placeholder="Paste text here then click Extract Stops"/>
                             </group>
                             <div>
                                 <button name="action_parse_route_text" type="object"
-                                        string="Parse &amp; Fill Estimate" class="btn-primary" icon="fa-magic"/>
-                                <span class="text-muted ms-2">
-                                    AI will extract origin, destination, pallets, and weight from your text.
-                                </span>
+                                        string="Extract Stops Only" class="btn-secondary" icon="fa-list"/>
+                                <span class="text-muted ms-2 small">Populates the Stops tab — then go to Stops tab to review before calculating.</span>
                             </div>
                         </page>
                         <page string="Debug" name="debug" groups="base.group_system">

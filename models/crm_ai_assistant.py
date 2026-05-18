@@ -10,7 +10,7 @@ FIX LOG (May 13 2026):
 """
 import logging
 import re
-from datetime import date
+from datetime import date, timedelta
 
 from odoo import api, fields, models
 
@@ -319,13 +319,60 @@ class CrmLeadAIAssistant(models.Model):
         try:
             if result.message_type == 'email':
                 if result.author_id and result.author_id.user_ids:
-                    self.sudo().write({'x_last_outreach_at': fields.Datetime.now()})
+                    # Outgoing: stamp outreach time, clear attention flag
+                    self.sudo().write({
+                        'x_last_outreach_at': fields.Datetime.now(),
+                        'x_needs_attention': False,
+                    })
+                    self._maybe_advance_on_outgoing()
+                    self._maybe_schedule_followup_activity()
                 elif result.author_id and not result.author_id.user_ids:
-                    self.sudo().write({'x_response_status': 'replied'})
+                    # Incoming: customer replied
+                    self.sudo().write({
+                        'x_response_status': 'replied',
+                        'x_needs_attention': True,
+                        'x_reply_received_at': fields.Datetime.now(),
+                    })
                     self._auto_log_reply(result)
         except Exception as exc:
             _logger.debug('message_post tracking error lead %s: %s', self.id, exc)
         return result
+
+    def _maybe_advance_on_outgoing(self):
+        """Outreach → Contacted on first email send; Replied → Onboarding."""
+        stage_name = self.stage_id.name if self.stage_id else ''
+        if stage_name == 'Outreach':
+            contacted = self.env['crm.stage'].sudo().search([('name', '=', 'Contacted')], limit=1)
+            if contacted:
+                self.sudo().write({'stage_id': contacted.id})
+        elif stage_name == 'Replied':
+            onboarding = self.env['crm.stage'].sudo().search([('name', '=', 'Onboarding')], limit=1)
+            if onboarding:
+                self.sudo().write({'stage_id': onboarding.id})
+
+    def _maybe_schedule_followup_activity(self):
+        """Create a follow-up To-Do activity only when emailing from the Outreach stage."""
+        outreach = self.env['crm.stage'].sudo().search([('name', '=', 'Outreach')], limit=1)
+        if not outreach or self.stage_id.id != outreach.id:
+            return
+        # Dedup: skip if an open follow-up activity already exists
+        existing = self.env['mail.activity'].search([
+            ('res_model', '=', 'crm.lead'),
+            ('res_id', '=', self.id),
+            ('summary', '=', 'Follow up if no reply'),
+            ('date_deadline', '>=', fields.Date.today()),
+        ], limit=1)
+        if existing:
+            return
+        todo = self.env.ref('mail.mail_activity_data_todo', raise_if_not_found=False)
+        if not todo:
+            return
+        self.activity_schedule(
+            activity_type_id=todo.id,
+            summary='Follow up if no reply',
+            date_deadline=fields.Date.today() + timedelta(days=4),
+            user_id=self.user_id.id or self.env.uid,
+        )
 
     def _auto_log_reply(self, message):
         """Auto-log incoming reply summary to company and contact records."""

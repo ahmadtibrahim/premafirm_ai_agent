@@ -6,6 +6,7 @@ No GPT calls here — only queue raw structured data.
 """
 import json
 import logging
+from datetime import datetime as _dt
 
 from odoo import api, fields, models
 
@@ -38,6 +39,36 @@ class CrmLeadMLHooks(models.Model):
         'lead_id',
         string='Contact Rotations',
     )
+    x_needs_attention = fields.Boolean(
+        string='Needs Attention',
+        default=False,
+        index=True,
+        help='Set when customer replies; cleared when salesperson sends next email.',
+    )
+    x_referred_by_partner_id = fields.Many2one(
+        'res.partner',
+        string='Referred By',
+        help='Original contact who referred this outreach to another contact.',
+    )
+    x_reply_received_at = fields.Datetime(
+        string='Reply Received At',
+        index=True,
+        help='Timestamp of the last inbound customer email. Used for 3-day/6-day follow-up timers.',
+    )
+    x_kanban_sort_date = fields.Datetime(
+        string='Kanban Sort Date',
+        compute='_compute_kanban_sort_date',
+        store=True,
+        index=True,
+        help='Oldest leads at top: x_last_outreach_at when set, create_date as fallback. Never uses epoch so old never-contacted leads sort ahead of new ones.',
+    )
+
+    @api.depends('x_last_outreach_at', 'create_date')
+    def _compute_kanban_sort_date(self):
+        for lead in self:
+            lead.x_kanban_sort_date = lead.x_last_outreach_at or lead.create_date
+
+    _order = 'x_kanban_sort_date asc, id asc'
 
     def action_snov_escalate_now(self):
         """Manual trigger: search Snov.io for a new contact and create a Suggestion lead.

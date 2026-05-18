@@ -35,6 +35,7 @@
         "data/crm_bulk_email_cron.xml",
         "data/crm_stages.xml",
         "data/crm_followup_cron.xml",
+        "data/crm_workflow_automations.xml",
         "views/ml_knowledge_views.xml",
         "views/ml_draft_views.xml",
         "views/ml_ingestion_views.xml",
@@ -67,6 +68,7 @@
     ],
     "assets": {
         "web.assets_backend": [
+            "premafirm_ai_engine/static/src/css/crm_kanban.css",
             "premafirm_ai_engine/static/src/xml/google_address_widget.xml",
             "premafirm_ai_engine/static/src/js/google_places_utils.js",
             "premafirm_ai_engine/static/src/js/google_address_widget.js",

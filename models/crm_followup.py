@@ -219,3 +219,111 @@ class CrmFollowupCron(models.Model):
             body += f'<br/><b>AI Draft:</b><br/><pre style="white-space:pre-wrap;font-family:inherit">{draft}</pre>'
 
         self.message_post(body=body, subtype_xmlid='mail.mt_note')
+
+    # ── Outreach/Contacted no-reply → Data Collection ────────────────────────
+
+    @api.model
+    def run_outreach_stale_cron(self):
+        """Daily: leads in Outreach or Contacted with no reply after N days → Data Collection."""
+        data_col = self.env['crm.stage'].sudo().search([('name', '=', 'Data Collection')], limit=1)
+        if not data_col:
+            return
+
+        stage_ids = self.env['crm.stage'].sudo().search(
+            [('name', 'in', ['Outreach', 'Contacted'])]
+        ).ids
+        if not stage_ids:
+            return
+
+        try:
+            profile = self.env['premafirm.business.profile'].sudo().get_profile()
+            threshold_days = profile.icp_non_response_days or 7
+        except Exception:
+            threshold_days = 7
+
+        cutoff = fields.Datetime.now() - timedelta(days=threshold_days)
+        leads = self.sudo().search([
+            ('active', '=', True),
+            ('stage_id', 'in', stage_ids),
+            ('x_response_status', '=', 'none'),
+            ('x_last_outreach_at', '!=', False),
+            ('x_last_outreach_at', '<=', cutoff),
+            ('date_closed', '=', False),
+        ])
+
+        for lead in leads:
+            try:
+                lead.sudo().write({'stage_id': data_col.id})
+                lead.message_post(
+                    body=(
+                        f'<b>Auto-moved to Data Collection</b> — '
+                        f'no reply after {threshold_days}+ days of outreach. '
+                        f'Find a new contact to re-approach.'
+                    ),
+                    subtype_xmlid='mail.mt_note',
+                )
+                _logger.info('CRM: lead %s moved to Data Collection (%d-day no-reply)', lead.id, threshold_days)
+            except Exception as exc:
+                _logger.warning('CRM: outreach stale move failed lead %s: %s', lead.id, exc)
+
+    # ── Replied-stage follow-up timers ────────────────────────────────────────
+
+    @api.model
+    def run_replied_warning_cron(self):
+        """Day +3 after customer reply: create warning activity if still in Replied stage."""
+        replied = self.env['crm.stage'].sudo().search([('name', '=', 'Replied')], limit=1)
+        todo = self.env.ref('mail.mail_activity_data_todo', raise_if_not_found=False)
+        if not replied or not todo:
+            return
+        cutoff = fields.Datetime.now() - timedelta(days=3)
+        leads = self.sudo().search([
+            ('active', '=', True),
+            ('stage_id', '=', replied.id),
+            ('x_reply_received_at', '!=', False),
+            ('x_reply_received_at', '<=', cutoff),
+        ])
+        for lead in leads:
+            existing = self.env['mail.activity'].search([
+                ('res_model', '=', 'crm.lead'),
+                ('res_id', '=', lead.id),
+                ('summary', '=', 'Write follow-up reply'),
+                ('date_deadline', '>=', fields.Date.today()),
+            ], limit=1)
+            if existing:
+                continue
+            try:
+                lead.activity_schedule(
+                    activity_type_id=todo.id,
+                    summary='Write follow-up reply',
+                    note='Customer replied 3+ days ago — write a follow-up now.',
+                    date_deadline=fields.Date.today(),
+                    user_id=lead.user_id.id or self.env.uid,
+                )
+                _logger.info('CRM: warning activity created for lead %s (%s)', lead.id, lead.name)
+            except Exception as e:
+                _logger.warning('CRM: warning activity failed for lead %s: %s', lead.id, e)
+
+    @api.model
+    def run_replied_stale_cron(self):
+        """Day +6 after customer reply with no outgoing response: move to Data Collection."""
+        replied = self.env['crm.stage'].sudo().search([('name', '=', 'Replied')], limit=1)
+        data_col = self.env['crm.stage'].sudo().search([('name', '=', 'Data Collection')], limit=1)
+        if not replied or not data_col:
+            return
+        cutoff = fields.Datetime.now() - timedelta(days=6)
+        leads = self.sudo().search([
+            ('active', '=', True),
+            ('stage_id', '=', replied.id),
+            ('x_reply_received_at', '!=', False),
+            ('x_reply_received_at', '<=', cutoff),
+        ])
+        for lead in leads:
+            try:
+                lead.sudo().write({'stage_id': data_col.id})
+                lead.message_post(
+                    body='<b>⚠️ Auto-moved to Data Collection</b> — 6 days since customer reply with no follow-up sent.',
+                    subtype_xmlid='mail.mt_note',
+                )
+                _logger.info('CRM: lead %s moved to Data Collection (6-day stale)', lead.id)
+            except Exception as e:
+                _logger.warning('CRM: stale move failed for lead %s: %s', lead.id, e)

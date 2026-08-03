@@ -99,6 +99,11 @@ class FleetVehicle(models.Model):
     x_max_pallets = fields.Integer(string="Max Pallets")
     x_max_payload_lbs = fields.Float(string="Max Payload (lbs)", digits=(10, 1))
     x_gvwr_lbs = fields.Float(string="GVWR (lbs)", digits=(10, 0))
+    x_operational_logistics = fields.Boolean(
+        string="Operational for Logistics",
+        default=False,
+        help="Only vehicles with this flag count toward phase activation and route-run assignment.",
+    )
     x_vehicle_height_ft = fields.Float(string="Vehicle Height (ft)", digits=(10, 2))
     x_overall_length_ft = fields.Float(string="Overall Length (ft)", digits=(10, 2))
     x_cargo_box_length_ft = fields.Float(string="Cargo Box Length (ft)", digits=(10, 2))
@@ -128,6 +133,17 @@ class FleetVehicle(models.Model):
         string="Monthly Avg km (for costing)",
         help="Last 30 days distance from Geotab, or set manually for cost calculations.",
         digits=(10, 1),
+    )
+    x_driver_rate_per_hr = fields.Float(
+        string="Driver Rate ($/hr)",
+        digits=(6, 2),
+        default=0.0,
+        help=(
+            "Hourly driver cost for rate estimation on this truck.\n"
+            "0 = use the system default from Settings → Technical → System Parameters "
+            "→ estimator.driver_rate_per_hr.\n"
+            "Set a value here to override the system default for this truck only."
+        ),
     )
 
     # ------------------------------------------------------------------

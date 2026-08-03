@@ -50,6 +50,17 @@ class MailComposeMessage(models.TransientModel):
         if not lead:
             return defaults
 
+        # Customer-facing messages for the Logistics Sales team must use the
+        # shared logistics identity.  The administrator account itself uses
+        # notifications@premafirm.com for internal Odoo notifications, which
+        # must not leak into customer correspondence.
+        alias = lead.team_id.alias_id
+        if (
+            alias.alias_name == "sales"
+            and alias.alias_domain_id.name == "logistics.premafirm.com"
+        ):
+            defaults["email_from"] = "PremaFirm Logistics <sales@logistics.premafirm.com>"
+
         # Use dispatch-based draft if the lead has stops data; otherwise use GPT
         stop_ids = getattr(lead, "dispatch_stop_ids", [])
         if stop_ids:
@@ -62,7 +73,8 @@ class MailComposeMessage(models.TransientModel):
     def _build_gpt_draft(self, lead):
         """Generate an AI-drafted reply using full thread + account context."""
         try:
-            api_key = (self.env['ir.config_parameter'].sudo().get_param('openai.api_key') or '').strip()
+            from odoo.addons.premafirm_ai_engine.services.deepseek_utils import get_api_key as _get_deepseek_key
+            api_key = _get_deepseek_key(self.env)
             if not api_key:
                 return None
 
@@ -98,8 +110,9 @@ class MailComposeMessage(models.TransientModel):
             except Exception:
                 tone = 'professional'
 
-            from odoo.addons.premafirm_ai_engine.services.openai_utils import openai_chat
-            draft_text = openai_chat(
+            from odoo.addons.premafirm_ai_engine.services.deepseek_utils import deepseek_chat
+            current_user_name = self.env.user.name or 'the sales rep'
+            draft_text = deepseek_chat(
                 messages=[{
                     'role': 'user',
                     'content': (
@@ -110,8 +123,9 @@ class MailComposeMessage(models.TransientModel):
                     ),
                 }],
                 system=(
-                    'You are Ahmad Ibrahim\'s AI freight sales assistant at PremaFirm Inc., '
+                    f'You are {current_user_name}\'s AI freight sales assistant at PremaFirm Inc., '
                     'a Canadian trucking carrier. Draft professional reply emails for freight sales outreach. '
+                    f'You are writing on behalf of {current_user_name}. '
                     'Be concise and relevant to the conversation. '
                     'Return ONLY the email body text — no subject line, no signature, no extra commentary.'
                 ),

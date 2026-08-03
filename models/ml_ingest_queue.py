@@ -257,9 +257,11 @@ class PremafirmMLIngestQueue(models.Model):
     def _summarize_with_gpt(self, text, doc_name):
         """Use GPT nano to summarize a long document into key facts."""
         try:
-            ICP = self.env['ir.config_parameter'].sudo()
-            api_key = ICP.get_param('openai.api_key')
-            model = ICP.get_param('prema_ai.primary_model', 'gpt-4.1-nano')
+            from odoo.addons.premafirm_ai_engine.services.deepseek_utils import (
+                get_api_key as _get_deepseek_key, get_model as _get_deepseek_model,
+            )
+            api_key = _get_deepseek_key(self.env)
+            model = _get_deepseek_model(self.env)
             if not api_key:
                 return ''
 
@@ -270,14 +272,14 @@ class PremafirmMLIngestQueue(models.Model):
             )
             if services_path not in sys.path:
                 sys.path.insert(0, services_path)
-            from openai_utils import openai_chat
+            from odoo.addons.premafirm_ai_engine.services.deepseek_utils import deepseek_chat
 
             system = (
                 'You are a document analyst. Extract the key facts, figures, services, '
                 'and policies from this business document in a concise format.'
             )
             user_msg = f'Document: {doc_name}\n\n{text[:2000]}'
-            result = openai_chat(
+            result = deepseek_chat(
                 messages=[{'role': 'user', 'content': user_msg}],
                 system=system,
                 max_tokens=512,

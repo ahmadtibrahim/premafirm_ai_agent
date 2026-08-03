@@ -29,4 +29,10 @@
               parent="prema_ai_auditor.menu_prema_root"
               action="action_ifta_fuel_log"
               sequence="22"/>
+
+    <menuitem id="menu_dispatch_estimates"
+              name="Dispatch Estimates"
+              parent="prema_ai_auditor.menu_prema_root"
+              action="action_premafirm_rate_estimator"
+              sequence="5"/>
 </odoo>

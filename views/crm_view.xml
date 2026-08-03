@@ -47,35 +47,62 @@
         </field>
     </record>
 
-    <!-- Opportunities kanban (main desktop pipeline): sort oldest-activity-first -->
+    <!-- Opportunities kanban (main desktop pipeline): needs-attention leads first, then oldest-activity-first -->
     <record id="view_crm_case_kanban_order" model="ir.ui.view">
         <field name="name">crm.lead.kanban.opportunities.order</field>
         <field name="model">crm.lead</field>
         <field name="inherit_id" ref="crm.crm_case_kanban_view_leads"/>
         <field name="arch" type="xml">
             <xpath expr="//kanban" position="attributes">
-                <attribute name="default_order">x_kanban_sort_date asc, id asc</attribute>
+                <attribute name="default_order">x_needs_attention desc, x_attention_reply_sort_at desc, x_kanban_sort_date asc, id asc</attribute>
             </xpath>
         </field>
     </record>
 
-    <!-- Kanban pipeline: sort oldest-outreach-first + x_needs_attention badge -->
+    <!-- Kanban PIPELINE (crm.crm_case_kanban_view_leads, id used by the actual "Pipeline" action salespeople
+         use day-to-day): needs-attention leads first (most recent reply first) + pulsing badge.
+         NOTE: this used to incorrectly inherit crm.view_crm_lead_kanban, which is the separate "Leads" menu's
+         kanban view, not Pipeline's, so the badge/sort silently never applied to Pipeline. Fixed 2026-07-07. -->
     <record id="view_crm_lead_kanban_attention" model="ir.ui.view">
         <field name="name">crm.lead.kanban.attention</field>
         <field name="model">crm.lead</field>
-        <field name="inherit_id" ref="crm.view_crm_lead_kanban"/>
+        <field name="inherit_id" ref="crm.crm_case_kanban_view_leads"/>
         <field name="arch" type="xml">
-            <!-- Sort: oldest activity at top (x_last_outreach_at → create_date fallback), newest at bottom -->
-            <xpath expr="//kanban" position="attributes">
-                <attribute name="default_order">x_kanban_sort_date asc, id asc</attribute>
-            </xpath>
             <!-- Declare fields for card template -->
             <xpath expr="//templates" position="before">
                 <field name="x_needs_attention"/>
                 <field name="x_last_outreach_at"/>
+                <field name="x_reply_received_at"/>
+                <field name="x_attention_reply_sort_at"/>
                 <field name="x_kanban_sort_date"/>
             </xpath>
             <!-- Pulsing red badge before the card footer -->
+            <xpath expr="//t[@t-name='card']/footer" position="before">
+                <t t-if="record.x_needs_attention.raw_value">
+                    <div class="text-danger small fw-bold mt-1 mb-1 premafirm-attention">
+                        <i class="fa fa-reply me-1"/>Needs Attention
+                    </div>
+                </t>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Kanban LEADS menu (crm.view_crm_lead_kanban, id 3724): same pulsing badge, for consistency
+         with leads that haven't been converted to opportunities yet. -->
+    <record id="view_crm_lead_kanban_leads_menu_attention" model="ir.ui.view">
+        <field name="name">crm.lead.kanban.leads.menu.attention</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.view_crm_lead_kanban"/>
+        <field name="arch" type="xml">
+            <xpath expr="//kanban" position="attributes">
+                <attribute name="default_order">x_needs_attention desc, x_attention_reply_sort_at desc, x_kanban_sort_date asc, id asc</attribute>
+            </xpath>
+            <xpath expr="//templates" position="before">
+                <field name="x_needs_attention"/>
+                <field name="x_reply_received_at"/>
+                <field name="x_attention_reply_sort_at"/>
+                <field name="x_kanban_sort_date"/>
+            </xpath>
             <xpath expr="//t[@t-name='card']/footer" position="before">
                 <t t-if="record.x_needs_attention.raw_value">
                     <div class="text-danger small fw-bold mt-1 mb-1 premafirm-attention">
@@ -121,6 +148,14 @@
 
             <!-- Fetch Emails button + Email Segment badge in form header -->
             <xpath expr="//header" position="inside">
+                <button name="action_open_ai_reply_wizard" type="object"
+                        string="AI Reply" class="btn-primary"
+                        icon="fa-magic"
+                        title="Tell the AI what you want to say — it drafts a professional reply from the full thread"/>
+                <button name="action_reply_last_email" type="object"
+                        string="Reply" class="btn-secondary"
+                        icon="fa-reply"
+                        title="Open the compose window threaded to the last incoming email"/>
                 <button name="action_fetch_emails" type="object"
                         string="Fetch Emails" class="btn-secondary"
                         icon="fa-refresh"/>

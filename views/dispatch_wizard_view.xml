@@ -9,14 +9,26 @@
                     <!-- Draft instructions -->
                     <div class="alert alert-info" invisible="status != 'draft'">
                         <strong>How to use:</strong>
-                        Upload the route/load sheet (PDF or image) and enter the job date.
-                        Add any extra notes, then click <em>Analyze with AI</em>.
+                        Either upload a route/load sheet (PDF or image) <em>or</em> describe the job in the
+                        <strong>Job Description / Notes</strong> field below (WhatsApp text, addresses, pallets, date, etc.).
+                        Enter the job date and click <em>Analyze with AI</em>.
                         Review the extracted stops, adjust if needed, then click <em>Create Job &amp; Schedule</em>.
                     </div>
 
                     <!-- Error banner -->
                     <div class="alert alert-danger" invisible="status != 'error'">
                         <strong>Error:</strong> <field name="error_message" readonly="1" nolabel="1"/>
+                    </div>
+
+                    <!-- Existing-job warning — prevents accidentally re-running the planner
+                         on a load that already has a job plan (see dispatch_wizard.py) -->
+                    <div class="alert alert-warning" invisible="not existing_estimator_warning">
+                        <strong>⚠ Existing job plan found:</strong>
+                        <field name="existing_estimator_warning" readonly="1" nolabel="1"/>
+                        <div class="mt-2">
+                            <field name="confirm_duplicate"/>
+                            <label for="confirm_duplicate"/>
+                        </div>
                     </div>
 
                     <!-- Extraction status banner (shows after analyze) -->
@@ -45,9 +57,9 @@
                         </group>
                     </group>
 
-                    <group string="Dispatcher Notes">
+                    <group string="Job Description / Notes">
                         <field name="notes" nolabel="1"
-                               placeholder="Describe the job: pickup location, delivery address, time windows, pallets, special requirements..."/>
+                               placeholder="Paste WhatsApp/SMS text or describe the job: pickup location, delivery address, date, time windows, pallets, special requirements...&#10;&#10;If pre-filled from the invoice, just set the date above and click Analyze with AI."/>
                     </group>
 
                     <!-- Post-analysis: AI plan summary (editable) + stop edits -->
@@ -80,6 +92,28 @@
                                    invisible="status == 'draft'">
                                 <field name="dispatcher_notes" nolabel="1"
                                        placeholder="Add any corrections or extra instructions here (e.g. 'Delivery window changed to 2–4pm', 'Add liftgate to stop 3')..."/>
+                            </group>
+                        </page>
+                        <page string="Rate Confirmation Fields" name="rate_con_fields"
+                              invisible="status == 'draft'">
+                            <p class="text-muted">
+                                Extracted from the uploaded document(s), where present. BOL / PO / Load Ref /
+                                Payment Terms are copied onto the invoice when you click "Create Job &amp; Schedule"
+                                (only if that field is still blank there).
+                            </p>
+                            <group>
+                                <group>
+                                    <field name="extracted_rate_amount"/>
+                                    <field name="extracted_bol_number"/>
+                                    <field name="extracted_po_number"/>
+                                    <field name="extracted_load_reference"/>
+                                </group>
+                                <group>
+                                    <field name="extracted_payment_terms"/>
+                                    <field name="extracted_broker_name"/>
+                                    <field name="extracted_equipment_type"/>
+                                    <field name="extracted_commodity"/>
+                                </group>
                             </group>
                         </page>
                     </notebook>

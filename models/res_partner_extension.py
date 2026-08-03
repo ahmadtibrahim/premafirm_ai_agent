@@ -32,23 +32,110 @@ class ResPartner(models.Model):
     is_driver = fields.Boolean(default=False)
 
     # ------------------------------------------------------------------
-    # Company tag inheritance — additive propagation to child contacts
+    # Company tag inheritance — additive propagation to child contacts,
+    # Province/City auto-tagging, and mirroring onto related CRM leads
     # ------------------------------------------------------------------
 
-    def write(self, vals):
-        company_records = self.filtered("is_company") if "category_id" in vals else self.browse()
-        result = super().write(vals)
-        for company in company_records:
-            if not company.child_ids or not company.category_id:
+    @api.model
+    def _get_or_create_category(self, name):
+        name = (name or "").strip()
+        if not name:
+            return self.env["res.partner.category"]
+        Category = self.env["res.partner.category"]
+        category = Category.search([("name", "=", name)], limit=1)
+        if not category:
+            category = Category.create({"name": name})
+        return category
+
+    def _sync_location_tags(self):
+        """Ensure each company has a Contact Tag for its Province/State and its City."""
+        for partner in self:
+            if not partner.is_company:
                 continue
-            company.child_ids.write({
-                "category_id": [(4, tid) for tid in company.category_id.ids]
-            })
+            names = []
+            if partner.state_id and partner.state_id.name:
+                names.append(partner.state_id.name.strip())
+            if partner.city and partner.city.strip():
+                names.append(partner.city.strip())
+            if not names:
+                continue
+            category_ids = [self._get_or_create_category(name).id for name in names]
+            missing = set(category_ids) - set(partner.category_id.ids)
+            if missing:
+                partner.write({"category_id": [(4, cid) for cid in missing]})
+
+    def _sync_crm_lead_tags(self):
+        """Mirror this partner's Contact Tags onto CRM Tags of its related leads."""
+        if not self:
+            return
+        leads = self.env["crm.lead"].search([("partner_id", "in", self.ids)])
+        if leads:
+            leads._sync_tags_from_partner()
+
+    @api.model
+    def _resolve_contact_parent_company(self, parent):
+        current = parent
+        company = self.env["res.partner"]
+        visited = set()
+        while current and current.id and current.id not in visited:
+            visited.add(current.id)
+            if current.is_company:
+                company = current
+            current = current.parent_id
+        return company
+
+    @api.model
+    def _normalize_parent_company_vals(self, vals, partner=None):
+        vals = dict(vals)
+        is_company = vals.get("is_company")
+        if is_company is None and partner:
+            is_company = partner.is_company
+        if is_company:
+            return vals
+
+        parent_id = vals.get("parent_id")
+        if not parent_id:
+            return vals
+
+        parent = self.browse(parent_id)
+        company = self._resolve_contact_parent_company(parent)
+        if company:
+            vals["parent_id"] = company.id
+        return vals
+
+    def write(self, vals):
+        if "parent_id" in vals or "is_company" in vals:
+            vals = self._normalize_parent_company_vals(vals, partner=self[:1] if len(self) == 1 else None)
+        tags_changing = "category_id" in vals
+        loc_changing = "state_id" in vals or "city" in vals
+        companies_before = (
+            self.filtered("is_company") if (tags_changing or loc_changing) else self.browse()
+        )
+
+        result = super().write(vals)
+
+        if loc_changing and companies_before:
+            companies_before._sync_location_tags()
+
+        if tags_changing:
+            for company in companies_before:
+                if company.child_ids and company.category_id:
+                    company.child_ids.write({
+                        "category_id": [(4, tid) for tid in company.category_id.ids]
+                    })
+
+        if tags_changing or loc_changing:
+            self._sync_crm_lead_tags()
+
         return result
 
     @api.model_create_multi
     def create(self, vals_list):
+        vals_list = [self._normalize_parent_company_vals(vals) for vals in vals_list]
         records = super().create(vals_list)
+        companies = records.filtered("is_company")
+        if companies:
+            companies._sync_location_tags()
         for partner in records:
             if (
                 not partner.is_company

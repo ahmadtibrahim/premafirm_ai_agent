@@ -50,7 +50,30 @@
                                    placeholder="Default email signature block used in outreach..."/>
                         </page>
 
-                        <!-- ── Tab 2: Ideal Customer Profile ── -->
+                        <!-- ── Tab 2: AI Prompts ── -->
+                        <page string="AI Prompts" name="ai_prompts">
+                            <div class="alert alert-info" role="alert">
+                                These prompts control how the AI behaves. Edit the text below and click Save — changes take effect immediately on the next AI request.
+                            </div>
+                            <separator string="AI Role &amp; Behaviour (CRM Chat Widget)"/>
+                            <field name="ai_role_prompt"
+                                   placeholder="Defines the AI persona, responsibilities, and response formats..."
+                                   style="min-height: 300px; font-family: monospace; font-size: 12px;"/>
+                            <separator string="Won Deal Debrief"/>
+                            <field name="ai_won_debrief_prompt"
+                                   placeholder="System instruction sent to GPT when a lead is marked Won..."
+                                   style="min-height: 80px; font-family: monospace; font-size: 12px;"/>
+                            <separator string="Lost Deal Debrief"/>
+                            <field name="ai_lost_debrief_prompt"
+                                   placeholder="System instruction sent to GPT when a lead is marked Lost..."
+                                   style="min-height: 80px; font-family: monospace; font-size: 12px;"/>
+                            <separator string="Account Summary (Company Page)"/>
+                            <field name="ai_account_summary_prompt"
+                                   placeholder="System instruction sent to GPT when generating an Account Summary..."
+                                   style="min-height: 100px; font-family: monospace; font-size: 12px;"/>
+                        </page>
+
+                        <!-- ── Tab 3: Ideal Customer Profile ── -->
                         <page string="Ideal Customer Profile (ICP)" name="icp">
                             <group string="Target Audience">
                                 <group>

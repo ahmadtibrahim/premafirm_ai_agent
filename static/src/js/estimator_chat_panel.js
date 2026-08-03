@@ -221,4 +221,8 @@ class EstimatorChatPanel extends Component {
     }
 }
 
-registry.category("systray").add("premafirm_estimator_chat", EstimatorChatPanel, { sequence: 5 });
+registry.category("systray").add(
+    "premafirm_estimator_chat",
+    { Component: EstimatorChatPanel },
+    { sequence: 5 }
+);

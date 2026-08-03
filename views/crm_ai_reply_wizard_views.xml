@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <record id="view_crm_ai_reply_wizard_form" model="ir.ui.view">
+        <field name="name">premafirm.crm.ai.reply.wizard.form</field>
+        <field name="model">premafirm.crm.ai.reply.wizard</field>
+        <field name="arch" type="xml">
+            <form string="AI Reply">
+                <sheet>
+
+                    <!-- Input state: user types intent -->
+                    <div invisible="state != 'input'">
+                        <div class="alert alert-info" role="alert">
+                            <strong>AI Reply</strong> — Describe what you want to say in plain language.
+                            The AI reads the full email thread and writes a professional reply.
+                        </div>
+                        <field name="user_intent"
+                               nolabel="1"
+                               widget="text"
+                               style="min-height: 130px; font-size: 14px;"
+                               placeholder="Examples:&#10;• The email she provided, no one is answering — I've been trying for 2 weeks&#10;• Tell them we're fully booked this week but available next Monday&#10;• Ask for the PO number before we can confirm the load&#10;• Follow up politely, we haven't heard back since our last quote"/>
+                    </div>
+
+                    <!-- Preview state: show AI draft -->
+                    <div invisible="state != 'preview'">
+                        <div class="alert alert-success" role="alert">
+                            <strong>Draft ready</strong> — Review below, then click
+                            <em>Open in Compose</em> to edit and send.
+                        </div>
+                        <group string="AI Draft">
+                            <field name="draft_body" nolabel="1" widget="html"
+                                   style="min-height: 150px;"/>
+                        </group>
+                    </div>
+
+                    <field name="lead_id" invisible="1"/>
+                    <field name="state" invisible="1"/>
+
+                </sheet>
+                <footer>
+                    <!-- Input state buttons -->
+                    <button name="action_generate_draft" type="object"
+                            string="Draft Reply" class="btn-primary"
+                            invisible="state != 'input'"/>
+
+                    <!-- Preview state buttons -->
+                    <button name="action_open_compose" type="object"
+                            string="Open in Compose" class="btn-primary"
+                            invisible="state != 'preview'"/>
+                    <button name="action_back_to_input" type="object"
+                            string="Edit Intent" class="btn-secondary"
+                            invisible="state != 'preview'"/>
+
+                    <button special="cancel" string="Cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

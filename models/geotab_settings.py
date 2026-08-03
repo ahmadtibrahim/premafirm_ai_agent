@@ -92,26 +92,6 @@ class ResConfigSettings(models.TransientModel):
     )
 
     # ------------------------------------------------------------------
-    # Fleetbase dispatch integration
-    # ------------------------------------------------------------------
-
-    fleetbase_enabled = fields.Boolean(
-        string="Enable Fleetbase Integration",
-        config_parameter="fleetbase.enabled",
-    )
-    fleetbase_api_url = fields.Char(
-        string="Fleetbase API URL",
-        config_parameter="fleetbase.api_url",
-        default="https://api.fleetbase.io",
-        help="Base URL for your Fleetbase instance, e.g. https://api.fleetbase.io",
-    )
-    fleetbase_api_key = fields.Char(
-        string="Fleetbase API Key",
-        config_parameter="fleetbase.api_key",
-        help="Bearer token from Fleetbase › Settings › API Keys",
-    )
-
-    # ------------------------------------------------------------------
     # Test Connection button
     # ------------------------------------------------------------------
 
@@ -173,23 +153,137 @@ class ResConfigSettings(models.TransientModel):
             },
         }
 
-    def action_test_fleetbase_connection(self):
-        from ..services.fleetbase_service import FleetbaseService
-        try:
-            FleetbaseService(self.env).test_connection()
-            return {
-                "type": "ir.actions.client",
-                "tag": "display_notification",
-                "params": {
-                    "title": "Fleetbase Connection OK",
-                    "message": "Successfully connected to Fleetbase API.",
-                    "type": "success",
-                    "sticky": False,
-                },
-            }
-        except Exception as e:
-            raise UserError(f"Fleetbase connection failed: {e}")
+    # ------------------------------------------------------------------
+    # Hub Location (for estimator origin/return)
+    # ------------------------------------------------------------------
 
+    hub_location_name = fields.Char(
+        string="Hub Location Name",
+        config_parameter="estimator.hub_name",
+        help="Name of the central hub/depot. Used as the start/end point for estimator route calculations.",
+    )
+    hub_location_address = fields.Char(
+        string="Hub Address",
+        config_parameter="estimator.hub_address",
+        help="Formatted address of the central hub.",
+    )
+    hub_location_lat = fields.Float(
+        string="Hub Latitude",
+        config_parameter="estimator.hub_lat",
+        digits=(10, 6),
+    )
+    hub_location_lng = fields.Float(
+        string="Hub Longitude",
+        config_parameter="estimator.hub_lng",
+        digits=(10, 6),
+    )
+    hub_location_place_id = fields.Char(
+        string="Hub Google Place ID",
+        config_parameter="estimator.hub_place_id",
+    )
+
+    # ------------------------------------------------------------------
+    # Freight Product Mapping (for booking → invoice product selection)
+    # ------------------------------------------------------------------
+
+    product_ca_dry_ltl_id = fields.Many2one(
+        "product.product", string="Canada Dry LTL Product",
+        config_parameter="logistics.product_ca_dry_ltl_id",
+        help="Product used for Canadian domestic Dry LTL bookings.",
+    )
+    product_ca_reefer_ltl_id = fields.Many2one(
+        "product.product", string="Canada Reefer LTL Product",
+        config_parameter="logistics.product_ca_reefer_ltl_id",
+        help="Product used for Canadian domestic Reefer LTL bookings.",
+    )
+    product_us_dry_ltl_id = fields.Many2one(
+        "product.product", string="USA Dry LTL Product",
+        config_parameter="logistics.product_us_dry_ltl_id",
+        help="Product used for USA/export Dry LTL bookings.",
+    )
+    product_us_reefer_ltl_id = fields.Many2one(
+        "product.product", string="USA Reefer LTL Product",
+        config_parameter="logistics.product_us_reefer_ltl_id",
+        help="Product used for USA/export Reefer LTL bookings. Leave empty if no USA Reefer product exists.",
+    )
+
+    # FTL product mappings
+    product_ca_dry_ftl_id = fields.Many2one(
+        "product.product", string="Canada Dry FTL Product",
+        config_parameter="logistics.product_ca_dry_ftl_id",
+        help="Product used for Canadian domestic Dry FTL bookings.",
+    )
+    product_ca_reefer_ftl_id = fields.Many2one(
+        "product.product", string="Canada Reefer FTL Product",
+        config_parameter="logistics.product_ca_reefer_ftl_id",
+        help="Product used for Canadian domestic Reefer FTL bookings.",
+    )
+    product_us_dry_ftl_id = fields.Many2one(
+        "product.product", string="USA Dry FTL Product",
+        config_parameter="logistics.product_us_dry_ftl_id",
+        help="Product used for USA/export Dry FTL bookings.",
+    )
+    product_us_reefer_ftl_id = fields.Many2one(
+        "product.product", string="USA Reefer FTL Product",
+        config_parameter="logistics.product_us_reefer_ftl_id",
+        help="Product used for USA/export Reefer FTL bookings. Leave empty if none.",
+    )
+
+    # ------------------------------------------------------------------
+    # Freight Tax Configuration (destination-based)
+    # ------------------------------------------------------------------
+
+    freight_tax_ontario_id = fields.Many2one(
+        "account.tax", string="Ontario Freight Tax",
+        config_parameter="logistics.freight_tax_ontario_id",
+        help="Tax applied when final delivery is in Ontario (13% HST).",
+    )
+    freight_tax_quebec_id = fields.Many2one(
+        "account.tax", string="Quebec Freight Tax",
+        config_parameter="logistics.freight_tax_quebec_id",
+        help="Tax applied when final delivery is in Quebec (GST+QST group).",
+    )
+    freight_tax_ns_id = fields.Many2one(
+        "account.tax", string="Nova Scotia Freight Tax",
+        config_parameter="logistics.freight_tax_ns_id",
+        help="Tax applied when final delivery is in Nova Scotia (15% HST).",
+    )
+    freight_tax_nb_id = fields.Many2one(
+        "account.tax", string="New Brunswick Freight Tax",
+        config_parameter="logistics.freight_tax_nb_id",
+        help="Tax applied when final delivery is in New Brunswick (15% HST).",
+    )
+    freight_tax_pei_id = fields.Many2one(
+        "account.tax", string="PEI Freight Tax",
+        config_parameter="logistics.freight_tax_pei_id",
+        help="Tax applied when final delivery is in PEI (15% HST).",
+    )
+    freight_tax_nl_id = fields.Many2one(
+        "account.tax", string="NL Freight Tax",
+        config_parameter="logistics.freight_tax_nl_id",
+        help="Tax applied when final delivery is in Newfoundland & Labrador (15% HST).",
+    )
+    freight_tax_gst_id = fields.Many2one(
+        "account.tax", string="GST Freight Tax",
+        config_parameter="logistics.freight_tax_gst_id",
+        help="Tax applied when final delivery is in AB, BC, MB, SK, NT, YT, or NU (5% GST).",
+    )
+    freight_tax_zero_interlining_id = fields.Many2one(
+        "account.tax", string="Zero Rated Interlining Tax",
+        config_parameter="logistics.freight_tax_zero_interlining_id",
+        help="Tax applied for interlining/subcontract customers (0%).",
+    )
+    freight_tax_zero_international_id = fields.Many2one(
+        "account.tax", string="International Zero Rated Tax",
+        config_parameter="logistics.freight_tax_zero_international_id",
+        help="Tax applied for international/export shipments (0%).",
+    )
+    freight_tax_manual_review_default = fields.Boolean(
+        string="Default Manual Review Status",
+        config_parameter="logistics.freight_tax_manual_review_default",
+        default=False,
+        help="If enabled, bookings with Manual Review tax treatment will be set to Needs Tax Review.",
+    )
 
     # ------------------------------------------------------------------
     # Invoice BCC

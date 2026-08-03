@@ -1,3 +1,5 @@
+import json as _json
+
 from odoo import api, fields, models
 
 
@@ -56,6 +58,56 @@ class PremafirmMLKnowledge(models.Model):
     # Higher weight = more influence on future prompts
     weight = fields.Float(default=1.0)
     active = fields.Boolean(default=True)
+
+    good_output_display = fields.Text(
+        string="Output (Readable)",
+        compute="_compute_good_output_display",
+    )
+
+    @api.depends('good_output', 'knowledge_type')
+    def _compute_good_output_display(self):
+        for rec in self:
+            raw = rec.good_output or ""
+            if rec.knowledge_type == 'bill_import' and (raw.strip().startswith('{') or raw.strip().startswith('[')):
+                try:
+                    data = _json.loads(raw)
+                    if isinstance(data, dict):
+                        lines = []
+                        if data.get('vendor_name'):
+                            lines.append(f"Vendor: {data['vendor_name']}")
+                        accs = data.get('account_codes') or []
+                        if accs:
+                            lines.append(f"Accounts: {', '.join(str(a) for a in accs)}")
+                        prods = data.get('product_names') or []
+                        if prods:
+                            lines.append(f"Products: {', '.join(prods)}")
+                        if data.get('total'):
+                            lines.append(f"Total: {data['total']} {data.get('currency', 'CAD')}")
+                        rec.good_output_display = "\n".join(lines) or raw[:200]
+                    else:
+                        rec.good_output_display = raw[:200]
+                except Exception:
+                    rec.good_output_display = raw[:200]
+            elif rec.knowledge_type == 'rate_quote' and (raw.strip().startswith('{') or raw.strip().startswith('[')):
+                try:
+                    data = _json.loads(raw)
+                    if isinstance(data, dict):
+                        lines = []
+                        if data.get('agreed_rate'):
+                            lines.append(f"Rate: ${data['agreed_rate']}")
+                        if data.get('suggested_rate'):
+                            lines.append(f"Suggested: ${data['suggested_rate']}")
+                        if data.get('vehicle_name'):
+                            lines.append(f"Truck: {data['vehicle_name']}")
+                        if data.get('distance_km'):
+                            lines.append(f"Distance: {data['distance_km']} km")
+                        rec.good_output_display = "\n".join(lines) or raw[:200]
+                    else:
+                        rec.good_output_display = raw[:200]
+                except Exception:
+                    rec.good_output_display = raw[:200]
+            else:
+                rec.good_output_display = (raw[:200] + "...") if len(raw) > 200 else raw
 
     @api.model
     def _search_similar(self, knowledge_type, query_text, limit=5):

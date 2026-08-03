@@ -8,7 +8,7 @@
             <list string="Knowledge Base" default_order="weight desc, create_date desc">
                 <field name="knowledge_type" widget="badge"/>
                 <field name="input_context" string="Situation"/>
-                <field name="good_output" string="Good Output"/>
+                <field name="good_output_display" string="Good Output" optional="show"/>
                 <field name="correction_note" string="Why It Changed" optional="show"/>
                 <field name="origin" widget="badge"
                        decoration-success="origin == 'approved'"
@@ -43,8 +43,15 @@
                                    style="min-height:100px; font-family:inherit;"/>
                         </page>
                         <page string="Good Output">
-                            <field name="good_output" nolabel="1"
-                                   style="min-height:100px; font-family:inherit;"/>
+                            <div style="background:#f0f4ff;border-left:3px solid #6c7dd1;padding:12px;border-radius:4px;white-space:pre-wrap;font-family:inherit;font-size:0.93em;margin-bottom:12px;">
+                                <field name="good_output_display" nolabel="1" readonly="1"
+                                       style="background:transparent;border:none;width:100%;"/>
+                            </div>
+                            <details>
+                                <summary style="cursor:pointer;color:#6c757d;font-size:0.85em;">Show raw data (admin)</summary>
+                                <field name="good_output" nolabel="1"
+                                       style="min-height:80px;font-family:monospace;font-size:0.82em;"/>
+                            </details>
                         </page>
                         <page string="Correction Note">
                             <div class="alert alert-info">
@@ -102,7 +109,7 @@
         <field name="view_mode">list,form</field>
     </record>
 
-    <!-- Buttons on CRM lead form -->
+    <!-- Buttons on CRM lead form — AI Draft Reply + AI Rate Quote -->
     <record id="view_crm_lead_ml_buttons" model="ir.ui.view">
         <field name="name">crm.lead.ml.buttons</field>
         <field name="model">crm.lead</field>
@@ -111,28 +118,20 @@
             <xpath expr="//header" position="inside">
                 <button name="action_ml_draft_reply" type="object"
                         string="AI Draft Reply" class="btn-secondary"
-                        icon="fa-magic"/>
+                        icon="fa-magic"
+                        groups="base.group_system"
+                        help="Generate a context-aware draft reply using ML knowledge from past similar deals"/>
                 <button name="action_ml_rate_quote" type="object"
                         string="AI Rate Quote" class="btn-secondary"
-                        icon="fa-usd"/>
+                        icon="fa-usd"
+                        groups="base.group_system"
+                        help="Generate an AI rate quote for this lead based on past deals and route data"/>
             </xpath>
         </field>
     </record>
 
-    <!-- Button on invoice form -->
-    <record id="view_account_move_ml_button" model="ir.ui.view">
-        <field name="name">account.move.ml.button</field>
-        <field name="model">account.move</field>
-        <field name="inherit_id" ref="account.view_move_form"/>
-        <field name="arch" type="xml">
-            <xpath expr="//div[hasclass('oe_button_box')]" position="inside">
-                <button name="action_ml_flag_invoice" type="object"
-                        class="oe_stat_button" icon="fa-search"
-                        string="AI Review"
-                        invisible="move_type not in ('out_invoice','in_invoice','out_refund','in_refund')"/>
-            </xpath>
-        </field>
-    </record>
+    <!-- NOTE: 'AI: Check for Issues' header button is in account_move_ml_views.xml.
+         The smart-button duplicate has been removed to avoid confusion. -->
 
     <!-- Button on partner form -->
     <record id="view_res_partner_ml_button" model="ir.ui.view">

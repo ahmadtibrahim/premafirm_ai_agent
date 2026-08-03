@@ -42,10 +42,12 @@ class MailBotKC(models.AbstractModel):
             if not profile or not profile.company_overview:
                 return False
 
-            # Step 4 — OpenAI key and model
-            ICP = self.env['ir.config_parameter'].sudo()
-            api_key = ICP.get_param('openai.api_key')
-            model = ICP.get_param('prema_ai.fast_model', 'gpt-4o-mini')
+            # Step 4 — DeepSeek key and model
+            from odoo.addons.premafirm_ai_engine.services.deepseek_utils import (
+                get_api_key as _get_deepseek_key, get_model as _get_deepseek_model,
+            )
+            api_key = _get_deepseek_key(self.env)
+            model = _get_deepseek_model(self.env)
             if not api_key:
                 return False
 

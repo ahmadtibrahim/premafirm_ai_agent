@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ── LIST VIEW ─────────────────────────────────────────── -->
+    <record id="view_prema_attendance_summary_list" model="ir.ui.view">
+        <field name="name">prema.attendance.summary.list</field>
+        <field name="model">prema.attendance.summary</field>
+        <field name="arch" type="xml">
+            <list string="Daily Staff Summaries" default_order="date desc"
+                  decoration-danger="idle_hours > worked_hours * 0.5 and worked_hours > 0"
+                  decoration-warning="idle_hours > worked_hours * 0.3 and worked_hours > 0"
+                  decoration-muted="state == 'no_data'">
+                <field name="date"/>
+                <field name="employee_id" string="Employee"/>
+                <field name="check_in" widget="datetime" string="Check-in"/>
+                <field name="check_out" widget="datetime" string="Check-out"/>
+                <field name="worked_hours" string="Logged h" widget="float_time"/>
+                <field name="active_hours" string="Active h" widget="float_time" optional="show"/>
+                <field name="idle_hours" string="Idle h" widget="float_time" optional="show"/>
+                <field name="calls_outgoing" string="Out Calls" optional="show"/>
+                <field name="calls_incoming" string="In Calls" optional="show"/>
+                <field name="call_duration_minutes" string="Call min" optional="show"/>
+                <field name="messages_count" string="Notes" optional="show"/>
+                <field name="emails_count" string="Emails" optional="show"/>
+                <field name="files_uploaded" string="Files" optional="show"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'done'"
+                       decoration-warning="state == 'pending'"
+                       decoration-danger="state == 'no_data'"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ── FORM VIEW ─────────────────────────────────────────── -->
+    <record id="view_prema_attendance_summary_form" model="ir.ui.view">
+        <field name="name">prema.attendance.summary.form</field>
+        <field name="model">prema.attendance.summary</field>
+        <field name="arch" type="xml">
+            <form string="Daily Staff Summary">
+                <header>
+                    <button name="action_regenerate"
+                            string="Re-generate Summary"
+                            type="object"
+                            class="btn-primary"
+                            confirm="Re-run the summary for this employee on this date?"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="pending,done,no_data"/>
+                </header>
+                <sheet>
+                    <div class="alert alert-danger mb-3" role="alert"
+                         invisible="idle_hours == 0 or worked_hours == 0 or idle_hours / worked_hours &lt; 0.4">
+                        <i class="fa fa-exclamation-triangle me-2"/>
+                        <strong>High Idle Time — </strong>
+                        <field name="idle_hours" widget="float_time" nolabel="1" readonly="1"/> h idle
+                        out of <field name="worked_hours" widget="float_time" nolabel="1" readonly="1"/> h logged.
+                        No Odoo actions (calls, messages, emails, files) detected during those gaps.
+                    </div>
+
+                    <group>
+                        <group string="Employee">
+                            <field name="employee_id" readonly="1"/>
+                            <field name="date" readonly="1"/>
+                        </group>
+                        <group string="Session Times (UTC)">
+                            <field name="check_in" widget="datetime" string="Check-in" readonly="1"/>
+                            <field name="check_out" widget="datetime" string="Check-out" readonly="1"/>
+                            <field name="first_action" widget="datetime" string="First Action" readonly="1"
+                                   invisible="not first_action"/>
+                            <field name="last_action" widget="datetime" string="Last Action" readonly="1"
+                                   invisible="not last_action"/>
+                        </group>
+                    </group>
+
+                    <group>
+                        <group string="Hours Breakdown">
+                            <field name="worked_hours" widget="float_time"
+                                   string="Logged (check-in → check-out)" readonly="1"/>
+                            <field name="active_hours" widget="float_time"
+                                   string="Active (actual Odoo use)" readonly="1"/>
+                            <field name="idle_hours" widget="float_time"
+                                   string="Idle (20+ min gaps)" readonly="1"/>
+                        </group>
+                        <group string="Activity Counts">
+                            <field name="calls_outgoing" string="Outgoing Calls" readonly="1"/>
+                            <field name="calls_incoming" string="Incoming Calls" readonly="1"/>
+                            <field name="call_duration_minutes" string="Total Call Time (min)" readonly="1"/>
+                            <field name="messages_count" string="Notes / Chatter" readonly="1"/>
+                            <field name="emails_count" string="Emails Sent" readonly="1"/>
+                            <field name="files_uploaded" string="Files Uploaded" readonly="1"/>
+                            <field name="activities_count" string="Activities Completed" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Activity Log" name="detail">
+                            <field name="contacts_met" readonly="1" widget="text"
+                                   nolabel="1"
+                                   style="font-family:monospace; font-size:12px; white-space:pre;"/>
+                        </page>
+                        <page string="Idle Periods" name="idle">
+                            <p class="text-muted o_form_label"
+                               invisible="idle_hours > 0">
+                                No significant idle periods — continuous activity throughout the shift.
+                            </p>
+                            <field name="idle_periods_text" readonly="1" widget="text"
+                                   nolabel="1"
+                                   style="font-family:monospace; font-size:12px; white-space:pre;"/>
+                        </page>
+                        <page string="AI Summary" name="ai">
+                            <group>
+                                <field name="ai_summary" readonly="1" widget="text" nolabel="1"/>
+                            </group>
+                        </page>
+                        <page string="AI Advice" name="advice" invisible="not ai_advice">
+                            <group>
+                                <field name="ai_advice" readonly="1" widget="text" nolabel="1"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ── SEARCH VIEW ────────────────────────────────────────── -->
+    <record id="view_prema_attendance_summary_search" model="ir.ui.view">
+        <field name="name">prema.attendance.summary.search</field>
+        <field name="model">prema.attendance.summary</field>
+        <field name="arch" type="xml">
+            <search string="Search Staff Summaries">
+                <field name="employee_id" string="Employee Name"/>
+                <field name="date"/>
+
+                <filter string="Today" name="today"
+                        domain="[('date','=',context_today().strftime('%Y-%m-%d'))]"/>
+                <filter string="Last 7 Days" name="last7"
+                        domain="[('date','&gt;=',(context_today()-datetime.timedelta(days=7)).strftime('%Y-%m-%d'))]"/>
+                <filter string="Last 30 Days" name="last30"
+                        domain="[('date','&gt;=',(context_today()-datetime.timedelta(days=30)).strftime('%Y-%m-%d'))]"/>
+
+                <separator/>
+
+                <filter string="High Idle (over 40%)" name="high_idle"
+                        domain="[('idle_hours','&gt;',0),('worked_hours','&gt;',1)]"/>
+                <filter string="No Activity" name="no_data"
+                        domain="[('state','=','no_data')]"/>
+
+                <separator/>
+
+                <group expand="1" string="Group By">
+                    <filter string="Employee" name="group_employee"
+                            context="{'group_by':'employee_id'}"/>
+                    <filter string="Date" name="group_date"
+                            context="{'group_by':'date:day'}"/>
+                    <filter string="Week" name="group_week"
+                            context="{'group_by':'date:week'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ── ACTION ─────────────────────────────────────────────── -->
+    <record id="action_prema_attendance_summary" model="ir.actions.act_window">
+        <field name="name">Staff Daily Summaries</field>
+        <field name="res_model">prema.attendance.summary</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_prema_attendance_summary_search"/>
+        <field name="context">{"search_default_last7": 1}</field>
+        <field name="groups_id" eval="[(4, ref('base.group_system'))]"/>
+    </record>
+
+    <!-- ── MENU ───────────────────────────────────────────────── -->
+    <menuitem id="menu_prema_attendance_summary_root"
+        name="Staff Daily Summaries"
+        parent="hr_attendance.menu_hr_attendance_root"
+        action="action_prema_attendance_summary"
+        sequence="99"
+        groups="base.group_system"/>
+
+</odoo>

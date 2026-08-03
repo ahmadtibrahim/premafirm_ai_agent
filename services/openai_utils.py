@@ -16,7 +16,9 @@ Respects the Retry-After header when the server sends one.
 
 import logging
 import time
+from datetime import datetime
 
+import pytz
 import requests
 
 _logger = logging.getLogger(__name__)
@@ -24,6 +26,23 @@ _logger = logging.getLogger(__name__)
 OPENAI_CHAT_URL  = "https://api.openai.com/v1/chat/completions"
 DEFAULT_MODEL    = "gpt-4o-mini"   # language/vision tasks — cheapest reliable
 DEFAULT_MODEL_NANO = "gpt-4.1-nano"  # extraction/classification — cheapest text
+
+
+def today_context_line(tz_name="America/Toronto"):
+    """A one-line 'today's actual date' anchor to prepend to any prompt that
+    asks the model to resolve a relative date ('tomorrow', 'next Monday') or
+    invent a missing one. Without an explicit anchor the model has no way to
+    know the real current date and silently falls back to its own guess —
+    observed in production defaulting bookings to 2024 dates on a live 2026
+    server (PremaFirm dispatch bookings created via WhatsApp-text AI
+    extraction). This is a generic LLM failure mode, not specific to one
+    prompt, so every date-reasoning prompt in this module should include it."""
+    try:
+        tz = pytz.timezone(tz_name)
+    except Exception:
+        tz = pytz.timezone("America/Toronto")
+    now_local = datetime.now(pytz.utc).astimezone(tz)
+    return f"Today's actual date is {now_local.strftime('%A, %B %d, %Y')} ({tz_name}). Use this as \"today\" for any relative date — never assume a different year."
 
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 MAX_RETRIES = 3

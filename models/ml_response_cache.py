@@ -83,9 +83,9 @@ class PremafirmMLResponseCache(models.Model):
         )
         if services_path not in sys.path:
             sys.path.insert(0, services_path)
-        from openai_utils import openai_chat
+        from odoo.addons.premafirm_ai_engine.services.deepseek_utils import deepseek_chat
 
-        response = openai_chat(
+        response = deepseek_chat(
             messages=[{'role': 'user', 'content': user_message}],
             system=system_prompt,
             max_tokens=max_tokens,

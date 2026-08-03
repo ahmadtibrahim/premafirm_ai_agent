@@ -10,35 +10,48 @@
 
             <!-- Add AI Assistant tab after the existing tabs -->
             <xpath expr="//notebook" position="inside">
-                <page name="ai_assistant" string="AI Assistant">
+                <page name="ai_assistant" string="AI Assistant" groups="base.group_user">
 
                     <!-- Chat input -->
+                    <div class="alert alert-info mb-2" role="alert" style="font-size:0.88em;">
+                        <strong>Account Manager AI</strong> — reads this contact's full history:
+                        emails, notes, invoices, and related leads. Ask anything or just say
+                        <em>"Review this account"</em> for a full strategic briefing.
+                    </div>
                     <group string="Ask AI">
                         <field name="x_ai_chat_input"
                                nolabel="1"
                                widget="text"
-                               placeholder="Type anything: 'Draft a follow-up email', 'Summarize this account', 'What should I say next?', 'Write a cold outreach for this company'…"/>
+                               style="min-height:70px"
+                               placeholder="Examples:&#10;• Review this account and tell me what to do next&#10;• Draft a follow-up email referencing our last invoice&#10;• Why haven't they replied? What's the best approach?&#10;• What lanes should I pitch to this company?&#10;• Write a rate increase email — be diplomatic"/>
                     </group>
                     <div class="mb-2">
                         <button name="action_ai_chat_send" type="object"
-                                string="Ask AI" class="btn-primary" icon="fa-paper-plane"/>
+                                string="Ask AI" class="btn-primary" icon="fa-paper-plane"
+                                help="AI reads this contact's emails, notes, invoices, and all related leads before answering"/>
                     </div>
 
                     <!-- AI Response -->
-                    <group string="AI Response" invisible="not x_ai_chat_response">
-                        <field name="x_ai_chat_response" nolabel="1" readonly="1" widget="text"/>
-                    </group>
+                    <div invisible="not x_ai_chat_response"
+                         style="background:#f0f4ff;border-left:3px solid #6c7dd1;padding:12px;border-radius:4px;margin-bottom:12px;white-space:pre-wrap;font-family:inherit;">
+                        <field name="x_ai_chat_response" nolabel="1" readonly="1"
+                               style="background:transparent;border:none;width:100%;white-space:pre-wrap;"/>
+                    </div>
 
                     <!-- Action buttons -->
                     <div invisible="not x_ai_chat_response" class="mb-3">
                         <button name="action_ai_compose_email" type="object"
-                                string="Compose Email" class="btn-primary me-2" icon="fa-envelope"/>
+                                string="Send as Email" class="btn-primary me-2" icon="fa-envelope"
+                                help="Open the email composer pre-filled with this AI draft"/>
                         <button name="action_ai_append_company" type="object"
-                                string="→ Company Notes" class="btn-secondary me-1" icon="fa-building"/>
+                                string="→ Company Log" class="btn-secondary me-1" icon="fa-building"
+                                help="Save this AI response as a note on the company record"/>
                         <button name="action_ai_append_contact" type="object"
-                                string="→ Contact Notes" class="btn-secondary me-1" icon="fa-user"/>
+                                string="→ Contact Log" class="btn-secondary me-1" icon="fa-user"
+                                help="Save this AI response as a note on the contact record"/>
                         <button name="action_ai_append_lead" type="object"
-                                string="→ Lead Notes" class="btn-secondary" icon="fa-file-text"/>
+                                string="→ Lead Log" class="btn-secondary" icon="fa-file-text"
+                                help="Save this AI response as a note on this lead"/>
                     </div>
 
                     <separator string="Outreach Tracking"/>

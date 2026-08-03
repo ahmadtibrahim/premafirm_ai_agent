@@ -1,0 +1,347 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         Portal: Quotation Approval + Digital Signature
+         URL: /my/quotes/<id>/sign/<token>
+         ═══════════════════════════════════════════════════════════ -->
+    <template id="portal_quote_sign" name="Quotation Approval">
+        <t t-call="web.layout">
+            <t t-set="head">
+                <title>Approve Quotation — PremaFirm Inc.</title>
+                <style>
+                    body { font-family: Arial, Helvetica, sans-serif; background: #f4f6f9; }
+                    .pf-card {
+                        max-width: 640px; margin: 40px auto; background: #fff;
+                        border-radius: 10px; box-shadow: 0 2px 16px rgba(0,0,0,0.10);
+                        overflow: hidden;
+                    }
+                    .pf-header {
+                        background: #1c3557; color: #fff; padding: 24px 32px 20px;
+                    }
+                    .pf-header h1 { margin: 0; font-size: 20px; font-weight: 700; }
+                    .pf-header p  { margin: 4px 0 0; font-size: 13px; opacity: 0.80; }
+                    .pf-body { padding: 28px 32px; }
+                    .pf-row { display: flex; justify-content: space-between;
+                               border-bottom: 1px solid #e5e7eb; padding: 10px 0; font-size: 14px; }
+                    .pf-row:last-child { border-bottom: none; }
+                    .pf-label { color: #6b7280; font-weight: 600; }
+                    .pf-value { color: #111827; text-align: right; }
+                    .pf-total { font-size: 17px; font-weight: 700; color: #1c3557; }
+                    .pf-divider { border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }
+                    .pf-btn {
+                        display: block; width: 100%; padding: 13px;
+                        border: none; border-radius: 7px; font-size: 15px;
+                        font-weight: 700; cursor: pointer; margin-bottom: 10px; transition: opacity 0.2s;
+                    }
+                    .pf-btn:hover { opacity: 0.88; }
+                    .pf-btn-approve { background: #16a34a; color: #fff; }
+                    .pf-btn-edit    { background: #2563eb; color: #fff; }
+                    .pf-btn-cancel  { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+                    .pf-modal-backdrop {
+                        display: none; position: fixed; inset: 0;
+                        background: rgba(0,0,0,0.50); z-index: 1000;
+                        align-items: center; justify-content: center;
+                    }
+                    .pf-modal-backdrop.active { display: flex; }
+                    .pf-modal {
+                        background: #fff; border-radius: 10px; padding: 28px 32px;
+                        width: 90%; max-width: 480px; box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+                    }
+                    .pf-modal h2 { margin: 0 0 6px; font-size: 18px; color: #1c3557; }
+                    .pf-modal p  { margin: 0 0 16px; font-size: 13px; color: #6b7280; }
+                    .pf-input {
+                        width: 100%; padding: 10px 12px; border: 1.5px solid #d1d5db;
+                        border-radius: 6px; font-size: 14px; margin-bottom: 12px; box-sizing: border-box;
+                    }
+                    .pf-input:focus { border-color: #1c3557; outline: none; }
+                    .pf-consent { font-size: 12px; color: #6b7280; margin-bottom: 16px; }
+                    .pf-consent input { margin-right: 6px; }
+                    .pf-result {
+                        display: none; padding: 20px; border-radius: 8px;
+                        text-align: center; margin-top: 16px;
+                    }
+                    .pf-result.success { background: #f0fdf4; border: 1px solid #bbf7d0; }
+                    .pf-result.error   { background: #fef2f2; border: 1px solid #fecaca; }
+                    .pf-hash { font-family: monospace; font-size: 11px; color: #6b7280;
+                               word-break: break-all; margin-top: 8px; }
+                    textarea.pf-input { height: 90px; resize: vertical; }
+                </style>
+            </t>
+
+            <div class="pf-card">
+                <!-- Header -->
+                <div class="pf-header">
+                    <h1>Quotation Approval</h1>
+                    <p>PremaFirm Inc. — Freight Services</p>
+                </div>
+
+                <div class="pf-body">
+                    <!-- Quotation summary -->
+                    <div class="pf-row">
+                        <span class="pf-label">Quotation #</span>
+                        <span class="pf-value"><t t-out="order.name"/></span>
+                    </div>
+                    <div class="pf-row">
+                        <span class="pf-label">Date</span>
+                        <span class="pf-value"><t t-out="order.date_order.strftime('%B %d, %Y') if order.date_order else '—'"/></span>
+                    </div>
+                    <div class="pf-row">
+                        <span class="pf-label">Valid Until</span>
+                        <span class="pf-value"><t t-out="order.validity_date.strftime('%B %d, %Y') if order.validity_date else '—'"/></span>
+                    </div>
+                    <div t-if="order.order_line" class="pf-row">
+                        <span class="pf-label">Service</span>
+                        <span class="pf-value"><t t-out="order.order_line[0].name[:80] if order.order_line else '—'"/></span>
+                    </div>
+                    <div class="pf-row">
+                        <span class="pf-label pf-total">Total</span>
+                        <span class="pf-value pf-total">
+                            <t t-out="order.currency_id.symbol"/><t t-out="'{:,.2f}'.format(order.amount_total)"/>
+                        </span>
+                    </div>
+
+                    <hr class="pf-divider"/>
+
+                    <!-- Action buttons -->
+                    <button class="pf-btn pf-btn-approve" onclick="openApproveModal()">
+                        &#10003; Approve &amp; Sign
+                    </button>
+                    <button class="pf-btn pf-btn-edit" onclick="openEditModal()">
+                        &#9998; Request Changes
+                    </button>
+                    <button class="pf-btn pf-btn-cancel" onclick="openCancelModal()">
+                        &#10005; Cancel Quotation
+                    </button>
+
+                    <!-- Result area -->
+                    <div id="pf-result" class="pf-result">
+                        <div id="pf-result-msg"></div>
+                        <div id="pf-result-hash" class="pf-hash"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── APPROVE MODAL ── -->
+            <div id="modal-approve" class="pf-modal-backdrop">
+                <div class="pf-modal">
+                    <h2>&#128394; Approve &amp; Sign</h2>
+                    <p>By signing you agree to the quoted rate and terms. A cryptographic
+                       record of this approval will be generated and attached to your quotation.</p>
+                    <input id="signer-name" class="pf-input" type="text"
+                           placeholder="Your full name"
+                           value="" t-att-value="partner_name"/>
+                    <label class="pf-consent">
+                        <input type="checkbox" id="consent-check"/>
+                        I confirm I am authorised to approve this quotation on behalf of my company
+                        and agree to the terms and conditions of PREMAFIRM INC.
+                    </label>
+                    <button class="pf-btn pf-btn-approve" onclick="submitApprove()">Confirm Signature</button>
+                    <button class="pf-btn pf-btn-cancel" onclick="closeModals()">Back</button>
+                </div>
+            </div>
+
+            <!-- ── EDIT MODAL ── -->
+            <div id="modal-edit" class="pf-modal-backdrop">
+                <div class="pf-modal">
+                    <h2>&#9998; Request Changes</h2>
+                    <p>Tell us what you would like to update and our team will review and respond via WhatsApp.</p>
+                    <textarea id="edit-note" class="pf-input"
+                              placeholder="e.g. Can you reduce the rate to $1,800? Or change pickup to Tuesday 9am."></textarea>
+                    <button class="pf-btn pf-btn-edit" onclick="submitEdit()">Send Request</button>
+                    <button class="pf-btn pf-btn-cancel" onclick="closeModals()">Back</button>
+                </div>
+            </div>
+
+            <!-- ── CANCEL MODAL ── -->
+            <div id="modal-cancel" class="pf-modal-backdrop">
+                <div class="pf-modal">
+                    <h2>&#10005; Cancel Quotation</h2>
+                    <p>Are you sure you want to cancel this quotation? This action cannot be undone.</p>
+                    <input id="cancel-reason" class="pf-input" type="text"
+                           placeholder="Optional: reason for cancellation"/>
+                    <button class="pf-btn pf-btn-cancel" style="background:#dc2626;color:#fff;border:none;"
+                            onclick="submitCancel()">Yes, Cancel Quotation</button>
+                    <button class="pf-btn pf-btn-cancel" onclick="closeModals()">Go Back</button>
+                </div>
+            </div>
+
+            <script>
+                var ACCESS_TOKEN = '<t t-out="access_token"/>';
+                var ORDER_ID     = <t t-out="order.id"/>;
+
+                /* ── CSRF token: works for both logged-in and public users ── */
+                function getCsrf() {
+                    /* Try Odoo JS object first, then meta tag fallback */
+                    if (typeof odoo !== 'undefined' &amp;&amp; odoo.csrf_token) return odoo.csrf_token;
+                    var m = document.querySelector('meta[name="csrf-token"]');
+                    if (m) return m.getAttribute('content');
+                    /* Last resort: scrape from Odoo's hidden input if present */
+                    var inp = document.querySelector('input[name="csrf_token"]');
+                    return inp ? inp.value : '';
+                }
+
+                /* ── Modal helpers ── */
+                function openApproveModal() { document.getElementById('modal-approve').classList.add('active'); }
+                function openEditModal()    { document.getElementById('modal-edit').classList.add('active'); }
+                function openCancelModal()  { document.getElementById('modal-cancel').classList.add('active'); }
+                function closeModals() {
+                    ['modal-approve','modal-edit','modal-cancel'].forEach(function(id){
+                        document.getElementById(id).classList.remove('active');
+                    });
+                }
+
+                /* ── Replace the entire card with a full-screen result ── */
+                function showFullPageResult(success, heading, body, subtext) {
+                    var icon  = success ? '✅' : '❌';
+                    var color = success ? '#16a34a' : '#dc2626';
+                    var bg    = success ? '#f0fdf4' : '#fef2f2';
+                    var border= success ? '#bbf7d0' : '#fecaca';
+                    document.querySelector('.pf-card').innerHTML =
+                        '<div style="padding:48px 32px;text-align:center;background:' + bg +
+                        ';border-top:4px solid ' + color + ';">' +
+                        '<div style="font-size:52px;margin-bottom:16px;">' + icon + '</div>' +
+                        '<h2 style="color:' + color + ';margin:0 0 10px;font-size:22px;">' + heading + '</h2>' +
+                        '<p style="color:#374151;font-size:15px;margin:0 0 8px;">' + body + '</p>' +
+                        (subtext ? '<p style="color:#6b7280;font-size:12px;font-family:monospace;margin:12px 0 0;word-break:break-all;">' + subtext + '</p>' : '') +
+                        '</div>';
+                    /* Close any open modals */
+                    closeModals();
+                    /* Scroll to top so the message is visible */
+                    window.scrollTo({top: 0, behavior: 'smooth'});
+                }
+
+                /* ── POST helper ── */
+                function post(data) {
+                    var fd = new FormData();
+                    fd.append('access_token', ACCESS_TOKEN);
+                    fd.append('csrf_token', getCsrf());
+                    for (var k in data) fd.append(k, data[k]);
+                    return fetch('/my/quotes/' + ORDER_ID + '/sign/submit', {
+                        method: 'POST',
+                        body: fd,
+                        headers: {'X-Requested-With': 'XMLHttpRequest'}
+                    }).then(function(resp) {
+                        /* fetch resolves for ALL HTTP statuses — parse JSON regardless */
+                        return resp.json().catch(function() {
+                            /* Response was not JSON (e.g. redirect to HTML) */
+                            return {error: 'Unexpected response from server (status ' + resp.status + ').'};
+                        });
+                    });
+                }
+
+                /* ── Approve ── */
+                function submitApprove() {
+                    var name    = document.getElementById('signer-name').value.trim();
+                    var consent = document.getElementById('consent-check').checked;
+                    if (!name)    { alert('Please enter your full name.'); return; }
+                    if (!consent) { alert('Please check the consent box to confirm you are authorised.'); return; }
+
+                    /* Loading state */
+                    var btn = document.querySelector('#modal-approve .pf-btn-approve');
+                    btn.disabled = true;
+                    btn.textContent = 'Processing…';
+
+                    post({action: 'approve', customer_name: name})
+                        .then(function(r) {
+                            if (r.success) {
+                                showFullPageResult(
+                                    true,
+                                    'Booking Confirmed — Thank You!',
+                                    'Quotation <strong>' + (r.order_name || '') + '</strong> has been approved and confirmed.<br/>' +
+                                    'Signed by <strong>' + (r.customer_name || name) + '</strong> on ' + (r.approved_at || '') + '.<br/>' +
+                                    'Our team has been notified and will be in touch shortly.',
+                                    r.signature_hash ? 'Signature reference: ' + r.signature_hash : ''
+                                );
+                            } else if (r.error &amp;&amp; r.error.indexOf('already been processed') !== -1) {
+                                /* Second click after first succeeded */
+                                showFullPageResult(
+                                    true,
+                                    'Already Confirmed',
+                                    'This quotation has already been approved. Our team has been notified.',
+                                    ''
+                                );
+                            } else {
+                                btn.disabled = false;
+                                btn.textContent = 'Confirm Signature';
+                                closeModals();
+                                showFullPageResult(false, 'Something went wrong',
+                                    r.error || 'Please try again or contact PremaFirm directly.', '');
+                            }
+                        })
+                        .catch(function(err) {
+                            btn.disabled = false;
+                            btn.textContent = 'Confirm Signature';
+                            closeModals();
+                            showFullPageResult(false, 'Network Error',
+                                'Could not reach the server. Please check your connection and try again.', '');
+                        });
+                }
+
+                /* ── Request Changes ── */
+                function submitEdit() {
+                    var note = document.getElementById('edit-note').value.trim();
+                    if (!note) { alert('Please describe the changes you need.'); return; }
+                    post({action: 'edit', edit_note: note})
+                        .then(function(r) {
+                            if (r.success) {
+                                showFullPageResult(
+                                    true,
+                                    'Change Request Sent',
+                                    'Our team will review your request and respond via WhatsApp shortly.',
+                                    ''
+                                );
+                            } else {
+                                closeModals();
+                                showFullPageResult(false, 'Could not send request',
+                                    r.error || 'Please contact us directly.', '');
+                            }
+                        })
+                        .catch(function() {
+                            closeModals();
+                            showFullPageResult(false, 'Network Error',
+                                'Could not reach the server. Please try again.', '');
+                        });
+                }
+
+                /* ── Cancel ── */
+                function submitCancel() {
+                    var reason = document.getElementById('cancel-reason').value.trim();
+                    post({action: 'cancel', cancel_reason: reason})
+                        .then(function(r) {
+                            if (r.success) {
+                                showFullPageResult(
+                                    true,
+                                    'Quotation Cancelled',
+                                    'Your cancellation has been received. We hope to work with you on a future shipment.',
+                                    ''
+                                );
+                            } else {
+                                closeModals();
+                                showFullPageResult(false, 'Could not cancel',
+                                    r.error || 'Please contact us directly.', '');
+                            }
+                        })
+                        .catch(function() {
+                            closeModals();
+                            showFullPageResult(false, 'Network Error',
+                                'Could not reach the server. Please try again.', '');
+                        });
+                }
+            </script>
+        </t>
+    </template>
+
+    <!-- ── Already processed page ── -->
+    <template id="portal_quote_already_processed" name="Quotation Already Processed">
+        <t t-call="web.layout">
+            <div style="max-width:520px;margin:60px auto;text-align:center;font-family:Arial,sans-serif;">
+                <h2 style="color:#1c3557;">Quotation <t t-out="order.name"/></h2>
+                <p style="color:#6b7280;">This quotation has already been processed (status: <strong><t t-out="order.state"/></strong>).</p>
+                <p>If you have questions, please contact us at <a href="mailto:info@premafirm.com">info@premafirm.com</a>
+                   or call <a href="tel:+19059162468">+1-905-916-2468</a>.</p>
+            </div>
+        </t>
+    </template>
+
+</odoo>

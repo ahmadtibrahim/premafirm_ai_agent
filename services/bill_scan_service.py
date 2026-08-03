@@ -6,7 +6,7 @@ from collections import Counter
 
 import requests
 
-from .openai_utils import openai_chat as _openai_chat
+from .deepseek_utils import deepseek_chat, get_api_key, get_model
 
 _logger = logging.getLogger(__name__)
 BILLS_ENTRY_FOLDER = "bills-entry"
@@ -24,16 +24,19 @@ class BillScanService:
     def __init__(self, env):
         self.env = env
 
-    # ── OpenAI API helpers ────────────────────────────────────────────────────
+    # ── DeepSeek API helpers ────────────────────────────────────────────────
 
-    def _get_openai_key(self):
-        key = self.env["ir.config_parameter"].sudo().get_param("openai.api_key")
+    def _get_api_key(self):
+        key = get_api_key(self.env)
         if not key:
             raise ValueError(
-                "OpenAI API key not configured. "
-                "Go to Settings → Technical → System Parameters and add 'openai.api_key'."
+                "DeepSeek API key not configured. Go to Settings → Technical → "
+                "System Parameters and add 'deepseek.api_key' or 'deepseek'."
             )
         return key
+
+    def _get_model(self):
+        return get_model(self.env)
 
     def _extract_json(self, content):
         if not content:
@@ -273,18 +276,41 @@ class BillScanService:
         except Exception:
             _logger.exception("Failed to save bill pattern to ML knowledge")
 
-    # ── OpenAI Vision call ────────────────────────────────────────────────────
+    # ── DeepSeek text-only call (OCR first) ──────────────────────────────────
 
-    def _send_to_openai(self, image_b64, mimetype):
-        api_key = self._get_openai_key()
-        ICP = self.env["ir.config_parameter"].sudo()
-        model = ICP.get_param("prema_ai.vision_model", "gpt-4o-mini")
+    def _ocr_image(self, image_b64):
+        """OCR a base64-encoded image, returning extracted text or empty string."""
+        import base64 as _b64
+        import io as _io
+        try:
+            from PIL import Image
+            import pytesseract
+            img_bytes = _b64.b64decode(image_b64)
+            img = Image.open(_io.BytesIO(img_bytes))
+            text = pytesseract.image_to_string(img, lang="eng")
+            return (text or "").strip()
+        except Exception:
+            _logger.exception("Bill scan OCR failed")
+            return ""
+
+    def _send_to_deepseek(self, image_b64, mimetype):
+        api_key = self._get_api_key()
+        model = self._get_model()
         ml_context = self._get_ml_context()
+
+        # OCR the image first — DeepSeek chat models are text-only
+        ocr_text = self._ocr_image(image_b64)
+        if not ocr_text:
+            raise RuntimeError(
+                "Could not extract text from this bill image. "
+                "The image may be too blurry or low-resolution."
+            )
 
         prompt = (
             "You are a bill/invoice data extraction specialist for PremaFirm Inc., "
             "a Canadian trucking company.\n"
-            "Analyze the scanned bill and extract ALL visible data.\n\n"
+            "Below is OCR-extracted text from a scanned bill. "
+            "Extract ALL visible data from the text.\n\n"
             "Return ONLY valid JSON:\n"
             "{\n"
             '  "vendor_name": "Exact company name on the bill",\n'
@@ -304,26 +330,23 @@ class BillScanService:
             '  "notes": "Payment terms or null"\n'
             "}\n\n"
             "Rules: amounts are plain numbers, dates are YYYY-MM-DD, "
-            "extract every line item, unknown fields → null"
+            "extract every line item, unknown fields → null\n\n"
+            "OCR TEXT FROM SCANNED BILL:\n" + ocr_text
             + ml_context
         )
 
-        data_url = f"data:{mimetype};base64,{image_b64}"
         try:
-            raw = _openai_chat(
-                messages=[{"role": "user", "content": [
-                    {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
-                    {"type": "text", "text": prompt},
-                ]}],
+            raw = deepseek_chat(
+                messages=[{"role": "user", "content": prompt}],
                 max_tokens=2000,
                 api_key=api_key,
                 model=model,
                 timeout=120,
             )
-            _logger.info("Bill scan OpenAI response: %s", raw[:600])
+            _logger.info("Bill scan DeepSeek response: %s", raw[:600])
             return raw, self._extract_json(raw)
         except Exception as exc:
-            raise RuntimeError(f"OpenAI bill scan failed: {exc}") from exc
+            raise RuntimeError(f"DeepSeek bill scan failed: {exc}") from exc
 
     # ── Folder scan (discover only — no processing) ───────────────────────────
 
@@ -384,7 +407,7 @@ class BillScanService:
             mimetype  = att.mimetype or "image/jpeg"
 
             # ── Claude Vision ──────────────────────────────────────────────────
-            raw_json, data = self._send_to_openai(image_b64, mimetype)
+            raw_json, data = self._send_to_deepseek(image_b64, mimetype)
             if not data:
                 imp.write({
                     "state": "error",

@@ -50,6 +50,10 @@ class PremafirmMLDraft(models.Model):
 
     # AI output
     ai_suggestion = fields.Text('AI Suggestion', required=True)
+    ai_suggestion_display = fields.Text(
+        string="AI Suggestion (Readable)",
+        compute="_compute_ai_suggestion_display",
+    )
     ai_reasoning  = fields.Text('AI Reasoning',
         help='Why the AI produced this suggestion — which examples influenced it.')
     examples_used = fields.Integer('Examples Used', default=0,
@@ -406,6 +410,62 @@ class PremafirmMLDraft(models.Model):
             'view_mode': 'form',
             'target': 'current',
         }
+
+    @api.depends('ai_suggestion', 'draft_type')
+    def _compute_ai_suggestion_display(self):
+        for rec in self:
+            raw = rec.ai_suggestion or ""
+            if rec.draft_type == 'bill_autofill' and (raw.strip().startswith('{') or raw.strip().startswith('[')):
+                try:
+                    data = _json.loads(raw)
+                    lines = []
+                    if data.get('vendor_name'):
+                        lines.append(f"Vendor: {data['vendor_name']}")
+                    if data.get('invoice_number'):
+                        lines.append(f"Invoice #: {data['invoice_number']}")
+                    if data.get('invoice_date'):
+                        lines.append(f"Date: {data['invoice_date']}")
+                    if data.get('total_amount'):
+                        lines.append(f"Total: {data['total_amount']} {data.get('currency', 'CAD')}")
+                    if data.get('tax_amount'):
+                        lines.append(f"Tax: {data['tax_amount']}")
+                    items = data.get('line_items') or []
+                    if items:
+                        lines.append("Line Items:")
+                        for item in items:
+                            lines.append(
+                                f"  - {item.get('description', '')}  "
+                                f"qty: {item.get('quantity', '')}  "
+                                f"price: {item.get('unit_price', '')}  "
+                                f"account: {item.get('suggested_account_code', '')}"
+                            )
+                    rec.ai_suggestion_display = "\n".join(lines) or raw
+                except Exception:
+                    rec.ai_suggestion_display = raw
+            elif rec.draft_type == 'rate_conf_autofill' and (raw.strip().startswith('{') or raw.strip().startswith('[')):
+                try:
+                    data = _json.loads(raw)
+                    lines = []
+                    if data.get('rate_conf_number'):
+                        lines.append(f"Rate Conf #: {data['rate_conf_number']}")
+                    if data.get('customer_name'):
+                        lines.append(f"Customer: {data['customer_name']}")
+                    if data.get('total_rate'):
+                        lines.append(f"Rate: ${data['total_rate']} {data.get('currency', 'CAD')}")
+                    if data.get('pickup_date'):
+                        lines.append(f"Pickup Date: {data['pickup_date']}")
+                    if data.get('pickup_location'):
+                        lines.append(f"Pickup: {data['pickup_location']}")
+                    deliveries = data.get('delivery_locations') or []
+                    if deliveries:
+                        lines.append(f"Deliver to: {' → '.join(deliveries)}")
+                    if data.get('special_instructions'):
+                        lines.append(f"Notes: {data['special_instructions']}")
+                    rec.ai_suggestion_display = "\n".join(lines) or raw
+                except Exception:
+                    rec.ai_suggestion_display = raw
+            else:
+                rec.ai_suggestion_display = raw
 
     # ── Learning ───────────────────────────────────────────────────
 

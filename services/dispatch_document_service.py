@@ -53,6 +53,30 @@ class DispatchDocumentService:
     PICKUP_HINTS = ("pickup", "pick up", "origin", "shipper", "loading")
     DELIVERY_HINTS = ("delivery", "drop", "dropoff", "drop off", "consignee", "receiver", "destination")
 
+    # ── Document-level rate-confirmation fields ─────────────────────────
+    # (as opposed to the per-stop fields above, which are captured while
+    # walking the document line-by-line for pickup/delivery structure)
+    BOL_RE = re.compile(
+        r"\b(?:Bill\s+of\s+Lading|BOL|B/L)\s*(?:#|number|no\.?)?\s*[:\-]\s*([A-Za-z0-9\-]+)\b",
+        re.I,
+    )
+    RATE_RE = re.compile(
+        r"\b(?:total\s+rate|line\s*haul\s+rate|freight\s+charge|carrier\s+rate|"
+        r"flat\s+rate|agreed\s+rate|total\s+charge|rate\s+confirm(?:ed|ation)?\s+amount|"
+        r"amount\s+due|rate)\s*[:\-]?\s*\$\s*([\d,]+\.\d{2})",
+        re.I,
+    )
+    PAYMENT_TERMS_RE = re.compile(
+        r"\b(Net\s*\d{1,3}|Due\s+on\s+Receipt|Quick\s*Pay|COD|Prepaid|Collect)\b", re.I
+    )
+    BROKER_RE = re.compile(
+        r"\b(?:Broker|Bill\s*To|Customer(?:\s*Name)?|Shipper\s*Name)\s*[:\-]\s*([^\n]+)", re.I
+    )
+    LOAD_REF_RE = re.compile(
+        r"\b(?:Load|Order|Confirmation)\s*#?\s*[:\-]\s*([A-Za-z0-9\-]+)\b", re.I
+    )
+    COMMODITY_RE = re.compile(r"\bCommodity\s*[:\-]\s*([^\n]+)", re.I)
+
     def __init__(self, env):
         self.env = env
 
@@ -75,9 +99,70 @@ class DispatchDocumentService:
             "raw_text": (text or "")[:2000],
             "used_ai": False,
             "signals": classification.get("signals", []),
+            "document_fields": self._extract_document_fields(merged_text or text or ""),
         }
         self.learn_to_ml(result, source_model=source_model, source_id=source_id, filename=filename)
         return result
+
+    def _extract_document_fields(self, text):
+        """Rate-confirmation fields that apply to the whole document rather
+        than to a single stop: rate/freight amount, BOL #, PO #, payment
+        terms, broker/customer name, load/reference #, equipment type,
+        total weight, and commodity. Best-effort regex extraction, same
+        philosophy as the rest of this service — empty/0 when not present,
+        never fabricated, no paid API call involved."""
+        if not text:
+            return {}
+
+        rate_amount = 0.0
+        rate_match = self.RATE_RE.search(text)
+        if rate_match:
+            try:
+                rate_amount = float(rate_match.group(1).replace(",", ""))
+            except ValueError:
+                rate_amount = 0.0
+
+        bol_match = self.BOL_RE.search(text)
+        payment_match = self.PAYMENT_TERMS_RE.search(text)
+        broker_match = self.BROKER_RE.search(text)
+        load_ref_match = self.LOAD_REF_RE.search(text)
+        commodity_match = self.COMMODITY_RE.search(text)
+
+        lower = text.lower()
+        if "reefer" in lower or "refrigerated" in lower:
+            equipment_type = "reefer"
+        elif "flatbed" in lower:
+            equipment_type = "flatbed"
+        elif "dry van" in lower or re.search(r"\bvan\b", lower):
+            equipment_type = "dry"
+        else:
+            equipment_type = ""
+
+        weight_lbs = 0.0
+        weight_matches = self.WEIGHT_RE.findall(text)
+        if weight_matches:
+            try:
+                weight_lbs = max(float(w.replace(",", "")) for w in weight_matches)
+            except ValueError:
+                weight_lbs = 0.0
+
+        return {
+            "rate_amount": rate_amount,
+            "bol_number": self._clean_line(bol_match.group(1)) if bol_match else "",
+            "po_number": self._extract_po(text),
+            "payment_terms": self._normalize_payment_term(payment_match.group(0)) if payment_match else "",
+            "broker_name": self._clean_line(broker_match.group(1))[:120] if broker_match else "",
+            "load_reference": self._clean_line(load_ref_match.group(1)) if load_ref_match else "",
+            "equipment_type": equipment_type,
+            "weight_lbs": weight_lbs,
+            "commodity": self._clean_line(commodity_match.group(1))[:120] if commodity_match else "",
+        }
+
+    def _normalize_payment_term(self, raw):
+        raw = self._clean_line(raw)
+        if raw.upper() in ("COD", "QUICK PAY"):
+            return raw.upper() if raw.upper() == "COD" else "Quick Pay"
+        return " ".join(w.capitalize() for w in raw.split())
 
     def _extract_text(self, file_b64, mimetype="", filename=""):
         try:

@@ -38,6 +38,16 @@ class CrmLead(models.Model):
     reply_received = fields.Boolean("Reply Received", default=False)
     next_followup_date = fields.Date("Next Follow-up")
     ai_lead_score = fields.Float("AI Lead Score", digits=(5, 1), default=0.0)
+    snov_contact_ids = fields.One2many(
+        "premafirm.snov.contact",
+        "lead_id",
+        string="Snov Contacts",
+    )
+    primary_contact_id = fields.Many2one(
+        "premafirm.snov.contact",
+        string="Primary Snov Contact",
+        ondelete="set null",
+    )
 
     # ── Email segment (tag-based routing) ─────────────────────────
     email_segment = fields.Selection(
@@ -91,3 +101,41 @@ class CrmLead(models.Model):
             if from_addr:
                 kwargs['email_from'] = from_addr
         return super().message_post(**kwargs)
+
+    # ── Tag inheritance from the linked contact/company ───────────
+    # Mirrors partner_id.category_id (Contact Tags, incl. the Province/City
+    # tags stamped on the parent company) onto this lead's CRM Tags.
+
+    def _sync_tags_from_partner(self):
+        Tag = self.env['crm.tag']
+        tag_cache = {}
+        for lead in self:
+            partner = lead.partner_id
+            if not partner or not partner.category_id:
+                continue
+            tag_ids = []
+            for cat in partner.category_id:
+                name = (cat.name or '').strip()
+                if not name:
+                    continue
+                if name not in tag_cache:
+                    tag = Tag.search([('name', '=', name)], limit=1)
+                    if not tag:
+                        tag = Tag.create({'name': name})
+                    tag_cache[name] = tag.id
+                tag_ids.append(tag_cache[name])
+            missing = set(tag_ids) - set(lead.tag_ids.ids)
+            if missing:
+                lead.write({'tag_ids': [(4, tid) for tid in missing]})
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        leads = super().create(vals_list)
+        leads.filtered('partner_id')._sync_tags_from_partner()
+        return leads
+
+    def write(self, vals):
+        result = super().write(vals)
+        if 'partner_id' in vals:
+            self.filtered('partner_id')._sync_tags_from_partner()
+        return result

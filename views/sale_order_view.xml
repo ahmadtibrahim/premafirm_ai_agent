@@ -22,6 +22,16 @@
                 </group>
             </xpath>
 
+            <!-- Send for WhatsApp Approval button -->
+            <xpath expr="//header/button[@name='action_confirm']" position="before">
+                <button name="action_send_wa_for_approval" type="object"
+                        string="Send for WA Approval"
+                        class="btn-primary"
+                        icon="fa-whatsapp"
+                        invisible="state not in ('draft','sent')"
+                        confirm="Send this quotation to the customer via WhatsApp for digital approval?"/>
+            </xpath>
+
             <!-- AI Generate button — draft/sent quotations only -->
             <xpath expr="//header/button[@name='action_confirm']" position="before">
                 <button name="action_ai_generate_quote" type="object"

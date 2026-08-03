@@ -1,5 +1,6 @@
 from . import crm_ai_assistant
 from . import crm_followup
+from . import sale_order_approval
 
 # ML core (migrated from premafirm_ml)
 from . import ml_knowledge
@@ -14,6 +15,7 @@ from . import ml_orm_hooks
 from . import ml_response_cache
 from . import odoo_bot_kc
 from . import crm_contact_rotation
+from . import crm_outreach
 
 from . import crm_lead_extension
 from . import fleet_vehicle_extension
@@ -21,6 +23,7 @@ from . import sale_order_extension
 from . import account_move_extension
 from . import invoice_ai_product
 from . import mail_compose_message
+from . import mail_activity
 
 from . import res_partner_extension
 
@@ -45,6 +48,7 @@ from . import dispatch_wizard
 from . import ml_learning_hooks
 
 from . import crm_bulk_email
+from . import snov_contact
 
 # ML model extensions (migrated from premafirm_ml)
 from . import crm_lead_ml
@@ -63,3 +67,12 @@ from . import documents_kc
 
 # Bank reconciliation currency fix
 from . import account_bank_statement_line
+
+# CRM bulk actions
+from . import crm_bulk_assign
+
+# Attendance AI daily summary + auto check-in/out + coaching
+from . import attendance_summary
+from . import auto_attendance
+from . import staff_coaching
+from . import mail_bot_fix

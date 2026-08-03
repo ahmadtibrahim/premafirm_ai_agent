@@ -1,92 +1,183 @@
 <odoo>
 
-    <!-- SALE ORDER / QUOTATION -->
+    <!-- ═══════════════════════════════════════════════════════════
+         LAYOUT HEADER – Inject CVOR / USDOT / MC below the logo
+         Applies to every report using the Folder layout.
+         ═══════════════════════════════════════════════════════════ -->
+    <template id="external_layout_folder_premafirm_reg"
+              inherit_id="web.external_layout_folder">
+        <xpath expr="//div[contains(@class,'o_folder_company_info')]/div[1]"
+               position="inside">
+            <t t-if="company.x_studio_cvor_number
+                      or company.x_studio_usdot_
+                      or company.x_studio_mc_">
+                <div style="margin-top:3pt;font-size:7pt;color:#4b5563;line-height:1.6;">
+                    <t t-if="company.x_studio_cvor_number">
+                        <strong style="font-weight:700;color:#1c3557;">CVOR #</strong>&#160;<t t-out="company.x_studio_cvor_number"/>
+                    </t>
+                    <t t-if="company.x_studio_usdot_">
+                        &#160;·&#160;<strong style="font-weight:700;color:#1c3557;">USDOT #</strong>&#160;<t t-out="company.x_studio_usdot_"/>
+                    </t>
+                    <t t-if="company.x_studio_mc_">
+                        &#160;·&#160;<strong style="font-weight:700;color:#1c3557;">MC #</strong>&#160;<t t-out="company.x_studio_mc_"/>
+                    </t>
+                </div>
+            </t>
+        </xpath>
+    </template>
+
+
+    <!-- ═══════════════════════════════════════════════════════════
+         SALE ORDER / QUOTATION – Compact layout + Terms
+         ═══════════════════════════════════════════════════════════ -->
     <template id="report_saleorder_document_inherit_company_info"
               inherit_id="sale.report_saleorder_document">
 
-        <!-- flex-basis:100% forces a new row in the #informations flex container
-             so the regulatory block sits below the date/reference columns. -->
-        <xpath expr="//div[@id='informations']" position="inside">
-            <div style="flex-basis:100%;width:100%;margin-top:6pt;padding-top:4pt;border-top:1px solid #dee2e6;font-size:0.85em;">
-                <t t-if="o.company_id.x_studio_cvor_number">
-                    <strong>CVOR #:</strong>&#160;<span t-field="o.company_id.x_studio_cvor_number"/>&#160;&#160;&#160;
-                </t>
-                <t t-if="o.company_id.x_studio_usdot_">
-                    <strong>USDOT #:</strong>&#160;<span t-field="o.company_id.x_studio_usdot_"/>&#160;&#160;&#160;
-                </t>
-                <t t-if="o.company_id.x_studio_mc_">
-                    <strong>MC #:</strong>&#160;<span t-field="o.company_id.x_studio_mc_"/>&#160;&#160;&#160;
-                </t>
-                <t t-if="o.company_id.vat">
-                    <strong>HST #:</strong>&#160;<span t-field="o.company_id.vat"/>
-                </t>
+        <!-- ① Global CSS: compact, clean, 1-page friendly -->
+        <xpath expr="//div[@id='informations']" position="before">
+            <style type="text/css">
+                /* ── Base ── */
+                .page {
+                    font-family: Arial, Helvetica, sans-serif;
+                    font-size: 9pt;
+                    color: #1c1c2e;
+                    line-height: 1.25;
+                }
+
+                /* ── Informations row: tighter ── */
+                .row.mb-4#informations,
+                div#informations { margin-bottom: 4pt !important; }
+
+                #informations strong {
+                    display: block;
+                    font-size: 7.5pt;
+                    font-weight: 700;
+                    text-transform: uppercase;
+                    letter-spacing: 0.3pt;
+                    color: #6b7280;
+                    margin-bottom: 1pt;
+                }
+                #informations .col { padding-top: 0; padding-bottom: 2pt; }
+                #informations .col > div,
+                #informations .col > span { font-size: 9pt; }
+
+                /* ── Main table: maximum compactness ── */
+                .o_main_table { margin-top: 4pt !important; margin-bottom: 2pt !important; }
+
+                .o_main_table thead th {
+                    background-color: #1c3557 !important;
+                    color: #ffffff !important;
+                    font-size: 8pt;
+                    font-weight: 700;
+                    padding: 3.5pt 4pt !important;
+                    border: none !important;
+                    text-transform: uppercase;
+                    letter-spacing: 0.25pt;
+                }
+
+                .o_main_table tbody td {
+                    font-size: 8.5pt;
+                    padding: 2pt 4pt !important;
+                    vertical-align: top;
+                    border-top: none !important;
+                    border-bottom: 0.4pt solid #e5e7eb !important;
+                    line-height: 1.25;
+                }
+
+                /* Repeat headers on page 2+ */
+                .o_main_table thead { display: table-header-group !important; }
+
+                /* Note rows */
+                .o_main_table tbody tr.o_line_note td {
+                    border-top: none !important;
+                    padding-top: 0pt !important;
+                    padding-bottom: 2pt !important;
+                    padding-left: 10pt !important;
+                    font-style: italic;
+                    font-size: 8pt;
+                    color: #6b7280;
+                }
+
+                /* Section rows */
+                .o_main_table tbody tr.o_line_section td {
+                    font-weight: 700;
+                    font-size: 8.5pt;
+                    background-color: #f3f4f6;
+                    border-top: 0.5pt solid #9ca3af !important;
+                    border-bottom: 0.5pt solid #9ca3af !important;
+                    padding: 2pt 4pt !important;
+                }
+
+                /* ── Totals: compact ── */
+                .o_total_table { margin-top: 2pt !important; }
+                .o_total_table td { font-size: 8.5pt; padding: 1.5pt 4pt !important; }
+                div#total { margin-top: 0 !important; }
+                .clearfix[name="so_total_summary"] { margin-top: 2pt !important; }
+
+                /* ── Signature ── */
+                div[name="signature"] { margin-top: 6pt !important; }
+
+                /* ── Notes at bottom ── */
+                span[name="order_note"],
+                span[name="order_note"] p { font-size: 8pt; color: #4b5563; line-height: 1.3; }
+
+                /* ── Kill Studio blank spacers ── */
+                .oe_structure > br { display: none !important; }
+                div.oe_structure:empty { margin: 0 !important; padding: 0 !important; min-height: 0 !important; }
+
+                /* ── Terms strip at bottom ── */
+                .pf-terms {
+                    display: block;
+                    margin-top: 8pt;
+                    padding-top: 5pt;
+                    border-top: 0.5pt solid #9ca3af;
+                    font-size: 7pt;
+                    color: #6b7280;
+                    line-height: 1.4;
+                }
+            </style>
+        </xpath>
+
+        <!-- ② Remove the Salesperson column -->
+        <xpath expr="//div[@id='informations']/div[div[@t-field='doc.user_id']]"
+               position="replace">
+            <t/>
+        </xpath>
+
+        <!-- ③ Terms strip after the order note / payment terms block -->
+        <xpath expr="//span[@name='order_note']/.." position="after">
+            <div class="pf-terms">
+                <strong>Terms &amp; Conditions:</strong>&#160;All services are subject to
+                PREMAFIRM INC. Terms &amp; Conditions. Additional charges may apply for
+                detention, waiting time, TONU, layovers, re-delivery, return freight,
+                customs delays, denied border entry, or incorrect shipment information
+                provided at booking.
             </div>
         </xpath>
 
     </template>
 
 
-    <!-- INVOICE -->
+    <!-- ═══════════════════════════════════════════════════════════
+         INVOICE – table / note styling
+         ═══════════════════════════════════════════════════════════ -->
     <template id="report_invoice_document_inherit_company_info"
               inherit_id="account.report_invoice_document">
 
-        <!--
-            Approach: do NOT touch #informations (the dates flex row) at all.
-            wkhtmltopdf uses old WebKit that does not support flex-basis:100% line
-            breaks reliably, so any injection inside that row risks date overlap.
-
-            Instead, inject everything right before the invoice lines table:
-              1. A <style> block for PDF-specific fixes (page-2 headers, note rows).
-              2. The regulatory bar as a clean standalone block.
-        -->
         <xpath expr="//table[@name='invoice_line_table']" position="before">
-
             <style type="text/css">
-                /*
-                 * Repeat Description / Qty / Unit Price / Taxes / Amount column
-                 * headers on every page when the invoice spans more than one page.
-                 * table-header-group is the standard CSS value; !important ensures
-                 * it wins even if another rule or inline style is present.
-                 */
-                .o_main_table thead {
-                    display: table-header-group !important;
-                }
+                .o_main_table thead { display: table-header-group !important; }
 
-                /*
-                 * Note / description rows (line_note): remove the top border that
-                 * Bootstrap tables normally add between rows, reduce the top padding,
-                 * and indent slightly so the text reads as a continuation of the
-                 * product line immediately above — not as a floating paragraph.
-                 */
                 .o_main_table tbody tr.o_line_note td {
                     border-top: none !important;
                     padding-top: 1pt;
-                    padding-bottom: 5pt;
+                    padding-bottom: 3pt;
                     padding-left: 12pt;
-                    font-style: normal;
-                    font-size: 0.88em;
-                    color: #2d2d2d;
+                    font-style: italic;
+                    font-size: 7.5pt;
+                    color: #4b5563;
                 }
             </style>
-
-            <!-- Regulatory bar: clean one-liner above the invoice lines table.
-                 Completely separate from the dates row — no overlap possible. -->
-            <div t-if="o.company_id.x_studio_cvor_number or o.company_id.x_studio_usdot_ or o.company_id.x_studio_mc_ or o.company_id.vat"
-                 style="margin-bottom:6pt; padding:3pt 0; border-top:0.5pt solid #adb5bd; border-bottom:0.5pt solid #adb5bd; font-size:0.84em;">
-                <t t-if="o.company_id.x_studio_cvor_number">
-                    <strong>CVOR #:</strong>&#160;<span t-field="o.company_id.x_studio_cvor_number"/>&#160;&#160;&#160;
-                </t>
-                <t t-if="o.company_id.x_studio_usdot_">
-                    <strong>USDOT #:</strong>&#160;<span t-field="o.company_id.x_studio_usdot_"/>&#160;&#160;&#160;
-                </t>
-                <t t-if="o.company_id.x_studio_mc_">
-                    <strong>MC #:</strong>&#160;<span t-field="o.company_id.x_studio_mc_"/>&#160;&#160;&#160;
-                </t>
-                <t t-if="o.company_id.vat">
-                    <strong>HST #:</strong>&#160;<span t-field="o.company_id.vat"/>
-                </t>
-            </div>
-
         </xpath>
 
     </template>

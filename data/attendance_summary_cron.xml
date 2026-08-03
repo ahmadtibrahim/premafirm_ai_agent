@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- Runs at 23:00 UTC = 6:00 PM EST = 7:00 PM EDT daily -->
+        <record id="cron_prema_attendance_summary" model="ir.cron">
+            <field name="name">PremaFirm: Daily Attendance AI Summary (6PM EST)</field>
+            <field name="model_id" ref="model_prema_attendance_summary"/>
+            <field name="state">code</field>
+            <field name="code">model._run_daily_summary()</field>
+            <field name="active">True</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="nextcall" eval="(datetime.now() + timedelta(days=1)).replace(hour=23, minute=0, second=0, microsecond=0).strftime('%Y-%m-%d %H:%M:%S')"/>
+            <field name="user_id" ref="base.user_root"/>
+        </record>
+        <!-- Weekly staff coaching: every Monday at 10:00 UTC = 6:00 AM EDT (Toronto) -->
+        <record id="cron_prema_weekly_coaching" model="ir.cron">
+            <field name="name">PremaFirm: Weekly Staff Review &amp; Coaching (Monday 6AM EST)</field>
+            <field name="model_id" ref="model_prema_staff_coaching_config"/>
+            <field name="state">code</field>
+            <field name="code">model._run_weekly_coaching()</field>
+            <field name="active">True</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">weeks</field>
+            <field name="nextcall" eval="(datetime.now() + timedelta(days=(7 - datetime.now().weekday()) % 7)).replace(hour=10, minute=0, second=0, microsecond=0).strftime('%Y-%m-%d %H:%M:%S')"/>
+            <field name="user_id" ref="base.user_root"/>
+        </record>
+
+        <!-- Auto check-out: runs every 15 minutes, closes stale attendance records -->
+        <record id="cron_prema_auto_checkout" model="ir.cron">
+            <field name="name">PremaFirm: Auto Check-out Offline Employees (every 15 min)</field>
+            <field name="model_id" ref="bus.model_bus_presence"/>
+            <field name="state">code</field>
+            <field name="code">model._auto_checkout_offline_employees()</field>
+            <field name="active">True</field>
+            <field name="interval_number">15</field>
+            <field name="interval_type">minutes</field>
+            <field name="nextcall" eval="(datetime.now() + timedelta(minutes=15)).strftime('%Y-%m-%d %H:%M:%S')"/>
+            <field name="user_id" ref="base.user_root"/>
+        </record>
+    </data>
+</odoo>

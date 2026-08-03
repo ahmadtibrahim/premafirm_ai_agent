@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="sale_order_approval_signature_tab" model="ir.ui.view">
+        <field name="name">sale.order.approval.signature.tab</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Customer Signature tab — injected after "Other Info" -->
+            <xpath expr="//page[@name='other_information']" position="after">
+                <page name="customer_signature" string="Customer Signature"
+                      invisible="not approval_signature_ids">
+
+                    <!-- Summary bar -->
+                    <group col="4">
+                        <field name="x_customer_approved_by"    string="Approved By"    readonly="1"/>
+                        <field name="x_customer_approved_at"    string="Approved At"    readonly="1"/>
+                        <field name="x_customer_approval_method" string="Method"        readonly="1"/>
+                        <field name="x_customer_approval_ip"    string="IP Address"     readonly="1"/>
+                    </group>
+
+                    <separator string="Signature Records"/>
+
+                    <field name="approval_signature_ids" readonly="1" nolabel="1">
+                        <list string="Signatures">
+                            <field name="customer_name"/>
+                            <field name="approved_at"/>
+                            <field name="approval_method"/>
+                            <field name="ip_address"/>
+                            <field name="document_hash" string="Doc Hash" optional="show"/>
+                            <field name="is_verified"   string="Valid?" widget="boolean"/>
+                            <button name="action_verify" type="object" string="Verify"
+                                    icon="fa-shield" class="btn-sm btn-secondary"/>
+                        </list>
+                        <form string="Signature Detail">
+                            <group col="2">
+                                <field name="customer_name"   readonly="1"/>
+                                <field name="approved_at"     readonly="1"/>
+                                <field name="approval_method" readonly="1"/>
+                                <field name="ip_address"      readonly="1"/>
+                                <field name="is_verified"     readonly="1" widget="boolean"/>
+                            </group>
+                            <group string="Cryptographic Proof" col="1">
+                                <field name="signed_payload"  readonly="1" string="Signed Payload"/>
+                                <field name="document_hash"   readonly="1" string="SHA-256 Hash"/>
+                                <field name="signature_b64"   readonly="1" string="RSA Signature (base64)"/>
+                                <field name="public_key_pem"  readonly="1" string="Public Key (PEM)"
+                                       widget="text"/>
+                            </group>
+                            <footer>
+                                <button name="action_verify" type="object"
+                                        string="Verify RSA Signature" class="btn-primary"/>
+                            </footer>
+                        </form>
+                    </field>
+
+
+                </page>
+            </xpath>
+
+        </field>
+    </record>
+
+    <!-- ── sale.order.approval list/form views ── -->
+    <record id="sale_order_approval_list_view" model="ir.ui.view">
+        <field name="name">sale.order.approval.list</field>
+        <field name="model">sale.order.approval</field>
+        <field name="arch" type="xml">
+            <list string="Customer Approvals" decoration-success="is_verified" decoration-danger="not is_verified">
+                <field name="sale_order_id"/>
+                <field name="customer_name"/>
+                <field name="approved_at"/>
+                <field name="approval_method"/>
+                <field name="ip_address"/>
+                <field name="document_hash" string="Hash (first 16)" optional="show"/>
+                <field name="is_verified" string="Verified" widget="boolean"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="sale_order_approval_form_view" model="ir.ui.view">
+        <field name="name">sale.order.approval.form</field>
+        <field name="model">sale.order.approval</field>
+        <field name="arch" type="xml">
+            <form string="Customer Approval Signature" create="false" edit="false">
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_verify" type="object" class="oe_stat_button"
+                                icon="fa-shield">
+                            <div class="o_field_widget o_stat_info">
+                                <span class="o_stat_text">Verify RSA</span>
+                            </div>
+                        </button>
+                    </div>
+                    <group>
+                        <group string="Approval Details">
+                            <field name="sale_order_id"/>
+                            <field name="customer_name"/>
+                            <field name="approved_at"/>
+                            <field name="approval_method"/>
+                            <field name="ip_address"/>
+                            <field name="user_agent"/>
+                            <field name="is_verified" widget="boolean"/>
+                        </group>
+                        <group string="Cryptographic Proof">
+                            <field name="document_hash"  string="SHA-256 Hash"/>
+                            <field name="signed_payload" string="Signed Payload"/>
+                        </group>
+                    </group>
+                    <group string="RSA Signature">
+                        <field name="signature_b64"  string="Signature (base64)" widget="text" readonly="1"/>
+                        <field name="public_key_pem" string="Public Key (PEM)"   widget="text" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+</odoo>

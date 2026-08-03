@@ -2,21 +2,21 @@
 <templates xml:space="preserve">
 
     <t t-name="premafirm_ai_engine.EstimatorChatPanel">
+        <li class="o_nav_entry d-flex align-items-center o_premafirm_est_root">
 
-        <!-- ── Systray trigger button ───────────────────────────────── -->
-        <li class="o_nav_entry d-flex align-items-center">
+            <!-- Systray trigger button -->
             <button class="o_premafirm_est_btn" t-on-click="togglePanel" title="Open Trip Cost Estimator">
                 <i class="fa fa-calculator"/>
                 <span>Estimator</span>
             </button>
-        </li>
 
-        <!-- ── Backdrop + panel (shown when open) ───────────────────── -->
-        <t t-if="state.panelOpen">
+            <!-- Backdrop (fixed, outside panel flow) -->
+            <div t-if="state.panelOpen"
+                 class="o_premafirm_est_backdrop"
+                 t-on-click="togglePanel"/>
 
-            <div class="o_premafirm_est_backdrop" t-on-click="togglePanel"/>
-
-            <div class="o_premafirm_est_panel">
+            <!-- Sliding panel -->
+            <div t-if="state.panelOpen" class="o_premafirm_est_panel">
 
                 <!-- Header -->
                 <div class="o_premafirm_est_header">
@@ -47,7 +47,7 @@
                         <label><i class="fa fa-truck me-1"/>Truck</label>
                         <select class="form-select form-select-sm"
                                 t-on-change="onVehicleChange">
-                            <option value="">— Select Truck —</option>
+                            <option value="">&#8212; Select Truck &#8212;</option>
                             <t t-foreach="state.vehicles" t-as="v" t-key="v.id">
                                 <option t-att-value="v.id"
                                         t-att-selected="state.vehicleId === v.id"
@@ -56,23 +56,22 @@
                         </select>
                     </div>
 
-                    <!-- ── CHAT MODE ─────────────────────────────────── -->
+                    <!-- CHAT MODE -->
                     <t t-if="state.mode === 'chat'">
                         <div class="mb-2">
                             <label><i class="fa fa-comment me-1"/>Rate Request Message</label>
                             <textarea class="form-control form-control-sm"
                                       rows="9"
-                                      placeholder="Paste your WhatsApp message, email, or type the rate request here...&#10;&#10;Example:&#10;Tomorrow's Run&#10;Pickup orders at 115 Chambers Drive, Ajax ON&#10;Deliver order to Sal's grocery&#10;Pickup 1 pallet for F4L Lindsay at Grandview Discount Foods&#10;Deliver 7 pallets total to: F4L Lindsay, 62 Riverview Road, Lindsay ON&#10;Deliver 2 pallets to: Sharpes Warehouse, 34 Tanner Industrial Park, Campbellford ON&#10;Deliver 1 pallet to: Nofrills Belleville, 211 Bell Blvd, Belleville ON"
+                                      placeholder="Paste your WhatsApp message, email, or type the rate request here..."
                                       t-att-value="state.chatText"
                                       t-on-input="onChatInput"/>
                         </div>
                     </t>
 
-                    <!-- ── FILES MODE ────────────────────────────────── -->
+                    <!-- FILES MODE -->
                     <t t-if="state.mode === 'files'">
                         <div class="mb-2">
                             <label><i class="fa fa-file-pdf-o me-1"/>Bill of Lading / Route Sheet</label>
-                            <!-- Drop zone -->
                             <div class="o_premafirm_est_dropzone"
                                  t-att-class="state.dragOver ? 'drag-over' : ''"
                                  t-on-drop="onFilesDrop"
@@ -81,9 +80,8 @@
                                  t-on-click="onDropzoneClick">
                                 <i class="fa fa-cloud-upload dz-icon"/>
                                 <p>Drop PDFs or images here</p>
-                                <p class="dz-hint">or click to browse &nbsp;·&nbsp; Multiple files supported</p>
+                                <p class="dz-hint">or click to browse &#160;&#183;&#160; Multiple files supported</p>
                             </div>
-                            <!-- Hidden file input -->
                             <input t-ref="fileInput"
                                    type="file"
                                    class="d-none"
@@ -91,7 +89,6 @@
                                    multiple="multiple"
                                    t-on-change="onFilesChange"/>
 
-                            <!-- File chips -->
                             <div t-if="state.files.length > 0" class="o_premafirm_est_file_list">
                                 <t t-foreach="state.files" t-as="file" t-key="file_index">
                                     <div class="o_premafirm_est_file_chip">
@@ -101,7 +98,7 @@
                                         <button class="fc-remove"
                                                 t-att-data-index="file_index"
                                                 t-on-click="onRemoveFileClick"
-                                                title="Remove">×</button>
+                                                title="Remove">&#215;</button>
                                     </div>
                                 </t>
                             </div>
@@ -130,7 +127,7 @@
                             t-on-click="onSubmit">
                         <t t-if="state.loading">
                             <span class="spinner-border spinner-border-sm"/>
-                            Calculating…
+                            Calculating&#8230;
                         </t>
                         <t t-else="">
                             <i class="fa fa-calculator"/>
@@ -164,7 +161,7 @@
                 </div><!-- /body -->
             </div><!-- /panel -->
 
-        </t>
+        </li>
     </t>
 
 </templates>

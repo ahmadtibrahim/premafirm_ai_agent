@@ -13,7 +13,7 @@
                 <field name="create_date" string="Generated"/>
                 <field name="draft_type" widget="badge"/>
                 <field name="source_ref" string="Source" optional="show"/>
-                <field name="ai_suggestion" string="AI Suggestion" optional="show"/>
+                <field name="ai_suggestion_display" string="AI Suggestion" optional="show"/>
                 <field name="examples_used" string="Examples" optional="show"/>
                 <field name="status" widget="badge"
                        decoration-warning="status == 'pending'"
@@ -81,11 +81,17 @@
                         <page string="AI Suggestion" name="ai_suggestion">
                             <div class="alert alert-info mb-2" invisible="status != 'pending'">
                                 <i class="fa fa-lightbulb-o me-2"/>
-                                Review the AI suggestion below. You can copy it, edit it in
+                                Review the AI suggestion below. Copy it, edit it in
                                 <strong>Final Version</strong>, then click <strong>Approve Edited Version</strong>.
-                                Or click <strong>Approve As-Is</strong> if it looks perfect.
+                                Or click <strong>Approve As-Is</strong> if it looks correct.
+                            </div>
+                            <div invisible="draft_type not in ('bill_autofill','rate_conf_autofill')"
+                                 style="background:#f0f4ff;border-left:3px solid #6c7dd1;padding:12px;border-radius:4px;white-space:pre-wrap;font-family:inherit;font-size:0.93em;">
+                                <field name="ai_suggestion_display" nolabel="1" readonly="1"
+                                       style="background:transparent;border:none;width:100%;"/>
                             </div>
                             <field name="ai_suggestion" nolabel="1"
+                                   invisible="draft_type in ('bill_autofill','rate_conf_autofill')"
                                    readonly="status != 'pending'"
                                    style="min-height:140px; font-family: inherit;"/>
                         </page>

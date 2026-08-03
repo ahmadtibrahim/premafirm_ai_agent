@@ -15,6 +15,38 @@ from odoo import api, exceptions, fields, models
 
 _logger = logging.getLogger(__name__)
 
+# AI extraction prompts across this module disagree on the literal stop-type
+# string to use — some say "pickup|delivery", the WhatsApp/invoice-text
+# prompt in invoice_ai_service.py says "pickup|dropoff" — but
+# premafirm.estimator.stop.stop_type only actually accepts pickup/delivery/
+# return/origin. An unrecognized value used to raise deep inside the
+# stop-creation loop below, silently truncating every stop after it (the
+# invoice would still be created fine, just with fewer stops than extracted —
+# only a server log line, nothing a dispatcher would ever see).
+_STOP_TYPE_ALIASES = {
+    "pickup": "pickup", "pick-up": "pickup", "pick_up": "pickup",
+    "origin": "origin",
+    "delivery": "delivery", "dropoff": "delivery", "drop-off": "delivery",
+    "drop_off": "delivery", "drop": "delivery", "deliver": "delivery",
+    "return": "return",
+}
+
+
+def _normalize_stop_type(raw, default="delivery"):
+    key = (raw or "").strip().lower()
+    return _STOP_TYPE_ALIASES.get(key, default)
+
+
+def _resolve_stop_pallets(s, stop_type):
+    """Some AI prompts return one 'pallets' count, others split 'pallets_in'
+    (loaded at pickup) / 'pallets_out' (unloaded at a dropoff) — read
+    whichever this stop's schema actually used instead of only checking
+    'pallets' and silently defaulting delivery-stop pallet counts to 0."""
+    if "pallets_in" in s or "pallets_out" in s:
+        key = "pallets_in" if stop_type in ("pickup", "origin") else "pallets_out"
+        return int(s.get(key) or 0)
+    return int(s.get("pallets") or 0)
+
 
 class PremafirmEstimatorTruckPref(models.Model):
     """Per-truck saved cost defaults — auto-loaded when truck is selected."""
@@ -34,6 +66,7 @@ class PremafirmRateEstimator(models.Model):
     _name = "premafirm.rate.estimator"
     _description = "Trip Cost Estimate"
     _order = "create_date desc"
+    _inherit = ['mail.thread', 'mail.activity.mixin']
 
     # ── Inputs ─────────────────────────────────────────────────────────
 
@@ -58,13 +91,6 @@ class PremafirmRateEstimator(models.Model):
     x_chat_message = fields.Text(string="Work Order / Message")
     x_chat_response = fields.Html(string="AI Estimate Response", readonly=True)
     source_invoice_id = fields.Many2one("account.move", string="Source Invoice", readonly=True, ondelete="set null")
-
-    # ── Fleetbase dispatch ─────────────────────────────────────────────
-
-    fleetbase_order_id  = fields.Char(string="Fleetbase Order ID", readonly=True)
-    fleetbase_tracking  = fields.Char(string="Tracking #", readonly=True)
-    fleetbase_status    = fields.Char(string="Dispatch Status", readonly=True)
-    fleetbase_url       = fields.Char(string="Tracking URL", readonly=True)
 
     # ── Route ──────────────────────────────────────────────────────────
 
@@ -94,6 +120,8 @@ class PremafirmRateEstimator(models.Model):
     total_cost        = fields.Float(digits=(10, 2))
     margin_pct        = fields.Float(string="Margin %", digits=(5, 1))
     suggested_rate    = fields.Float(digits=(10, 2))
+    net_profit        = fields.Float(string="NET PROFIT", compute="_compute_net_profit", store=True, digits=(10, 2))
+    margin_percent    = fields.Float(string="Margin %", compute="_compute_net_profit", store=True, digits=(5, 1))
 
     # ── Params used (for transparency) ─────────────────────────────────
 
@@ -101,12 +129,27 @@ class PremafirmRateEstimator(models.Model):
     driver_rate_per_hr = fields.Float(digits=(6, 2))
     avg_km_per_l       = fields.Float(string="Avg km/L", digits=(6, 2))
 
+    # ── Customer ────────────────────────────────────────────────────────
+
+    partner_id        = fields.Many2one("res.partner", string="Customer")
+    partner_last_invoice_ids = fields.Many2many(
+        "account.move",
+        string="Last 5 Customer Invoices",
+        compute="_compute_partner_last_invoices",
+    )
+
     # ── Invoice / Job relationship ──────────────────────────────────────
 
     invoice_id        = fields.Many2one("account.move", string="Invoice",
                                         ondelete="set null", index=True)
     job_day_ref       = fields.Char(string="Job Day")
     job_sequence      = fields.Integer(string="Job #", default=1)
+    job_stop_type     = fields.Selection([
+        ("pickup",  "Pickup"),
+        ("dropoff", "Drop-Off"),
+        ("return",  "Return"),
+        ("other",   "Other"),
+    ], string="Stop Type", default="dropoff")
     calendar_event_id = fields.Many2one("calendar.event", string="Calendar Event",
                                         ondelete="set null", readonly=True)
 
@@ -119,6 +162,15 @@ class PremafirmRateEstimator(models.Model):
     user_id       = fields.Many2one("res.users", default=lambda self: self.env.user, readonly=True)
     name          = fields.Char(compute="_compute_name", store=True)
 
+    @api.depends("suggested_rate", "total_cost")
+    def _compute_net_profit(self):
+        for rec in self:
+            rec.net_profit = (rec.suggested_rate or 0.0) - (rec.total_cost or 0.0)
+            rec.margin_percent = (
+                (rec.net_profit / rec.suggested_rate * 100.0)
+                if rec.suggested_rate > 0 else 0.0
+            )
+
     @api.depends("vehicle_id", "destination_address", "create_date")
     def _compute_name(self):
         for rec in self:
@@ -129,6 +181,19 @@ class PremafirmRateEstimator(models.Model):
             else:
                 date_str = ""
             rec.name = f"{truck} → {dest} ({date_str})"
+
+    @api.depends('partner_id')
+    def _compute_partner_last_invoices(self):
+        for rec in self:
+            if rec.partner_id:
+                invoices = self.env['account.move'].sudo().search([
+                    ('partner_id', '=', rec.partner_id.id),
+                    ('move_type', '=', 'out_invoice'),
+                    ('state', '=', 'posted'),
+                ], limit=5, order='invoice_date desc')
+                rec.partner_last_invoice_ids = invoices
+            else:
+                rec.partner_last_invoice_ids = self.env['account.move']
 
     def _compute_attachment_ids(self):
         Attach = self.env["ir.attachment"].sudo()
@@ -156,6 +221,7 @@ class PremafirmRateEstimator(models.Model):
             except Exception:
                 return
         self.stop_ids.unlink()
+        failed = []
         for i, s in enumerate(stops_data):
             sched = None
             if s.get("scheduled_time"):
@@ -170,43 +236,102 @@ class PremafirmRateEstimator(models.Model):
                             continue
                 except Exception:
                     pass
-            self.env["premafirm.estimator.stop"].create({
-                "estimator_id":   self.id,
-                "sequence":       (i + 1) * 10,
-                "stop_type":      s.get("type") or s.get("stop_type") or "pickup",
-                "is_system":      bool(s.get("is_system")),
-                "name":           s.get("name") or "",
-                "address":        s.get("address") or "",
-                "place_id":       s.get("place_id") or "",
-                "lat":            float(s.get("lat") or 0),
-                "lng":            float(s.get("lng") or 0),
-                "scheduled_time": sched,
-                "notes":          s.get("notes") or "",
-                "pallets":        int(s.get("pallets") or 0),
-                "weight_lbs":     float(s.get("weight_lbs") or 0),
-                "liftgate":       bool(s.get("liftgate")),
-            })
+            stop_type = _normalize_stop_type(
+                s.get("type") or s.get("stop_type"), "pickup" if i == 0 else "delivery"
+            )
+            try:
+                self.env["premafirm.estimator.stop"].create({
+                    "estimator_id":   self.id,
+                    "sequence":       (i + 1) * 10,
+                    "stop_type":      stop_type,
+                    "is_system":      bool(s.get("is_system")),
+                    "name":           s.get("name") or "",
+                    "address":        s.get("address") or "",
+                    "place_id":       s.get("place_id") or "",
+                    "lat":            float(s.get("lat") or 0),
+                    "lng":            float(s.get("lng") or 0),
+                    "scheduled_time": sched,
+                    "notes":          s.get("notes") or "",
+                    "pallets":        _resolve_stop_pallets(s, stop_type),
+                    "weight_lbs":     float(s.get("weight_lbs") or 0),
+                    "liftgate":       bool(s.get("liftgate")),
+                })
+            except Exception:
+                # One malformed stop must not silently swallow every stop
+                # after it in the list — create what we can, then surface
+                # exactly which one(s) failed instead of a single buried
+                # server-log line nobody reads.
+                _logger.exception(
+                    "Estimator #%s: failed to create stop %d/%d (%r) — skipping "
+                    "this stop only, not aborting the rest",
+                    self.id, i + 1, len(stops_data), s.get("address"),
+                )
+                failed.append(s.get("address") or f"stop {i + 1}")
+        if failed:
+            self.message_post(body=(
+                f"<b>{len(failed)} of {len(stops_data)} stop(s) could not be imported</b> "
+                f"and were skipped — add them manually: {', '.join(failed)}"
+            ))
+        self._sync_addresses_from_stops()
+
+    def _sync_addresses_from_stops(self):
+        """Fill origin_address / destination_address from stop_ids when they are empty."""
+        user_stops = self.stop_ids.filtered(lambda s: not s.is_system).sorted("sequence")
+        if not user_stops:
+            user_stops = self.stop_ids.sorted("sequence")
+        if not user_stops:
+            return
+        vals = {}
+        if not self.origin_address:
+            first = (user_stops.filtered(lambda s: s.stop_type in ("pickup", "origin"))[:1]
+                     or user_stops[:1])
+            if first.address:
+                vals["origin_address"] = first.address
+        if not self.destination_address:
+            deliveries = user_stops.filtered(lambda s: s.stop_type in ("delivery", "return"))
+            last = deliveries[-1:] if deliveries else user_stops[-1:]
+            if last.address:
+                vals["destination_address"] = last.address
+        if vals:
+            self.write(vals)
+
+    def _get_hub_location(self):
+        """Return (lat, lng, address) for the configured Hub Location,
+        falling back to truck home base, then company address."""
+        ICP = self.env["ir.config_parameter"].sudo()
+
+        # 1. Configured Hub Location (Settings → Prema AI → Logistics Settings)
+        hub_lat = float(ICP.get_param("estimator.hub_lat", "0") or "0")
+        hub_lng = float(ICP.get_param("estimator.hub_lng", "0") or "0")
+        hub_addr = ICP.get_param("estimator.hub_address", "") or ICP.get_param("estimator.hub_name", "") or ""
+        if hub_lat and hub_lng:
+            return hub_lat, hub_lng, hub_addr or "Hub Location"
+
+        # 2. Truck home base (legacy fallback)
+        vehicle = self.vehicle_id
+        if vehicle:
+            lat = vehicle.x_home_base_lat or 0.0
+            lng = vehicle.x_home_base_lng or 0.0
+            addr = vehicle.x_home_base_address or ""
+            if lat and lng:
+                return lat, lng, addr or vehicle.name or ""
+
+        # 3. Company address (last resort)
+        company = self.env.company
+        lat = getattr(company, "partner_latitude", 0.0) or 0.0
+        lng = getattr(company, "partner_longitude", 0.0) or 0.0
+        return lat, lng, company.name or ""
 
     def add_system_stops(self):
-        """Add origin and return system stops based on truck GPS / home base.
+        """Add origin and return system stops based on configured Hub Location,
+        truck GPS, or home base (in priority order).
 
         Only adds stops if no existing system stop of that type is present.
         Never overwrites user-defined stops.
         """
-        vehicle = self.vehicle_id
-        if not vehicle:
-            return
-
-        lat = vehicle.x_last_location_lat or vehicle.x_home_base_lat or 0.0
-        lng = vehicle.x_last_location_lng or vehicle.x_home_base_lng or 0.0
-        address = (vehicle.x_last_location_address or vehicle.x_home_base_address
-                   or vehicle.name or "")
+        lat, lng, address = self._get_hub_location()
         if not lat and not lng:
-            # Try company address as last resort
-            company = self.env.company
-            lat = getattr(company, "partner_latitude", 0.0) or 0.0
-            lng = getattr(company, "partner_longitude", 0.0) or 0.0
-            address = company.name or ""
+            return
 
         Stop = self.env["premafirm.estimator.stop"]
         existing_types = self.stop_ids.mapped("stop_type")
@@ -222,7 +347,7 @@ class PremafirmRateEstimator(models.Model):
                 "address": address,
                 "lat": lat,
                 "lng": lng,
-                "name": vehicle.name or "",
+                "name": address or (self.vehicle_id.name if self.vehicle_id else "Hub"),
             })
 
         if "return" not in existing_types:
@@ -235,7 +360,7 @@ class PremafirmRateEstimator(models.Model):
                 "address": address,
                 "lat": lat,
                 "lng": lng,
-                "name": vehicle.name or "",
+                "name": address or (self.vehicle_id.name if self.vehicle_id else "Hub"),
             })
 
         self._stops_to_json()
@@ -493,10 +618,6 @@ class PremafirmRateEstimator(models.Model):
             result["truck_name"] = truck.name or ""
         return result
 
-    def _fleetbase_enabled(self):
-        value = self.env["ir.config_parameter"].sudo().get_param("fleetbase.enabled", "False")
-        return str(value).strip().lower() in ("1", "true", "yes", "on")
-
     # ── RPC: full estimate calculation ─────────────────────────────────
 
     @api.model
@@ -697,6 +818,15 @@ class PremafirmRateEstimator(models.Model):
             _logger.error("calculate_estimate error: %s", e, exc_info=True)
             return {"error": str(e)}
 
+    @staticmethod
+    def _haversine_km(lat1, lon1, lat2, lon2):
+        """Return straight-line distance in km between two GPS coordinates."""
+        R = 6371.0
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+        return R * 2 * math.asin(math.sqrt(a))
+
     # ── RPC: check truck availability ──────────────────────────────────
 
     @api.model
@@ -710,8 +840,6 @@ class PremafirmRateEstimator(models.Model):
 
         If all trucks are busy, also returns suggested_slots (list of {start, end} ISO strings).
         """
-        from ..services.fleetbase_service import _haversine_km
-        from ..services.fleetbase_service import FleetbaseService
         try:
             pickup_lat = float(pickup_lat or 0)
             pickup_lng = float(pickup_lng or 0)
@@ -725,29 +853,6 @@ class PremafirmRateEstimator(models.Model):
             ])
 
             schedule_by_vehicle = {}
-            schedule_lookup_error = ""
-            if self._fleetbase_enabled():
-                try:
-                    fb_jobs = FleetbaseService(self.env).get_scheduled_jobs(
-                        start=day_start - timedelta(hours=6),
-                        end=day_end + timedelta(hours=6),
-                    )
-                    if fb_jobs:
-                        by_id = {str(v.id): v.id for v in vehicles}
-                        by_name = {str(v.name or "").strip().lower(): v.id for v in vehicles if v.name}
-                        by_plate = {str(v.license_plate or "").strip().lower(): v.id for v in vehicles if v.license_plate}
-                        for job in fb_jobs:
-                            vehicle_ref_id = str(job.get("vehicle_id") or "").strip()
-                            vehicle_ref_name = str(job.get("vehicle_name") or "").strip().lower()
-                            vehicle_id = by_id.get(vehicle_ref_id)
-                            if not vehicle_id and vehicle_ref_name:
-                                vehicle_id = by_name.get(vehicle_ref_name) or by_plate.get(vehicle_ref_name)
-                            if not vehicle_id:
-                                continue
-                            schedule_by_vehicle.setdefault(vehicle_id, []).append(job)
-                except Exception as e:
-                    schedule_lookup_error = str(e)
-                    _logger.info("Fleetbase scheduler availability fallback engaged: %s", e)
 
             results = []
             suggested_slots = []
@@ -757,7 +862,7 @@ class PremafirmRateEstimator(models.Model):
 
                 dist_km = None
                 if pickup_lat and pickup_lng and truck_lat and truck_lng:
-                    dist_km = round(_haversine_km(pickup_lat, pickup_lng, truck_lat, truck_lng), 1)
+                    dist_km = round(self._haversine_km(pickup_lat, pickup_lng, truck_lat, truck_lng), 1)
 
                 # Duty status from Geotab/driver
                 driver_status = (v.x_current_driver_contact_id.x_driver_status or "") if v.x_current_driver_contact_id else ""
@@ -837,7 +942,7 @@ class PremafirmRateEstimator(models.Model):
                 if suggested_slots:
                     suggested_slots = sorted(suggested_slots, key=lambda slot: slot.get("start", ""))[:6]
                 else:
-                    # Fallback if no Fleetbase schedule windows were available.
+                    # Fallback: suggest slots for the following day.
                     base = (scheduled_start + timedelta(days=1)).replace(hour=7, minute=0, second=0, microsecond=0)
                     for offset_h in [0, 4, 8]:
                         slot_start = base + timedelta(hours=offset_h)
@@ -850,62 +955,9 @@ class PremafirmRateEstimator(models.Model):
                 "suggested_slots": suggested_slots,
                 "scheduled_start": scheduled_start.isoformat(),
                 "scheduled_end": scheduled_end.isoformat(),
-                "fleetbase_schedule_used": bool(schedule_by_vehicle),
-                "schedule_lookup_error": schedule_lookup_error,
             }
         except Exception as e:
             _logger.error("check_truck_availability_rpc error: %s", e, exc_info=True)
-            return {"error": str(e)}
-
-    # ── RPC: create Fleetbase dispatch order ───────────────────────────
-
-    @api.model
-    def create_fleetbase_job_rpc(self, estimate_id, stops, scheduled_at=None, notes=None, vehicle_id=None, order_number=None):
-        """Create a dispatch order in Fleetbase and update the estimate record.
-
-        stops: list of stop dicts with full time-window and address data.
-        Returns: {success, order_id, tracking_number, public_url} or {error}.
-        """
-        from ..services.fleetbase_service import FleetbaseService
-        try:
-            fb = FleetbaseService(self.env)
-
-            vehicle_name = None
-            if vehicle_id:
-                v = self.env["fleet.vehicle"].sudo().browse(vehicle_id)
-                if v.exists():
-                    vehicle_name = v.name
-
-            order = fb.create_order(
-                stops=stops,
-                scheduled_at=scheduled_at,
-                notes=notes,
-                vehicle_name=vehicle_name,
-                order_number=order_number or None,
-            )
-
-            if estimate_id:
-                try:
-                    rec = self.sudo().browse(estimate_id)
-                    if rec.exists():
-                        rec.write({
-                            "fleetbase_order_id": order.get("id", ""),
-                            "fleetbase_tracking":  order.get("tracking_number", ""),
-                            "fleetbase_status":    order.get("status", ""),
-                            "fleetbase_url":       order.get("public_url", ""),
-                        })
-                except Exception as link_err:
-                    _logger.warning("Could not link Fleetbase order to estimate: %s", link_err)
-
-            return {
-                "success": True,
-                "order_id": order.get("id", ""),
-                "tracking_number": order.get("tracking_number", ""),
-                "status": order.get("status", ""),
-                "public_url": order.get("public_url", ""),
-            }
-        except Exception as e:
-            _logger.error("create_fleetbase_job_rpc error: %s", e, exc_info=True)
             return {"error": str(e)}
 
     @api.model
@@ -1051,7 +1103,7 @@ class PremafirmRateEstimator(models.Model):
         require_liftgate=False,
         create_job=False,
     ):
-        """One entry point for estimate + truck selection + optional Fleetbase job creation."""
+        """One entry point for estimate + truck selection."""
         plan = self.suggest_dispatch_plan_rpc(
             stops=stops,
             scheduled_at=scheduled_at,
@@ -1064,28 +1116,7 @@ class PremafirmRateEstimator(models.Model):
             require_reefer=require_reefer,
             require_liftgate=require_liftgate,
         )
-        if plan.get("error") or not create_job:
-            return plan
-
-        if plan.get("availability", {}).get("all_busy"):
-            return {
-                **plan,
-                "error": "All suitable trucks are currently busy. Review suggested slots before dispatching.",
-            }
-
-        selected_truck = plan.get("selected_truck") or {}
-        estimate = plan.get("estimate") or {}
-        dispatch = self.create_fleetbase_job_rpc(
-            estimate_id=estimate.get("estimate_id"),
-            stops=stops,
-            scheduled_at=scheduled_at,
-            notes=notes,
-            vehicle_id=selected_truck.get("id"),
-        )
-        return {
-            **plan,
-            "dispatch": dispatch,
-        }
+        return plan
 
     # ── RPC: extract stops from uploaded route sheet ───────────────────
 
@@ -1133,18 +1164,16 @@ class PremafirmRateEstimator(models.Model):
                     "document_type": local_result.get("document_type", "unknown"),
                     "confidence": local_confidence,
                     "parser_used": local_result.get("parser_used", "local"),
+                    "document_fields": local_result.get("document_fields", {}),
                 }
 
-            ICP = self.env["ir.config_parameter"].sudo()
-            openai_key = (
-                ICP.get_param("openai.api_key")
-                or ICP.get_param("prema_ai.api_key")
-                or ""
-            )
+            from ..services.deepseek_utils import get_api_key as _get_deepseek_key
+            openai_key = _get_deepseek_key(self.env) or ""
             if not openai_key:
-                return {"error": "AI API key not configured. Set openai.api_key in System Parameters."}
+                return {"error": "AI API key not configured. Set deepseek.api_key in System Parameters."}
 
-            from ..services.openai_utils import openai_chat as _claude_chat, DEFAULT_MODEL as _CLAUDE_DEFAULT
+            from ..services.deepseek_utils import deepseek_chat
+            from ..services.openai_utils import openai_chat
             import json as _json
             raw_text = local_result.get("raw_text", "")
             used_vision = False
@@ -1159,9 +1188,13 @@ class PremafirmRateEstimator(models.Model):
                 "If a field is unknown, use empty string or 0. Stops must be in route order."
             )
 
-            ICP = self.env["ir.config_parameter"].sudo()
+            from ..services.deepseek_utils import get_model as _get_deepseek_model
             claude_key = openai_key
-            claude_model = ICP.get_param("prema_ai.fast_model") or _CLAUDE_DEFAULT
+            claude_model = _get_deepseek_model(self.env)
+
+            ICP = self.env["ir.config_parameter"].sudo()
+            vision_key = ICP.get_param("openai.api_key") or ICP.get_param("prema_ai.api_key") or ""
+            vision_model = ICP.get_param("prema_ai.vision_model") or "gpt-4o-mini"
 
             if raw_text and len(raw_text) >= 100:
                 messages = [
@@ -1169,8 +1202,11 @@ class PremafirmRateEstimator(models.Model):
                     {"role": "user", "content": f"Route sheet content:\n\n{raw_text[:8000]}\n\nExtra notes from dispatcher: {extra_notes}"},
                 ]
             else:
-                # Vision path — Claude only accepts JPEG/PNG/GIF/WebP, NOT PDF
+                # Vision path — DeepSeek's API rejects image content outright, so this
+                # must go through OpenAI. Only JPEG/PNG/GIF/WebP, NOT PDF (converted below).
                 used_vision = True
+                if not vision_key:
+                    return {"error": "OpenAI API key not configured. Set openai.api_key in System Parameters (required for scanning image route sheets)."}
                 vision_b64 = file_b64
                 vision_mime = mimetype
 
@@ -1203,13 +1239,22 @@ class PremafirmRateEstimator(models.Model):
                     ]},
                 ]
 
-            content = _claude_chat(
-                messages=messages,
-                max_tokens=2000,
-                api_key=claude_key,
-                model=claude_model,
-                timeout=90,
-            )
+            if used_vision:
+                content = openai_chat(
+                    messages=messages,
+                    max_tokens=2000,
+                    api_key=vision_key,
+                    model=vision_model,
+                    timeout=90,
+                )
+            else:
+                content = deepseek_chat(
+                    messages=messages,
+                    max_tokens=2000,
+                    api_key=claude_key,
+                    model=claude_model,
+                    timeout=90,
+                )
             # Robust JSON extraction (handles markdown fences from Claude)
             content = content.strip()
             # Try direct parse, then fence strip, then brace-match
@@ -1276,6 +1321,7 @@ class PremafirmRateEstimator(models.Model):
                 "document_type": local_result.get("document_type", "unknown"),
                 "confidence": local_result.get("confidence", 0.0),
                 "parser_used": "ai_fallback",
+                "document_fields": local_result.get("document_fields", {}),
             }
 
         except Exception as e:
@@ -1347,101 +1393,6 @@ class PremafirmRateEstimator(models.Model):
             "res_id": self.source_invoice_id.id,
             "view_mode": "form",
             "target": "current",
-        }
-
-    def action_open_fleetbase_tracking(self):
-        self.ensure_one()
-        if not self.fleetbase_url:
-            raise exceptions.UserError("No Fleetbase tracking URL is available on this estimate.")
-        return {
-            "type": "ir.actions.act_url",
-            "url": self.fleetbase_url,
-            "target": "new",
-        }
-
-    def action_dispatch_to_fleetbase(self):
-        self.ensure_one()
-        if self.fleetbase_order_id:
-            return {
-                "type": "ir.actions.client",
-                "tag": "display_notification",
-                "params": {
-                    "title": "Already Dispatched",
-                    "message": f"Fleetbase order already exists: {self.fleetbase_tracking or self.fleetbase_order_id}. Use 'Open Fleetbase' to view.",
-                    "type": "warning",
-                    "sticky": False,
-                },
-            }
-        if not self.vehicle_id:
-            raise exceptions.UserError("Select a truck before dispatching.")
-        if not self.scheduled_at:
-            raise exceptions.UserError("Set a scheduled date/time before dispatching.")
-
-        # Use stop_ids if populated, fall back to stops_json
-        if self.stop_ids:
-            stops = [s.as_dict() for s in self.stop_ids.sorted("sequence")]
-        else:
-            stops = self.deserialize_stops(self.stops_json)
-        if len(stops) < 2:
-            raise exceptions.UserError("At least two stops are required before dispatching.")
-        # Validate coordinates on non-system stops
-        for s in stops:
-            if not s.get("is_system") and not (s.get("lat") and s.get("lng")):
-                addr = s.get("address") or "unknown"
-                raise exceptions.UserError(
-                    f"Stop '{addr}' has no coordinates. Validate the address before dispatching."
-                )
-
-        scheduled_at = self.scheduled_at.isoformat() if self.scheduled_at else self.infer_scheduled_at(stops)
-        pickup_lat, pickup_lng, _pickup_address = self._resolve_pickup_coords(stops)
-        availability = self.check_truck_availability_rpc(
-            pickup_lat,
-            pickup_lng,
-            scheduled_at,
-            duration_hrs=self.duration_hrs or 8.0,
-        )
-        if availability.get("error"):
-            raise exceptions.UserError(availability["error"])
-
-        selected = next((truck for truck in availability.get("trucks", []) if truck["id"] == self.vehicle_id.id), None)
-        if not selected:
-            raise exceptions.UserError("Selected truck could not be checked for availability.")
-        if selected.get("status") == "busy":
-            windows = selected.get("availability_windows") or availability.get("suggested_slots") or []
-            if windows:
-                formatted = "\n".join(f"- {slot.get('label')}" for slot in windows[:5])
-                raise exceptions.UserError(
-                    "The selected truck is already scheduled in Fleetbase for that time.\n\n"
-                    f"Available windows:\n{formatted}"
-                )
-            raise exceptions.UserError("The selected truck is already scheduled in Fleetbase for that time.")
-
-        # Use invoice reference as the Fleetbase work order number (ref preferred, fall back to name)
-        inv = self.invoice_id or self.source_invoice_id
-        order_number = None
-        if inv:
-            order_number = inv.ref or inv.name or None
-
-        dispatch = self.create_fleetbase_job_rpc(
-            estimate_id=self.id,
-            stops=stops,
-            scheduled_at=scheduled_at,
-            notes=self.notes,
-            vehicle_id=self.vehicle_id.id,
-            order_number=order_number,
-        )
-        if dispatch.get("error"):
-            raise exceptions.UserError(dispatch["error"])
-        return {
-            "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {
-                "title": "Dispatched",
-                "message": "Fleetbase order created successfully.",
-                "type": "success",
-                "sticky": False,
-                "next": {"type": "ir.actions.client", "tag": "reload"},
-            },
         }
 
     def action_open_invoice(self):
@@ -1518,7 +1469,7 @@ class PremafirmRateEstimator(models.Model):
                 self.env['premafirm.estimator.stop'].create({
                     'estimator_id': self.id,
                     'sequence': seq,
-                    'stop_type': s.get('type', 'delivery'),
+                    'stop_type': _normalize_stop_type(s.get('type'), 'delivery'),
                     'name': s.get('company_name', ''),
                     'address': s.get('address', ''),
                     'lat': float(s.get('lat') or 0),
@@ -1586,7 +1537,7 @@ class PremafirmRateEstimator(models.Model):
                 self.env['premafirm.estimator.stop'].create({
                     'estimator_id': self.id,
                     'sequence': seq,
-                    'stop_type': s.get('type', 'delivery'),
+                    'stop_type': _normalize_stop_type(s.get('type'), 'delivery'),
                     'name': s.get('company_name', ''),
                     'address': s.get('address', ''),
                     'lat': float(s.get('lat') or 0),
@@ -1809,13 +1760,12 @@ class PremafirmRateEstimator(models.Model):
 
     def _call_openai(self, system, user, max_tokens=600):
         """AI call via OpenAI."""
-        from ..services.openai_utils import openai_chat, DEFAULT_MODEL
-        ICP = self.env["ir.config_parameter"].sudo()
-        api_key = ICP.get_param("openai.api_key") or ICP.get_param("prema_ai.api_key")
+        from ..services.deepseek_utils import deepseek_chat, get_api_key as _get_deepseek_key, get_model as _get_deepseek_model
+        api_key = _get_deepseek_key(self.env)
         if not api_key:
-            raise ValueError("OpenAI API key not configured (openai.api_key).")
-        model = ICP.get_param("prema_ai.fast_model") or DEFAULT_MODEL
-        return openai_chat(
+            raise ValueError("DeepSeek API key not configured (deepseek.api_key).")
+        model = _get_deepseek_model(self.env)
+        return deepseek_chat(
             messages=[{"role": "user", "content": user}],
             system=system,
             max_tokens=max_tokens,
@@ -1897,6 +1847,102 @@ class PremafirmRateEstimator(models.Model):
         except Exception as e:
             _logger.error("ai_review_stops_rpc error: %s", e, exc_info=True)
             return {"error": str(e)}
+
+    def action_create_quotation(self):
+        """Create a sale.order draft from this estimate and open it."""
+        self.ensure_one()
+        if not self.partner_id:
+            raise exceptions.UserError("Select a customer before creating a quotation.")
+
+        instruction = self.notes or ''
+        if self.origin_address and self.destination_address:
+            route_text = f"{self.origin_address} → {self.destination_address}"
+            instruction = f"{route_text}\n{instruction}".strip()
+
+        freight_product = self.env['premafirm.invoice.ai.product'].sudo().search(
+            [('ai_enabled', '=', True)], limit=1
+        )
+        product = freight_product.product_id if freight_product else False
+
+        vals = {
+            'partner_id': self.partner_id.id,
+            'x_ai_summary_instruction': instruction,
+        }
+        if product:
+            vals['order_line'] = [(0, 0, {
+                'product_id': product.id,
+                'price_unit': self.suggested_rate or 0.0,
+                'name': instruction or product.name or '',
+            })]
+
+        order = self.env['sale.order'].sudo().create(vals)
+        return {
+            'type': 'ir.actions.act_window',
+            'name': 'Quotation',
+            'res_model': 'sale.order',
+            'res_id': order.id,
+            'view_mode': 'form',
+            'target': 'current',
+        }
+
+    def action_create_invoice(self):
+        """Seed ML context from partner history, create a draft invoice, and open it."""
+        self.ensure_one()
+        if not self.partner_id:
+            raise exceptions.UserError("Select a customer before creating an invoice.")
+
+        narration = self.notes or ''
+        if self.origin_address and self.destination_address:
+            route_text = f"{self.origin_address} → {self.destination_address}"
+            narration = f"{route_text}\n{narration}".strip()
+
+        self._seed_partner_invoice_context(self.partner_id.id)
+
+        invoice = self.env['account.move'].sudo().create({
+            'move_type': 'out_invoice',
+            'partner_id': self.partner_id.id,
+            'narration': narration,
+        })
+        self.write({'invoice_id': invoice.id})
+        return {
+            'type': 'ir.actions.act_window',
+            'name': 'Invoice',
+            'res_model': 'account.move',
+            'res_id': invoice.id,
+            'view_mode': 'form',
+            'target': 'current',
+        }
+
+    def _seed_partner_invoice_context(self, partner_id):
+        """Seed the ML knowledge base with the last 5 posted invoices for a partner."""
+        invoices = self.env['account.move'].sudo().search([
+            ('partner_id', '=', partner_id),
+            ('move_type', '=', 'out_invoice'),
+            ('state', '=', 'posted'),
+        ], limit=5, order='invoice_date desc')
+
+        KB = self.env['premafirm.ml.knowledge'].sudo()
+        for inv in invoices:
+            lines_text = '\n'.join(
+                f"  - {l.name or (l.product_id.name if l.product_id else 'Service')}: "
+                f"{l.quantity} x ${l.price_unit:.2f} = ${l.price_subtotal:.2f}"
+                for l in inv.invoice_line_ids.filtered(lambda ln: not ln.display_type)[:5]
+            )
+            ctx = (
+                f"Customer: {inv.partner_id.name}\n"
+                f"Invoice: {inv.name} | Date: {inv.invoice_date}\n"
+                f"Amount: ${inv.amount_total:.2f}\n"
+                f"Lines:\n{lines_text}"
+            )
+            if inv.narration:
+                ctx += f"\nNotes: {inv.narration[:200]}"
+            KB.create({
+                'knowledge_type': 'invoice_flag',
+                'input_context': ctx,
+                'good_output': f"Invoice {inv.name} for {inv.partner_id.name}: ${inv.amount_total:.2f}",
+                'origin': 'approved',
+                'weight': 2.5,
+            })
 
     @api.model
     def ai_review_stops_apply_rpc(self, estimator_id, new_stops):
@@ -1984,7 +2030,7 @@ class PremafirmRateEstimator(models.Model):
                 self.env["premafirm.estimator.stop"].sudo().create({
                     "estimator_id": rec.id,
                     "sequence":     seq,
-                    "stop_type":    s.get("type", "delivery"),
+                    "stop_type":    _normalize_stop_type(s.get("type"), "delivery"),
                     "name":         s.get("company_name", ""),
                     "address":      s.get("address", ""),
                     "lat":          float(s.get("lat") or 0),

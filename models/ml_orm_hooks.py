@@ -55,6 +55,26 @@ class CrmLeadMLHooks(models.Model):
         index=True,
         help='Timestamp of the last inbound customer email. Used for 3-day/6-day follow-up timers.',
     )
+    x_attention_at = fields.Datetime(
+        string='Attention At',
+        index=True,
+        help='Timestamp of the latest event that should push the lead to the top: customer reply or new assignment.',
+    )
+    x_attention_reason = fields.Selection(
+        [
+            ('reply', 'Reply'),
+            ('assignment', 'Assignment'),
+        ],
+        string='Attention Reason',
+        help='Why this lead is currently marked as needing attention.',
+    )
+    x_attention_reply_sort_at = fields.Datetime(
+        string='Attention Sort At',
+        compute='_compute_attention_reply_sort_at',
+        store=True,
+        index=True,
+        help='Used only for active attention sorting. Cleared as soon as the lead no longer needs attention.',
+    )
     x_kanban_sort_date = fields.Datetime(
         string='Kanban Sort Date',
         compute='_compute_kanban_sort_date',
@@ -68,7 +88,48 @@ class CrmLeadMLHooks(models.Model):
         for lead in self:
             lead.x_kanban_sort_date = lead.x_last_outreach_at or lead.create_date
 
-    _order = 'x_kanban_sort_date asc, id asc'
+    @api.depends('x_needs_attention', 'x_attention_at')
+    def _compute_attention_reply_sort_at(self):
+        for lead in self:
+            lead.x_attention_reply_sort_at = lead.x_attention_at if lead.x_needs_attention else False
+
+    # Needs-attention leads (customer replied) always bubble to the top, most
+    # recent reply first; everything else falls back to oldest-outreach-first.
+    _order = 'x_needs_attention desc, x_attention_reply_sort_at desc, x_kanban_sort_date asc, id asc'
+
+    def read(self, fields=None, load='_classic_read'):
+        # Clear the flashing "needs attention" flag when the assigned
+        # salesperson actually opens this specific lead. Guarded tightly:
+        # - len(self) == 1: kanban/list always read a batch of ids, only a
+        #   form view reads exactly one, so this is never true for a list/kanban render.
+        # - not self.env.su: excludes cron jobs / any .sudo() internal call.
+        # - self.env.uid == self.user_id.id: only the record's own assigned
+        #   salesperson clears it by viewing it -- not admin, not a colleague
+        #   browsing, not an unrelated background process touching the record.
+        # Without these guards this fired on ANY internal single-record read
+        # (crons, compute methods, etc.) and silently cleared the flag with
+        # nobody ever having looked at the lead -- caught in testing 2026-07-07.
+        #
+        # Extended 2026-07-15: team-queue leads (e.g. website "Call Back" requests)
+        # are created unassigned (user_id is False) so any team member can pick one
+        # up -- the strict self.user_id.id check above never matches for those, so
+        # opening one never cleared the flag. For an unassigned lead, also allow any
+        # member of the lead's own sales team to clear it by opening it (still
+        # excludes unrelated colleagues outside that team).
+        result = super().read(fields=fields, load=load)
+        if len(self) == 1 and self.x_needs_attention and not self.env.su:
+            is_assigned_owner = self.env.uid == self.user_id.id
+            is_team_member_on_unassigned = (
+                not self.user_id
+                and self.team_id
+                and self.env.uid in self.team_id.crm_team_member_ids.user_id.ids
+            )
+            if is_assigned_owner or is_team_member_on_unassigned:
+                try:
+                    self.sudo().write({'x_needs_attention': False})
+                except Exception as exc:
+                    _logger.debug('Failed to clear x_needs_attention on read for lead %s: %s', self.id, exc)
+        return result
 
     def action_snov_escalate_now(self):
         """Manual trigger: search Snov.io for a new contact and create a Suggestion lead.
@@ -98,11 +159,31 @@ class CrmLeadMLHooks(models.Model):
         return {'type': 'ir.actions.client', 'tag': 'reload'}
 
     def write(self, vals):
+        previous_user_ids = {}
+        if 'user_id' in vals and not self.env.context.get('skip_assignment_attention'):
+            previous_user_ids = {lead.id: lead.user_id.id for lead in self}
+
         # Skip queuing when only updating outreach timestamp
         if list(vals.keys()) == ['x_last_outreach_at']:
             return super().write(vals)
 
         result = super().write(vals)
+
+        if previous_user_ids:
+            attention_at = fields.Datetime.now()
+            for lead in self:
+                previous_user_id = previous_user_ids.get(lead.id)
+                current_user_id = lead.user_id.id
+                if not current_user_id or current_user_id == previous_user_id:
+                    continue
+                try:
+                    lead.with_context(skip_assignment_attention=True).sudo().write({
+                        'x_needs_attention': True,
+                        'x_attention_at': attention_at,
+                        'x_attention_reason': 'assignment',
+                    })
+                except Exception as exc:
+                    _logger.debug('CRM lead assignment attention hook error on lead %s: %s', lead.id, exc)
 
         # Queue on stage change or probability change
         if 'stage_id' in vals or 'probability' in vals:

@@ -161,18 +161,42 @@
 
                 <!-- COSTING TAB -->
                 <page string="Costing" name="truck_costing">
-                    <group string="Monthly Budgets">
+                    <group string="Monthly Fixed Costs">
                         <group>
-                            <field name="x_monthly_maintenance_budget"/>
-                            <field name="x_monthly_insurance_budget"/>
+                            <field name="x_monthly_maintenance_budget"
+                                   help="Total monthly maintenance budget for this truck (parts, labour, etc.)"/>
+                            <field name="x_monthly_insurance_budget"
+                                   help="Total monthly insurance premium for this truck"/>
                             <field name="x_monthly_avg_km"
-                                   help="Last 30-day average km from Geotab, or set manually."/>
+                                   help="Average km driven per month (used to compute per-km cost). Set manually or synced from Geotab."/>
                         </group>
-                        <group>
-                            <field name="x_maintenance_cost_per_km" readonly="1"/>
-                            <field name="x_insurance_cost_per_km" readonly="1"/>
+                        <group string="Calculated Per-KM Rates (used by Estimator)">
+                            <field name="x_maintenance_cost_per_km" readonly="1"
+                                   help="= Monthly Maintenance ÷ Monthly Avg KM"/>
+                            <field name="x_insurance_cost_per_km" readonly="1"
+                                   help="= Monthly Insurance ÷ Monthly Avg KM"/>
                         </group>
                     </group>
+                    <group string="Driver Cost">
+                        <group>
+                            <field name="x_driver_rate_per_hr"
+                                   help="Hourly driver rate for this truck. Leave 0 to use the system default (Settings → System Parameters → estimator.driver_rate_per_hr)."/>
+                        </group>
+                        <group>
+                            <div class="text-muted" style="font-size:12px; padding-top:6px;">
+                                <i class="fa fa-info-circle"/> Current system default: check
+                                <strong>Settings → Technical → System Parameters →
+                                estimator.driver_rate_per_hr</strong>
+                            </div>
+                        </group>
+                    </group>
+                    <div class="alert alert-info mt-2" style="font-size:12px;">
+                        <strong>Fuel price</strong> is set under
+                        <strong>Settings → Technical → System Parameters →
+                        estimator.fuel_price_per_l</strong>
+                        (currently applies to all trucks). You can also override it
+                        per-estimate in the Rate Estimator app.
+                    </div>
                 </page>
 
                 <!-- DAILY ODOMETER LOG TAB -->

@@ -36,7 +36,7 @@ class DocumentsML(models.Model):
         document to the Processed Bills folder.
         """
         processed_folder = self.env.ref(
-            'premafirm_ml.documents_folder_processed_bills', raise_if_not_found=False)
+            'premafirm_ai_engine.documents_folder_processed_bills', raise_if_not_found=False)
 
         bills_created = []
 
@@ -105,6 +105,8 @@ class DocumentsML(models.Model):
                 'partner_id': partner.id if partner else False,
                 'ref':        (data.get('invoice_number') or '')[:64] or False,
                 'invoice_line_ids': bill_lines,
+                # bills-entry documents are receipts for already-paid purchases
+                'invoice_payment_term_id': self.env.ref('account.account_payment_term_immediate').id,
             }
             if station_note:
                 bill_vals['narration'] = f'Station: {station_note}'
@@ -187,7 +189,7 @@ class DocumentsML(models.Model):
     # Known fuel product IDs (product.product)
     _DIESEL_PRODUCT_ID = 292
     _DEF_PRODUCT_ID    = 293
-    _FUEL_KEYWORDS     = ('FUEL', 'DIESEL', 'GAS', 'PETRO', 'DEF', 'UNLEADED')
+    _FUEL_KEYWORDS     = ('FUEL', 'DIESEL', 'DSL', 'BIOD', 'GAS', 'PETRO', 'DEF', 'UNLEADED')
 
     def _resolve_vendor(self, vendor_name, station_address='', station_city='',
                         station_province='', station_postal=''):
@@ -505,7 +507,7 @@ class DocumentsML(models.Model):
         and run AI extraction. Processes up to 20 documents per run.
         """
         bills_entry = self.env.ref(
-            'premafirm_ml.documents_folder_bills_entry', raise_if_not_found=False)
+            'premafirm_ai_engine.documents_folder_bills_entry', raise_if_not_found=False)
         if not bills_entry:
             _logger.info('Bill scan cron: bills-entry folder not found — skipping.')
             return

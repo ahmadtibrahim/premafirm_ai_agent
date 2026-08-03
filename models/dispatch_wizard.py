@@ -75,12 +75,55 @@ class PremafirmDispatchWizard(models.TransientModel):
                                            string="Planned Stops")
     extraction_status   = fields.Char(string="File Extraction", readonly=True)
 
+    # Document-level rate-confirmation fields, extracted from the uploaded
+    # file(s) alongside the stop list — shown for dispatcher review before
+    # "Create Job & Schedule" copies whichever ones are still blank onto the
+    # invoice (BOL/PO/load ref/payment terms) and job (BOL/PO).
+    extracted_rate_amount    = fields.Float(string="Extracted Rate ($)", digits=(10, 2), readonly=True)
+    extracted_bol_number     = fields.Char(string="Extracted BOL #", readonly=True)
+    extracted_po_number      = fields.Char(string="Extracted PO #", readonly=True)
+    extracted_payment_terms  = fields.Char(string="Extracted Payment Terms", readonly=True)
+    extracted_broker_name    = fields.Char(string="Extracted Broker / Customer", readonly=True)
+    extracted_load_reference = fields.Char(string="Extracted Load / Ref #", readonly=True)
+    extracted_equipment_type = fields.Char(string="Extracted Equipment Type", readonly=True)
+    extracted_commodity      = fields.Char(string="Extracted Commodity", readonly=True)
+
     status         = fields.Selection([
         ("draft",     "Draft"),
         ("analyzed",  "AI Plan Ready"),
         ("error",     "Error"),
     ], default="draft")
     error_message  = fields.Char(readonly=True)
+
+    existing_estimator_warning = fields.Text(
+        string="Existing Job Warning", compute="_compute_existing_estimator_warning"
+    )
+    confirm_duplicate = fields.Boolean(
+        string="Yes, this is a genuinely separate additional job on this invoice",
+        help="Check this only if the invoice really does have more than one physically "
+             "separate load. If you're re-running the planner to fix/redo the same load, "
+             "leave this unchecked and edit the existing job instead.",
+    )
+
+    @api.depends("invoice_id.dispatch_estimator_ids")
+    def _compute_existing_estimator_warning(self):
+        # Prevents the exact bug seen on invoice D-AJX-OSH-WHI-NCL-PTB-CAM-FOX-070624:
+        # the planner was run twice for the same load 5 minutes apart with no warning,
+        # producing two near-identical estimators and, after Book Load, two duplicate
+        # dispatch jobs (DISP/2026/00023 + 00024) for what was really one booking.
+        for rec in self:
+            existing = rec.invoice_id.dispatch_estimator_ids
+            if not existing:
+                rec.existing_estimator_warning = False
+                continue
+            labels = ", ".join(existing.mapped(lambda e: e.job_day_ref or e.name or f"Job {e.job_sequence}"))
+            rec.existing_estimator_warning = (
+                f"This invoice already has {len(existing)} job plan(s): {labels}. "
+                f"If you're trying to fix or redo the same load, cancel this wizard and edit "
+                f"the existing job's stops instead — creating another one here will produce a "
+                f"second dispatch job for the same freight. Only check the box below if this "
+                f"invoice genuinely contains more than one separate physical load."
+            )
 
     @api.depends("scheduled_date")
     def _compute_job_day_ref(self):
@@ -92,13 +135,12 @@ class PremafirmDispatchWizard(models.TransientModel):
 
     def _call_openai(self, system, user, max_tokens=1000):
         """AI call via OpenAI."""
-        from ..services.openai_utils import openai_chat, DEFAULT_MODEL
-        ICP = self.env["ir.config_parameter"].sudo()
-        api_key = ICP.get_param("openai.api_key") or ICP.get_param("prema_ai.api_key")
+        from ..services.deepseek_utils import deepseek_chat, get_api_key as _get_deepseek_key, get_model as _get_deepseek_model
+        api_key = _get_deepseek_key(self.env)
         if not api_key:
-            raise ValueError("OpenAI API key not configured (openai.api_key).")
-        model = ICP.get_param("prema_ai.fast_model") or DEFAULT_MODEL
-        return openai_chat(
+            raise ValueError("DeepSeek API key not configured (deepseek.api_key).")
+        model = _get_deepseek_model(self.env)
+        return deepseek_chat(
             messages=[{"role": "user", "content": user}],
             system=system,
             max_tokens=max_tokens,
@@ -240,6 +282,7 @@ class PremafirmDispatchWizard(models.TransientModel):
         extracted_stops = []
         extracted_notes = ""
         extraction_error = ""
+        merged_doc_fields = {}
 
         # ── Phase 1: extract from uploaded file(s) ───────────────────────
         # Build a unified list of (file_b64, mimetype, filename) from ALL sources:
@@ -293,6 +336,12 @@ class PremafirmDispatchWizard(models.TransientModel):
                     if extract_result.get("notes"):
                         all_file_notes.append(extract_result["notes"])
                     parser_labels.append(extract_result.get("parser_used", "local"))
+                    # First file to report a given rate-confirmation field wins —
+                    # multiple uploads (e.g. rate con + BOL) rarely disagree, and
+                    # this avoids a later blank file clobbering an earlier hit.
+                    for key, val in (extract_result.get("document_fields") or {}).items():
+                        if val and not merged_doc_fields.get(key):
+                            merged_doc_fields[key] = val
 
             if all_file_stops:
                 extracted_stops = all_file_stops
@@ -312,7 +361,17 @@ class PremafirmDispatchWizard(models.TransientModel):
         else:
             extraction_status = "No file uploaded — using notes only"
 
-        self.write({"extraction_status": extraction_status})
+        self.write({
+            "extraction_status": extraction_status,
+            "extracted_rate_amount": merged_doc_fields.get("rate_amount") or 0.0,
+            "extracted_bol_number": merged_doc_fields.get("bol_number") or "",
+            "extracted_po_number": merged_doc_fields.get("po_number") or "",
+            "extracted_payment_terms": merged_doc_fields.get("payment_terms") or "",
+            "extracted_broker_name": merged_doc_fields.get("broker_name") or "",
+            "extracted_load_reference": merged_doc_fields.get("load_reference") or "",
+            "extracted_equipment_type": merged_doc_fields.get("equipment_type") or "",
+            "extracted_commodity": merged_doc_fields.get("commodity") or "",
+        })
 
         # ── Phase 2: AI enrichment ─────────────────────────────────────────
         # Build what we have so far (from file extraction + user notes)
@@ -320,35 +379,55 @@ class PremafirmDispatchWizard(models.TransientModel):
         combined_notes = "\n".join(filter(None, [self.notes or "", extracted_notes]))
         has_stops = bool(extracted_stops)
 
+        stop_schema = (
+            '{"type":"pickup|dropoff","address":"full civic address","dock_door":"door/bay # or empty",'
+            '"pallets_in":0,"pallets_out":0,"liftgate":false,"notes":"","scheduled_time":"YYYY-MM-DDTHH:MM or null",'
+            '"time_window_type":"flexible|exact|deadline|window",'
+            '"deadline_time":"YYYY-MM-DDTHH:MM or null","earliest_time":null,"latest_time":null,'
+            '"hard_deadline":false,"linked_load_group":0}'
+        )
+
         if has_stops:
-            # We already have stops — ask Claude only to fill in missing times/dates/details
+            # We have stops from file extraction — ask Claude to enrich with time windows + correct types
             prompt = (
                 f"Job date: {date_str}\n\n"
-                f"These stops were extracted from the route document (DO NOT remove or reorder them):\n"
+                f"Stops extracted from the route document (DO NOT remove or reorder):\n"
                 f"{json.dumps(extracted_stops, indent=2)}\n\n"
                 f"Additional dispatcher notes: {combined_notes or '(none)'}\n\n"
-                "Your task — fix and enrich the stops list ONLY:\n"
-                "1. Correct stop type: deliveries should be type='delivery', pickups type='pickup'\n"
-                "2. Fill in scheduled_time (ISO format) where missing, using the job date and any time hints in notes or addresses\n"
-                "3. Fill in missing address details from context clues\n"
-                "4. Preserve all existing pallets, weight, liftgate, notes values\n"
-                "5. Write a 1-2 sentence job summary\n\n"
-                "Return ONLY this JSON (no markdown, no explanation):\n"
-                '{"summary": "...", "stops": [{"type": "pickup|delivery", "address": "...", '
-                '"scheduled_time": "YYYY-MM-DDTHH:MM", "notes": "...", "pallets": 0, "liftgate": false}]}'
+                "Fix and enrich these stops:\n"
+                "1. STOP TYPE: 'pickup' = loads freight. 'dropoff' = delivers freight.\n"
+                "   If the text says 'return to [warehouse]' for another load, that IS a pickup stop.\n"
+                "2. TIME WINDOWS: set time_window_type per stop:\n"
+                "   'exact' = fixed appointment. 'deadline' = 'by X', 'before X', 'max X' → also set deadline_time + hard_deadline=true.\n"
+                "   'window' = range 'between X and Y' → set earliest_time + latest_time. 'flexible' = no constraint.\n"
+                "3. MULTI-DAY: if pickup and delivery are on different calendar dates, keep the correct date in scheduled_time.\n"
+                "4. DOCK/DOOR: extract dock door numbers into dock_door field.\n"
+                "5. MULTI-ROUND: 'return to pickup' for a second load = linked_load_group=2 on that pickup and its dropoffs.\n"
+                "6. Preserve all existing pallet, weight, liftgate, notes values.\n"
+                "7. Write a 1-2 sentence job summary.\n\n"
+                "Return ONLY valid JSON:\n"
+                f'{{"summary":"...","stops":[{stop_schema}]}}'
             )
         else:
-            # No file or extraction failed — plan from notes alone
+            # No file — plan the full route from dispatcher notes
             prompt = (
                 f"Job date: {date_str}\n\n"
                 f"Dispatcher notes: {combined_notes or '(no details provided)'}\n\n"
-                "Extract or infer the full stop list for this freight job.\n"
-                "- First stop: pickup location\n"
-                "- Remaining stops: delivery locations\n"
-                "- Use job date for scheduled_time; infer realistic times if mentioned\n\n"
-                "Return ONLY this JSON (no markdown, no explanation):\n"
-                '{"summary": "...", "stops": [{"type": "pickup|delivery", "address": "...", '
-                '"scheduled_time": "YYYY-MM-DDTHH:MM", "notes": "...", "pallets": 0, "liftgate": false}]}'
+                "You are a freight dispatch assistant. Extract the complete stop list for this job.\n\n"
+                "RULES:\n"
+                "- STOP TYPES: 'pickup' = truck loads freight at this location. 'dropoff' = truck delivers freight.\n"
+                "  If the text says 'return to [same address]' for a second load, that is also type='pickup'.\n"
+                "- TIME WINDOWS per stop:\n"
+                "  'exact' = fixed hour. 'deadline' = 'by', 'before', 'max', 'no later than' → set deadline_time + hard_deadline=true.\n"
+                "  'window' = range → set earliest_time + latest_time. 'flexible' = no constraint.\n"
+                "- MULTI-DAY: if pickup is one day and delivery is the next, preserve the correct calendar date on each stop.\n"
+                "- MULTI-ROUND: if truck returns to the same warehouse for a second load, that is round 2.\n"
+                "  First pickup + its dropoffs: linked_load_group=1. Second pickup + its dropoffs: linked_load_group=2.\n"
+                "  For the second pickup, infer pallets_in by summing the round 2 delivery pallets_out values.\n"
+                "- DOCK/DOOR: extract dock door or bay numbers into dock_door field.\n"
+                "- PALLETS: pallets_in = loaded at pickup. pallets_out = unloaded at dropoff. Never negative.\n\n"
+                "Return ONLY valid JSON:\n"
+                f'{{"summary":"...","stops":[{stop_schema}]}}'
             )
 
         plan = None
@@ -401,12 +480,18 @@ class PremafirmDispatchWizard(models.TransientModel):
         return self._reopen()
 
     def action_create_job(self):
-        """Create estimator, dispatch to Fleetbase, and add calendar event."""
+        """Create estimator record and add calendar event."""
         self.ensure_one()
         if self.status != "analyzed":
             raise exceptions.UserError("Run 'Analyze with AI' first to generate a job plan.")
         if not self.ai_stops:
             raise exceptions.UserError("No stops defined. Please add at least 2 stops.")
+        if self.invoice_id.dispatch_estimator_ids and not self.confirm_duplicate:
+            raise exceptions.UserError(
+                "This invoice already has a job plan — check the warning banner above and "
+                "either edit the existing job instead, or check the confirmation box if this "
+                "is genuinely a separate additional load."
+            )
 
         Estimator = self.env["premafirm.rate.estimator"].sudo()
 
@@ -419,13 +504,24 @@ class PremafirmDispatchWizard(models.TransientModel):
             defaults = Estimator.get_defaults_rpc(vehicle_id)
 
         # Calculate scheduled_at from first non-system stop's scheduled_time or scheduled_date
+        # Odoo Datetime fields are stored in UTC.
         scheduled_at = None
         for s in self.ai_stops.sorted("sequence"):
-            if s.scheduled_time:
-                scheduled_at = s.scheduled_time.strftime("%Y-%m-%d %H:%M:%S")
+            if not s.is_system and s.scheduled_time:
+                scheduled_at = s.scheduled_time.strftime("%Y-%m-%dT%H:%M:%SZ")
                 break
         if not scheduled_at and self.scheduled_date:
-            scheduled_at = f"{self.scheduled_date} 08:00:00"
+            # Convert 8 AM in the company's timezone to UTC
+            try:
+                import pytz as _pytz
+                company_tz_name = self.env.company.partner_id.tz or "UTC"
+                company_tz = _pytz.timezone(company_tz_name)
+                local_dt = company_tz.localize(
+                    datetime.combine(self.scheduled_date, datetime.min.time()).replace(hour=8)
+                )
+                scheduled_at = local_dt.astimezone(_pytz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                scheduled_at = f"{self.scheduled_date}T08:00:00Z"
 
         # If no vehicle selected, try to find the best one
         if not vehicle_id:
@@ -468,9 +564,10 @@ class PremafirmDispatchWizard(models.TransientModel):
         # Add system origin/return stops
         estimator_rec.add_system_stops()
 
-        # Dispatch to Fleetbase
-        dispatch_result = estimator_rec.action_dispatch_to_fleetbase()
-        dispatch_success = not (isinstance(dispatch_result, dict) and dispatch_result.get("params", {}).get("type") == "warning")
+        # ── Apply extracted rate-confirmation fields ─────────────────────
+        # Only fill fields that are still blank — never overwrite something
+        # the dispatcher already set or a prior extraction already filled.
+        self._apply_extracted_document_fields()
 
         # Create Odoo Calendar event
         cal_start = None
@@ -497,15 +594,16 @@ class PremafirmDispatchWizard(models.TransientModel):
             estimator_rec.write({"calendar_event_id": event.id})
 
         msg_parts = [f"Job '{job_day_ref}' created and linked to this invoice."]
-        if dispatch_success:
-            msg_parts.append("Dispatched to Fleetbase.")
-        else:
-            msg_parts.append("Could not dispatch to Fleetbase — dispatch manually from the job record.")
         if cal_start:
             msg_parts.append("Calendar event created.")
 
-        # Combine notes (original + dispatcher edits)
-        final_notes = "\n".join(filter(None, [self.notes or "", self.dispatcher_notes or ""]))
+        # Combine notes (original + dispatcher edits + extracted rate-con fields
+        # that have no dedicated field to land in — equipment/commodity/broker
+        # are surfaced here for the dispatcher to copy onto the job manually
+        # when they click "Book Load", same as they already do for equipment
+        # type today)
+        extracted_line = self._extracted_fields_note_line()
+        final_notes = "\n".join(filter(None, [self.notes or "", self.dispatcher_notes or "", extracted_line]))
         if final_notes != (self.notes or ""):
             estimator_rec.write({"notes": final_notes})
 
@@ -526,6 +624,49 @@ class PremafirmDispatchWizard(models.TransientModel):
                 "next": {"type": "ir.actions.client", "tag": "reload"},
             },
         }
+
+    def _apply_extracted_document_fields(self):
+        """Copy rate-confirmation fields extracted during Analyze onto the
+        invoice — only the ones with a dedicated field there, and only if
+        that field is still blank. Never overwrites a value the dispatcher
+        or a prior extraction already set."""
+        self.ensure_one()
+        invoice = self.invoice_id
+        if not invoice:
+            return
+        updates = {}
+        if self.extracted_po_number and not invoice.premafirm_po:
+            updates["premafirm_po"] = self.extracted_po_number
+        if self.extracted_bol_number and not invoice.premafirm_bol:
+            updates["premafirm_bol"] = self.extracted_bol_number
+        if self.extracted_load_reference and not invoice.load_reference:
+            updates["load_reference"] = self.extracted_load_reference
+        if self.extracted_payment_terms and not invoice.invoice_payment_term_id:
+            term = self.env["account.payment.term"].sudo().search(
+                [("name", "=ilike", self.extracted_payment_terms)], limit=1
+            )
+            if term:
+                updates["invoice_payment_term_id"] = term.id
+        if updates:
+            invoice.sudo().write(updates)
+
+    def _extracted_fields_note_line(self):
+        """One-line summary of extracted fields with no dedicated Odoo field
+        (equipment type, commodity, broker/customer name, rate amount) —
+        appended to the job notes for the dispatcher to review/copy."""
+        self.ensure_one()
+        parts = []
+        if self.extracted_rate_amount:
+            parts.append(f"Rate: ${self.extracted_rate_amount:.2f}")
+        if self.extracted_broker_name:
+            parts.append(f"Broker/Customer: {self.extracted_broker_name}")
+        if self.extracted_equipment_type:
+            parts.append(f"Equipment: {self.extracted_equipment_type}")
+        if self.extracted_commodity:
+            parts.append(f"Commodity: {self.extracted_commodity}")
+        if not parts:
+            return ""
+        return "[Extracted from rate confirmation] " + " | ".join(parts)
 
     def _save_dispatch_to_ml(self, estimator_rec, stops_list, job_day_ref, notes):
         """Save this confirmed dispatch job to the ML knowledge base."""

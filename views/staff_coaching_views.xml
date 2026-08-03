@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- LIST VIEW -->
+    <record id="view_staff_coaching_config_list" model="ir.ui.view">
+        <field name="name">prema.staff.coaching.config.list</field>
+        <field name="model">prema.staff.coaching.config</field>
+        <field name="arch" type="xml">
+            <list string="Staff Coaching Configuration" editable="bottom">
+                <field name="employee_id"/>
+                <field name="role_type"/>
+                <field name="daily_coaching_enabled" widget="boolean_toggle"/>
+                <field name="weekly_summary_enabled" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- FORM VIEW -->
+    <record id="view_staff_coaching_config_form" model="ir.ui.view">
+        <field name="name">prema.staff.coaching.config.form</field>
+        <field name="model">prema.staff.coaching.config</field>
+        <field name="arch" type="xml">
+            <form string="Staff Coaching Config">
+                <sheet>
+                    <group>
+                        <group string="Employee">
+                            <field name="employee_id"/>
+                            <field name="role_type"/>
+                        </group>
+                        <group string="Notifications">
+                            <field name="daily_coaching_enabled" widget="boolean_toggle"
+                                   string="Daily OdooBot Coaching (6PM EST)"/>
+                            <field name="weekly_summary_enabled" widget="boolean_toggle"
+                                   string="Weekly Review (Monday 6AM EST)"/>
+                        </group>
+                    </group>
+                    <group string="Job Responsibilities (AI uses this for advice)">
+                        <field name="job_responsibilities" nolabel="1"
+                               placeholder="Describe what this person does. The more specific, the better the AI advice.&#10;&#10;Example for Grace:&#10;Cold calling logistics companies in Ontario and Quebec. Target: 40 dials/day, 5 appointments/week. Responsible for CRM data entry after each call, booking discovery calls for Aladdin, and sending follow-up emails within 24h.&#10;&#10;Example for Aladdin:&#10;Taking warm leads from Grace and booking closing meetings. Target: 3 meetings/week, 1 closed deal/month. Responsible for moving CRM opportunities through the pipeline, sending proposals, and following up within 48h."/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ACTION -->
+    <record id="action_staff_coaching_config" model="ir.actions.act_window">
+        <field name="name">Staff Coaching Settings</field>
+        <field name="res_model">prema.staff.coaching.config</field>
+        <field name="view_mode">list,form</field>
+        <field name="groups_id" eval="[(4, ref('base.group_system'))]"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No coaching profiles yet.</p>
+            <p>Add one profile per employee. The AI will use their role and responsibilities
+               to generate personalised daily and weekly coaching messages delivered via OdooBot.</p>
+        </field>
+    </record>
+
+    <!-- MENU under Attendances -->
+    <menuitem id="menu_staff_coaching_config"
+        name="Coaching Settings"
+        parent="hr_attendance.menu_hr_attendance_root"
+        action="action_staff_coaching_config"
+        sequence="98"
+        groups="base.group_system"/>
+
+</odoo>

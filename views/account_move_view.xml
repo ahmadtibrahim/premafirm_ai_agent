@@ -8,86 +8,55 @@
 
             <!-- Header buttons -->
             <xpath expr="//header/field[@name='state']" position="before">
-                <button name="action_add_dispatch_job"
-                        string="+ Add Job / Dispatch"
-                        type="object"
-                        class="btn-primary"
-                        icon="fa-truck"
-                        invisible="move_type not in ('out_invoice','out_refund')"/>
-                <button name="action_dispatch_all_jobs"
-                        string="Dispatch All Pending"
-                        type="object"
-                        class="btn-secondary"
-                        icon="fa-send"
-                        invisible="move_type not in ('out_invoice','out_refund') or dispatched_count == job_count or job_count == 0"/>
-                <button name="action_ai_prepare_dispatch_estimate"
-                        string="AI Estimate (Legacy)"
-                        type="object"
-                        class="btn-secondary"
-                        icon="fa-magic"
-                        invisible="move_type not in ('out_invoice','out_refund')"/>
-                <button name="action_open_dispatch_estimate"
-                        string="Open Estimate"
-                        type="object"
-                        class="btn-secondary"
-                        icon="fa-external-link"
-                        invisible="move_type not in ('out_invoice','out_refund') or not dispatch_estimator_id"/>
                 <button name="action_ai_generate_invoice"
                         string="AI Generate"
                         type="object"
                         class="btn-secondary"
                         icon="fa-magic"
-                        invisible="move_type not in ('out_invoice','out_refund')"/>
-            </xpath>
-
-            <!-- Smart buttons area — job count badges -->
-            <xpath expr="//div[@name='button_box']" position="inside">
-                <button name="action_open_dispatch_jobs"
+                        invisible="move_type not in ('out_invoice','out_refund')"
+                        help="Scan attached documents (BOL, packing slip, rate confirmation) to auto-fill the reference number, route description, and service product."/>
+                <button name="action_delete_ai_chatter_notes"
+                        string="Clean AI Notes"
                         type="object"
-                        class="oe_stat_button"
-                        icon="fa-truck"
-                        invisible="move_type not in ('out_invoice','out_refund') or job_count == 0">
-                    <div class="o_field_widget o_stat_info">
-                        <span class="o_stat_value">
-                            <field name="dispatched_count"/>/<field name="job_count"/>
-                        </span>
-                        <span class="o_stat_text">Jobs Dispatched</span>
-                    </div>
-                </button>
+                        class="btn-secondary"
+                        icon="fa-trash-o"
+                        invisible="move_type not in ('out_invoice','out_refund')"
+                        confirm="Remove auto-generated AI reference notes from the chatter? This cannot be undone."
+                        help="Delete the auto-posted reference tracking messages created by AI Generate."/>
             </xpath>
 
-            <!-- Dispatch Jobs notebook page -->
+            <!-- Smart buttons — estimator job_count kept hidden (used internally) -->
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <field name="job_count" invisible="1"/>
+            </xpath>
+
+            <!-- Dispatch tab — Prema Dispatch only (content injected by prema_dispatch module) -->
             <xpath expr="//page[@id='other_tab']" position="after">
-                <page string="Dispatch Jobs" name="dispatch_jobs_tab"
+                <page string="Dispatch" name="dispatch_jobs_tab"
+                      invisible="move_type not in ('out_invoice','out_refund')">
+                </page>
+            </xpath>
+
+            <!-- WhatsApp / Text Input tab -->
+            <xpath expr="//page[@id='other_tab']" position="before">
+                <page string="Generate from Text" name="whatsapp_text_tab"
                       invisible="move_type not in ('out_invoice','out_refund')">
                     <group>
-                        <field name="week_reference"
-                               placeholder="e.g. Week of May 04 2026"/>
+                        <field name="x_whatsapp_text"
+                               widget="text"
+                               nolabel="1"
+                               placeholder="Paste a WhatsApp message, SMS, or email here…&#10;&#10;Example:&#10;Hi Ahmad, need pickup from Walmart Mississauga to Canadian Tire Brampton, 20 pallets, Thursday May 22. PO is 8847-B."
+                               style="min-height:180px; font-size:13px;"/>
                     </group>
-                    <field name="dispatch_estimator_ids" readonly="1">
-                        <list string="Jobs" create="false" delete="false">
-                            <field name="job_sequence" string="#"/>
-                            <field name="job_day_ref" string="Day"/>
-                            <field name="vehicle_id"/>
-                            <field name="scheduled_at"/>
-                            <field name="origin_address"/>
-                            <field name="destination_address"/>
-                            <field name="suggested_rate"/>
-                            <field name="fleetbase_status"/>
-                            <field name="fleetbase_tracking"/>
-                            <field name="state"/>
-                        </list>
-                    </field>
-                    <div class="mt-2">
-                        <button name="action_add_dispatch_job"
-                                string="+ Add Job / Dispatch"
-                                type="object"
-                                class="btn btn-primary"/>
-                        <button name="action_dispatch_all_jobs"
-                                string="Dispatch All Pending"
-                                type="object"
-                                class="btn btn-secondary ml-2"
-                                invisible="dispatched_count == job_count or job_count == 0"/>
+                    <div class="mt-2 d-flex align-items-center gap-3">
+                        <button name="action_generate_from_whatsapp" type="object"
+                                string="Generate Invoice Details"
+                                class="btn btn-primary"
+                                icon="fa-magic"/>
+                        <small class="text-muted">
+                            AI extracts reference numbers and builds the route description.
+                            Looks at past 5 invoices for this customer to match their format.
+                        </small>
                     </div>
                 </page>
             </xpath>
@@ -125,15 +94,16 @@
                         type="object"
                         class="btn-secondary"
                         icon="fa-file-text-o"
-                        invisible="move_type not in ('in_invoice','in_refund')"/>
+                        invisible="move_type not in ('in_invoice','in_refund')"
+                        help="Generate a plain-English internal summary of this invoice — covers what was invoiced, the route/lane, and any pricing notes"/>
             </xpath>
 
             <!-- Auto-fill reference button -->
             <xpath expr="//group[@name='sale_info_group']/field[@name='ref']" position="after">
                 <button name="action_ai_extract_reference" type="object"
-                        string="⚡ Auto-fill from attachments"
+                        string="⚡ Auto-fill from attachments or text"
                         class="btn btn-link btn-sm p-0 text-primary"
-                        title="Scan attachments and extract BOL, PO, Packing Slip numbers into the Customer Reference field above"
+                        title="Scans attachments first. If none are attached, extracts from the text pasted in the 'Generate from Text' tab."
                         invisible="move_type not in ('out_invoice','out_refund')"/>
             </xpath>
 
@@ -145,10 +115,10 @@
                 <field name="load_reference" invisible="1"/>
                 <field name="dispatch_estimator_id" invisible="1"/>
                 <field name="job_count" invisible="1"/>
-                <field name="dispatched_count" invisible="1"/>
                 <field name="x_ai_summary" invisible="1"/>
                 <field name="x_ai_summary_instruction" invisible="1"/>
                 <field name="x_ai_summary_at" invisible="1"/>
+                <field name="x_whatsapp_text" invisible="1"/>
             </xpath>
 
             <!-- IFTA Province field — shown on vendor bills only -->

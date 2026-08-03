@@ -13,7 +13,6 @@
                 <field name="destination_address"/>
                 <field name="distance_km"/>
                 <field name="suggested_rate"/>
-                <field name="fleetbase_status"/>
                 <field name="state"/>
             </list>
         </field>
@@ -25,44 +24,52 @@
         <field name="arch" type="xml">
             <form string="Dispatch Estimate" create="false">
                 <header>
-                    <button name="action_dispatch_to_fleetbase"
-                            string="Dispatch"
-                            type="object"
-                            class="btn-primary"
-                            invisible="fleetbase_order_id or not vehicle_id"/>
-                    <button name="action_open_fleetbase_tracking"
-                            string="Open Fleetbase"
-                            type="object"
-                            class="btn-secondary"
-                            invisible="not fleetbase_url"/>
                     <button name="action_open_invoice"
                             string="Invoice"
                             type="object"
                             class="btn-secondary"
-                            invisible="not invoice_id"/>
+                            invisible="not invoice_id"
+                            help="Open the linked customer invoice for this job"/>
                     <button name="action_open_source_invoice"
                             string="Source Invoice"
                             type="object"
                             class="btn-secondary"
-                            invisible="not source_invoice_id"/>
+                            invisible="not source_invoice_id"
+                            help="Open the invoice this job was created from"/>
                     <button name="action_open_calendar_event"
                             string="Calendar"
                             type="object"
                             class="btn-secondary"
-                            invisible="not calendar_event_id"/>
+                            invisible="not calendar_event_id"
+                            help="Open the calendar event for this job's scheduled date"/>
                     <button name="action_ai_rewrite_notes"
                             string="Rewrite Notes (AI)"
                             type="object"
-                            class="btn-secondary"/>
+                            class="btn-secondary"
+                            help="Use AI to rewrite the trip notes in professional dispatch language"/>
                     <button name="action_ai_review_stops"
                             string="AI Review Stops"
                             type="object"
-                            class="btn-secondary"/>
+                            class="btn-secondary"
+                            help="Use AI to check stops for missing info, wrong order, or address issues"/>
+                    <button name="action_create_quotation"
+                            string="Create Quotation"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="not partner_id"
+                            help="Create a draft sales quotation for this customer using the estimated rate and route"/>
+                    <button name="action_create_invoice"
+                            string="Create Invoice"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="not partner_id"
+                            help="Create a draft customer invoice pre-filled with this job's route and notes — AI Generate on the invoice will use this customer's billing history"/>
                     <field name="state" widget="statusbar"/>
                 </header>
                 <sheet>
                     <group>
                         <group string="Job">
+                            <field name="partner_id"/>
                             <field name="invoice_id"/>
                             <field name="job_day_ref"/>
                             <field name="job_sequence"/>
@@ -80,12 +87,6 @@
                     </group>
 
                     <group>
-                        <group string="Fleetbase">
-                            <field name="fleetbase_order_id" readonly="1"/>
-                            <field name="fleetbase_tracking" readonly="1"/>
-                            <field name="fleetbase_status" readonly="1"/>
-                            <field name="fleetbase_url" readonly="1"/>
-                        </group>
                         <group string="Route">
                             <field name="origin_address" readonly="1"/>
                             <field name="destination_address" readonly="1"/>
@@ -96,9 +97,10 @@
 
                     <group>
                         <group string="Cost">
-                            <field name="total_cost" readonly="1"/>
-                            <field name="suggested_rate" readonly="1"/>
-                            <field name="margin_pct" readonly="1"/>
+                            <field name="total_cost" readonly="1" string="Total Estimated Cost"/>
+                            <field name="suggested_rate" readonly="1" string="Gross Revenue"/>
+                            <field name="net_profit" readonly="1" string="NET PROFIT"/>
+                            <field name="margin_percent" readonly="1" string="Margin %"/>
                             <field name="driver_rate_per_hr" readonly="1"/>
                             <field name="fuel_price_per_l" readonly="1"/>
                             <field name="avg_km_per_l" readonly="1" string="Avg km/L (ELD)"/>
@@ -113,6 +115,19 @@
                     </group>
 
                     <notebook>
+                        <page string="Customer Invoices" name="customer_invoices" invisible="not partner_id">
+                            <field name="partner_last_invoice_ids" readonly="1" nolabel="1">
+                                <list string="Last 5 Posted Invoices" create="false" delete="false" edit="false">
+                                    <field name="name" string="Invoice #"/>
+                                    <field name="invoice_date" string="Date"/>
+                                    <field name="amount_total" string="Total" widget="monetary"/>
+                                    <field name="narration" string="Route / Notes" optional="show"/>
+                                    <field name="state" string="Status" widget="badge"
+                                           decoration-success="state == 'posted'"
+                                           decoration-warning="state == 'draft'"/>
+                                </list>
+                            </field>
+                        </page>
                         <page string="Stops" name="stops">
                             <field name="stop_ids">
                                 <list editable="bottom">
@@ -196,11 +211,8 @@
                 <field name="vehicle_id"/>
                 <field name="invoice_id"/>
                 <field name="source_invoice_id"/>
-                <field name="fleetbase_status"/>
                 <field name="job_day_ref"/>
                 <filter name="scheduled" string="Scheduled" domain="[('scheduled_at', '!=', False)]"/>
-                <filter name="dispatched" string="Dispatched" domain="[('fleetbase_order_id', '!=', False)]"/>
-                <filter name="pending" string="Pending Dispatch" domain="[('fleetbase_order_id', '=', False)]"/>
                 <filter name="errors" string="Errors" domain="[('state', '=', 'error')]"/>
             </search>
         </field>

@@ -23,7 +23,7 @@
     <record id="view_ml_draft_rate_conf_apply" model="ir.ui.view">
         <field name="name">premafirm.ml.draft.rate.conf.apply</field>
         <field name="model">premafirm.ml.draft</field>
-        <field name="inherit_id" ref="premafirm_ml.view_ml_draft_form"/>
+        <field name="inherit_id" ref="premafirm_ai_engine.view_ml_draft_form"/>
         <field name="arch" type="xml">
             <xpath expr="//header/button[last()]" position="after">
                 <button name="action_apply_to_order"

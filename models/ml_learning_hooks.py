@@ -60,61 +60,13 @@ class PremafirmRateEstimatorML(models.Model):
     """Extend the rate estimator to save ML knowledge when estimates are confirmed."""
     _inherit = "premafirm.rate.estimator"
 
-    def action_dispatch_to_fleetbase(self):
-        result = super().action_dispatch_to_fleetbase()
-        # Only save on successful dispatch (not duplicate-skip warning)
-        if self.fleetbase_order_id:
-            self._save_estimate_to_ml()
-        return result
-
-    def _save_estimate_to_ml(self):
-        """Save confirmed dispatch estimate as ML knowledge."""
-        try:
-            stops = []
-            if self.stop_ids:
-                stops = [s.as_dict() for s in self.stop_ids.sorted("sequence")]
-            elif self.stops_json:
-                try:
-                    stops = json.loads(self.stops_json)
-                except Exception:
-                    pass
-
-            input_ctx = (
-                f"Dispatch: {self.origin_address or ''} → {self.destination_address or ''} | "
-                f"Truck: {self.vehicle_id.name if self.vehicle_id else ''} | "
-                f"Stops: {len(stops)} | "
-                f"Date: {self.scheduled_at.strftime('%Y-%m-%d') if self.scheduled_at else ''}"
-            )
-            good_output = json.dumps({
-                "vehicle_id":     self.vehicle_id.id if self.vehicle_id else None,
-                "vehicle_name":   self.vehicle_id.name if self.vehicle_id else "",
-                "origin":         self.origin_address,
-                "destination":    self.destination_address,
-                "distance_km":    self.distance_km,
-                "duration_hrs":   self.duration_hrs,
-                "suggested_rate": self.suggested_rate,
-                "total_cost":     self.total_cost,
-                "stops":          stops,
-                "fleetbase_id":   self.fleetbase_order_id,
-            }, default=str)
-
-            self.env["premafirm.ml.learning"].sudo().ml_save(
-                knowledge_type=KT_DISPATCH,
-                input_context=input_ctx,
-                good_output=good_output,
-                origin="approved",
-                weight=2.0,
-            )
-        except Exception as e:
-            _logger.warning("Could not save estimate to ML: %s", e)
-
     def write(self, vals):
         # Detect manual stop edits and note rewrites → save corrections to ML
         stop_edit = "stop_ids" in vals
         note_edit = "notes" in vals and vals["notes"] != (self.notes or "")
         result = super().write(vals)
         if stop_edit or note_edit:
-            for rec in self.filtered(lambda r: r.fleetbase_order_id):
+            for rec in self:
                 try:
                     rec._save_estimate_to_ml_correction(
                         what="stops_edited" if stop_edit else "notes_edited"

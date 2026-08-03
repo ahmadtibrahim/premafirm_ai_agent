@@ -94,21 +94,69 @@ class PremaAISessionML(models.Model):
         return base_ctx
 
     def _ml_cost_params_section(self):
-        """Inject live estimator cost parameters so AI uses real costs when quoting rates."""
+        """Inject live estimator cost parameters AND actual fleet vehicle data.
+
+        This gives GPT accurate numbers so it can calculate rates without
+        guessing — eliminating 'truck not selected' errors and speeding up responses.
+        """
         try:
             p = self.env['ir.config_parameter'].sudo()
             fuel      = float(p.get_param('estimator.fuel_price_per_l',        '1.55'))
-            driver    = float(p.get_param('estimator.driver_rate_per_hr',       '28.00'))
+            sys_driver = float(p.get_param('estimator.driver_rate_per_hr',      '28.00'))
             margin    = float(p.get_param('estimator.margin_pct',               '20.0'))
             wt_thresh = float(p.get_param('estimator.weight_threshold_lbs',     '3000'))
             wt_cwt    = float(p.get_param('estimator.weight_surcharge_per_cwt', '5.00'))
-            return (
-                '## PremaFirm Current Cost Parameters (use these for any rate estimates)\n'
-                f'Fuel: ${fuel:.3f}/L | Driver: ${driver:.2f}/hr | '
-                f'Margin: {margin:.1f}% | '
-                f'Weight surcharge: ${wt_cwt:.2f}/CWT on load over {wt_thresh:,.0f} lbs\n'
-                f'Suggested rate = total cost × (1 + {margin:.0f}%)'
-            )
+
+            lines = [
+                '## PremaFirm Rate Estimation Parameters',
+                f'Fuel price: ${fuel:.3f}/L  |  Margin: {margin:.1f}%  |  '
+                f'Weight surcharge: ${wt_cwt:.2f}/CWT on loads over {wt_thresh:,.0f} lbs',
+            ]
+
+            # Inject actual fleet vehicle data so GPT knows exactly which truck is available
+            vehicles = self.env['fleet.vehicle'].sudo().search([('active', '=', True)], limit=3)
+            if vehicles:
+                lines.append('')
+                lines.append('## Available Trucks (use these specs for calculations):')
+                for v in vehicles:
+                    km_l = v.x_avg_km_per_l_last_week or 0.0
+                    ins_km = v.x_insurance_cost_per_km or 0.0
+                    maint_km = v.x_maintenance_cost_per_km or 0.0
+                    driver_rate = v.x_driver_rate_per_hr if v.x_driver_rate_per_hr and v.x_driver_rate_per_hr > 0 else sys_driver
+                    max_payload = v.x_max_payload_lbs or 0.0
+                    truck_lines = [
+                        f'Truck: {v.name}',
+                        f'  Fuel efficiency: {km_l:.2f} km/L' if km_l > 0 else '  Fuel efficiency: not synced yet',
+                        f'  Insurance/km: ${ins_km:.4f}' if ins_km > 0 else '  Insurance/km: not set',
+                        f'  Maintenance/km: ${maint_km:.4f}' if maint_km > 0 else '  Maintenance/km: not set',
+                        f'  Driver rate: ${driver_rate:.2f}/hr',
+                        f'  Max payload: {max_payload:,.0f} lbs' if max_payload > 0 else '',
+                    ]
+                    lines.extend(l for l in truck_lines if l)
+
+                # Show calculation example
+                if vehicles[0].x_avg_km_per_l_last_week:
+                    v = vehicles[0]
+                    km_l = v.x_avg_km_per_l_last_week
+                    ins_km = v.x_insurance_cost_per_km or 0.0
+                    maint_km = v.x_maintenance_cost_per_km or 0.0
+                    driver_rate = v.x_driver_rate_per_hr if v.x_driver_rate_per_hr and v.x_driver_rate_per_hr > 0 else sys_driver
+                    lines += [
+                        '',
+                        '## How to calculate a rate for a given distance (km) and drive time (hrs):',
+                        f'  fuel_cost = km / {km_l:.2f} × ${fuel:.3f}',
+                        f'  insurance_cost = km × ${ins_km:.4f}',
+                        f'  maintenance_cost = km × ${maint_km:.4f}',
+                        f'  driver_cost = hrs × ${driver_rate:.2f}',
+                        f'  total_cost = fuel + insurance + maintenance + driver',
+                        f'  suggested_rate = total_cost × {1 + margin/100:.2f}  (includes {margin:.0f}% margin)',
+                        'Note: Always show the cost breakdown in your answer.',
+                    ]
+            else:
+                lines.append(f'Driver rate: ${sys_driver:.2f}/hr')
+                lines.append('Note: No active trucks found. Ask the user to check Fleet → Vehicles.')
+
+            return '\n'.join(lines)
         except Exception:
             return ''
 

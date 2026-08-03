@@ -12,17 +12,25 @@
                         <field name="status" readonly="1"/>
                         <field name="error_message" readonly="1" invisible="status != 'error'"/>
                     </group>
-                    <group string="Current Notes" invisible="not current_notes">
-                        <field name="current_notes" nolabel="1" readonly="1"/>
-                    </group>
-                    <group string="AI Suggestion" invisible="not ai_suggestion">
-                        <field name="ai_suggestion" nolabel="1" readonly="1"/>
-                    </group>
+                    <div invisible="not current_notes" style="margin-bottom:16px;">
+                        <h4 style="margin-bottom:6px;color:#495057;">Current Notes</h4>
+                        <div style="background:#f5f5f5;border-left:3px solid #adb5bd;padding:12px;border-radius:4px;white-space:pre-wrap;font-family:inherit;">
+                            <field name="current_notes" nolabel="1" readonly="1"
+                                   style="background:transparent;border:none;width:100%;"/>
+                        </div>
+                    </div>
+                    <div invisible="not ai_suggestion" style="margin-bottom:16px;">
+                        <h4 style="margin-bottom:6px;color:#155724;">AI Suggested Rewrite</h4>
+                        <div style="background:#eaf7f0;border-left:3px solid #28a745;padding:12px;border-radius:4px;white-space:pre-wrap;font-family:inherit;">
+                            <field name="ai_suggestion" nolabel="1" readonly="1"
+                                   style="background:transparent;border:none;width:100%;"/>
+                        </div>
+                    </div>
                 </sheet>
                 <footer>
-                    <button name="action_analyze" string="Analyze with AI" type="object"
+                    <button name="action_analyze" string="Generate AI Rewrite" type="object"
                             class="btn-primary" invisible="status != 'pending'"/>
-                    <button name="action_accept" string="Accept &amp; Apply" type="object"
+                    <button name="action_accept" string="Accept and Apply" type="object"
                             class="btn-primary" invisible="status != 'ready'"/>
                     <button name="action_reject" string="Keep Original" type="object"
                             class="btn-secondary" invisible="status == 'pending'"/>
@@ -45,19 +53,53 @@
                         <field name="status" readonly="1"/>
                         <field name="error_message" readonly="1" invisible="status != 'error'"/>
                     </group>
-                    <group string="AI Suggestions" invisible="not suggestions">
-                        <field name="suggestions" nolabel="1" readonly="1"/>
-                    </group>
-                    <notebook invisible="status != 'ready'">
-                        <page string="Current Stops (BEFORE)">
-                            <field name="before_json" nolabel="1" readonly="1"
-                                   widget="ace" options="{'mode': 'json'}"/>
-                        </page>
-                        <page string="AI Suggested Stops (AFTER)">
-                            <field name="after_json" nolabel="1" readonly="1"
-                                   widget="ace" options="{'mode': 'json'}"/>
-                        </page>
-                    </notebook>
+                    <div class="alert alert-info" role="alert"
+                         invisible="status != 'ready' or not suggestions">
+                        <strong>AI Analysis:</strong><br/>
+                        <field name="suggestions" nolabel="1" readonly="1"
+                               style="white-space:pre-wrap;"/>
+                    </div>
+                    <div invisible="status != 'ready'">
+                        <h4 style="margin-top:12px;margin-bottom:6px;color:#495057;">
+                            Current Stops
+                        </h4>
+                        <field name="before_stop_ids" readonly="1" nolabel="1">
+                            <list string="Current Stops" create="0" delete="0">
+                                <field name="sequence" widget="handle"/>
+                                <field name="stop_type" widget="badge"
+                                       decoration-info="stop_type == 'pickup'"
+                                       decoration-success="stop_type == 'delivery'"
+                                       decoration-muted="stop_type in ('origin','return')"/>
+                                <field name="name" string="Company"/>
+                                <field name="address"/>
+                                <field name="scheduled_time"/>
+                                <field name="pallets"/>
+                                <field name="liftgate" widget="boolean_toggle"/>
+                                <field name="notes"/>
+                            </list>
+                        </field>
+                        <h4 style="margin-top:16px;margin-bottom:6px;color:#155724;">
+                            AI Suggested Stops — review and edit before applying
+                        </h4>
+                        <field name="after_stop_ids" nolabel="1">
+                            <list string="AI Suggested Stops" editable="bottom">
+                                <field name="sequence" widget="handle"/>
+                                <field name="stop_type" required="1"/>
+                                <field name="name" string="Company"/>
+                                <field name="address"
+                                       widget="google_address"
+                                       options="{&quot;lat_field&quot;: &quot;lat&quot;, &quot;lng_field&quot;: &quot;lng&quot;}"/>
+                                <field name="lat" optional="hide"/>
+                                <field name="lng" optional="hide"/>
+                                <field name="scheduled_time"/>
+                                <field name="pallets"/>
+                                <field name="weight_lbs" optional="hide"/>
+                                <field name="liftgate" widget="boolean_toggle"/>
+                                <field name="notes"/>
+                                <field name="is_system" optional="hide" readonly="1"/>
+                            </list>
+                        </field>
+                    </div>
                 </sheet>
                 <footer>
                     <button name="action_analyze" string="Analyze Stops with AI" type="object"

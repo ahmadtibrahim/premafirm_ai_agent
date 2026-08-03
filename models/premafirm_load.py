@@ -63,7 +63,6 @@ class PremafirmLoad(models.Model):
     driver_id        = fields.Many2one("res.partner", string="Driver", ondelete="set null")
 
     # Job info
-    fleetbase_order_id = fields.Char(string="Fleetbase Order ID", index=True)
     job_day_ref      = fields.Char(string="Job Day")
     bol_number       = fields.Char(string="BOL #")
     seal_number      = fields.Char(string="Seal #")
@@ -154,55 +153,6 @@ class PremafirmLoad(models.Model):
             },
         }
 
-    def action_fetch_from_fleetbase(self):
-        """Fetch job completion data from Fleetbase and populate stops."""
-        self.ensure_one()
-        if not self.fleetbase_order_id:
-            raise exceptions.UserError("No Fleetbase Order ID is set on this load.")
-        from ..services.fleetbase_service import FleetbaseService
-        try:
-            fb = FleetbaseService(self.env)
-            completion = fb.get_order_completion(self.fleetbase_order_id)
-        except Exception as e:
-            raise exceptions.UserError(f"Could not fetch from Fleetbase: {e}")
-
-        # Populate stops from completion data
-        if completion.get("waypoints"):
-            self.stop_ids.unlink()
-            stop_vals = []
-            for i, wp in enumerate(completion["waypoints"]):
-                stop_vals.append({
-                    "load_id":            self.id,
-                    "sequence":           (i + 1) * 10,
-                    "stop_type":          wp.get("type", "delivery") if i > 0 else "pickup",
-                    "name":               wp.get("name") or wp.get("place", {}).get("name", ""),
-                    "address":            wp.get("address") or wp.get("place", {}).get("formatted_address", ""),
-                    "arrival_time":       self._parse_fb_dt(wp.get("arrived_at")),
-                    "departure_time":     self._parse_fb_dt(wp.get("departed_at")),
-                    "signature_name":     wp.get("pod_signature_name", ""),
-                    "notes":              wp.get("tracking_number") or wp.get("notes", ""),
-                })
-            self.env["premafirm.load.stop"].create(stop_vals)
-
-        update_vals = {"state": "completed"}
-        if completion.get("updated_at"):
-            update_vals["completed_at"] = self._parse_fb_dt(completion["updated_at"])
-        if completion.get("notes"):
-            update_vals["driver_notes"] = completion["notes"]
-        self.write(update_vals)
-
-        return {
-            "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {
-                "title": "Fetched from Fleetbase",
-                "message": f"Loaded {len(self.stop_ids)} stops from order {self.fleetbase_order_id}.",
-                "type": "success",
-                "sticky": False,
-                "next": {"type": "ir.actions.client", "tag": "reload"},
-            },
-        }
-
     @staticmethod
     def _parse_fb_dt(value):
         if not value:
@@ -219,47 +169,3 @@ class PremafirmLoad(models.Model):
         except Exception:
             return None
 
-    @api.model
-    def action_sync_completed_from_fleetbase(self):
-        """Cron entry point: find all dispatched-but-unsynced jobs and sync from Fleetbase."""
-        from ..services.fleetbase_service import FleetbaseService
-        ICP = self.env["ir.config_parameter"].sudo()
-        if not (ICP.get_param("fleetbase.enabled") == "True"):
-            return
-
-        try:
-            fb = FleetbaseService(self.env)
-            from datetime import timedelta
-            since = datetime.utcnow() - timedelta(days=7)
-            completed_orders = fb.fetch_completed_orders(since)
-        except Exception as e:
-            _logger.warning("Fleetbase sync failed: %s", e)
-            return
-
-        for order_data in completed_orders:
-            order_id = order_data.get("id")
-            if not order_id:
-                continue
-            # Find matching load record
-            existing = self.search([("fleetbase_order_id", "=", order_id)], limit=1)
-            if not existing:
-                # Find via estimator
-                estimator = self.env["premafirm.rate.estimator"].sudo().search(
-                    [("fleetbase_order_id", "=", order_id)], limit=1
-                )
-                if estimator:
-                    existing = self.create({
-                        "fleetbase_order_id": order_id,
-                        "estimator_id":       estimator.id,
-                        "invoice_id":         estimator.invoice_id.id if estimator.invoice_id else False,
-                        "vehicle_id":         estimator.vehicle_id.id if estimator.vehicle_id else False,
-                        "job_day_ref":        estimator.job_day_ref or "",
-                        "state":              "pending",
-                    })
-            if existing and existing.state not in ("pod_generated",):
-                try:
-                    existing.action_fetch_from_fleetbase()
-                    if existing.state == "completed":
-                        existing.action_generate_pod_pdf()
-                except Exception as e:
-                    _logger.warning("Could not sync/generate POD for load %s: %s", existing.id, e)

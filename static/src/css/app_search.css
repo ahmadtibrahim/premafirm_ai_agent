@@ -1,0 +1,58 @@
+/* ── Premafirm App Search — activates the built-in Odoo home-menu search ──
+   We unhide the native o_search_hidden input and style it.
+   Admin only · desktop + tablet.
+──────────────────────────────────────────────────────────────────────────── */
+
+.o_home_menu input.o_premafirm_search_active {
+    display: block !important;
+    position: relative !important;
+    width: 360px;
+    max-width: 88vw;
+    margin: 24px auto 0;
+    padding: 10px 18px 10px 40px;
+    border: 1.5px solid rgba(255, 255, 255, 0.35);
+    border-radius: 28px;
+    background: rgba(255, 255, 255, 0.14)
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='rgba(255,255,255,0.65)' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398l3.85 3.85a1 1 0 0 0 1.415-1.415l-3.868-3.833zm-5.242 1.156a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z'/%3E%3C/svg%3E")
+        no-repeat 14px center;
+    color: #fff;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.18s ease, background-color 0.18s ease,
+        box-shadow 0.18s ease;
+    -webkit-appearance: none;
+    appearance: none;
+    caret-color: #fff;
+    /* Undo Bootstrap visually-hidden remnants */
+    clip: auto !important;
+    clip-path: none !important;
+    height: auto !important;
+    overflow: visible !important;
+    white-space: normal !important;
+}
+
+.o_home_menu input.o_premafirm_search_active::placeholder {
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.o_home_menu input.o_premafirm_search_active:focus {
+    border-color: rgba(255, 255, 255, 0.75);
+    background-color: rgba(255, 255, 255, 0.22);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
+}
+
+/* Mobile — hide (keep native Odoo behaviour on phone) */
+@media (max-width: 767px) {
+    .o_home_menu input.o_premafirm_search_active {
+        display: none !important;
+    }
+}
+
+/* Tablet — slightly narrower */
+@media (min-width: 768px) and (max-width: 1024px) {
+    .o_home_menu input.o_premafirm_search_active {
+        width: 280px;
+        font-size: 13px;
+    }
+}

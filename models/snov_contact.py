@@ -133,3 +133,73 @@ class PremafirmSnovContact(models.Model):
         return SnovService(self.env).find_emails_by_domain(
             domain=domain, positions=positions, limit=limit
         )
+
+    @api.model
+    def select_best_contact(self, domain, positions=None, preferred_city=None,
+                             preferred_country=None, company_name=None, limit=15):
+        """Return the best available Snov contact for a company domain.
+
+        Used by Prema AI Lead Gen to enrich Google Places company results with a
+        likely logistics decision-maker, even if only name/title are available.
+        """
+        from ..services.snov_service import SnovService
+
+        service = SnovService(self.env)
+        data = service.find_emails_by_domain(domain=domain, positions=positions, limit=limit)
+        emails = data.get("emails") or []
+        if not emails:
+            return {}
+
+        preferred_city = (preferred_city or "").strip().lower()
+        preferred_country = (preferred_country or "").strip().lower()
+
+        def confidence_score(raw):
+            if isinstance(raw, str):
+                return {"high": 90, "medium": 60, "low": 30}.get(raw.lower(), 0)
+            return int(raw or 0)
+
+        def title_score(title):
+            title_lc = (title or "").lower()
+            if any(word in title_lc for word in ["vice president", "vp", "director", "head of", "chief"]):
+                return 35
+            if any(word in title_lc for word in ["manager", "dispatch manager", "supply chain"]):
+                return 28
+            if any(word in title_lc for word in ["coordinator", "supervisor", "dispatch"]):
+                return 18
+            return 6
+
+        def candidate_score(item):
+            city = (item.get("city") or "").strip().lower()
+            country = (item.get("country") or "").strip().lower()
+            score = title_score(item.get("currentTitle") or item.get("position"))
+            score += confidence_score(item.get("confidence") or item.get("confidenceScore")) // 4
+            if item.get("email"):
+                score += 25
+            if item.get("firstName") or item.get("lastName"):
+                score += 10
+            if preferred_city and city and city == preferred_city:
+                score += 10
+            if preferred_country and country and preferred_country in country:
+                score += 5
+            return score
+
+        ranked = sorted(emails, key=candidate_score, reverse=True)
+        best = ranked[0]
+        first = (best.get("firstName") or "").strip()
+        last = (best.get("lastName") or "").strip()
+        title = (best.get("currentTitle") or best.get("position") or "").strip()
+        full_name = " ".join(part for part in [first, last] if part).strip()
+        return {
+            "contact_name": full_name,
+            "first_name": first,
+            "last_name": last,
+            "email": (best.get("email") or "").strip(),
+            "phone": (best.get("phone") or "").strip(),
+            "title": title,
+            "company_name": (best.get("currentCompany") or company_name or domain).strip(),
+            "city": (best.get("city") or "").strip(),
+            "country": (best.get("country") or "").strip(),
+            "linkedin_url": (best.get("linkedInUrl") or "").strip(),
+            "confidence": confidence_score(best.get("confidence") or best.get("confidenceScore")),
+            "reason": f"Best Snov match for {domain}" + (f" — {title}" if title else ""),
+        }

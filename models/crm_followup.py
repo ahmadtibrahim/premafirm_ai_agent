@@ -6,6 +6,7 @@ Weekly cron: surfaces cold leads (60+ days) with AI reactivation drafts.
 import logging
 from datetime import timedelta, date
 
+from markupsafe import Markup
 from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
@@ -37,16 +38,17 @@ def _biz_days_since(dt):
 
 
 def _api_key(env):
-    return (env['ir.config_parameter'].sudo().get_param('openai.api_key') or '').strip()
+    from odoo.addons.premafirm_ai_engine.services.deepseek_utils import get_api_key as _get_deepseek_key
+    return _get_deepseek_key(env)
 
 
 def _gpt_draft(env, system, user_msg, max_tokens=300):
     try:
-        from odoo.addons.premafirm_ai_engine.services.openai_utils import openai_chat
+        from odoo.addons.premafirm_ai_engine.services.deepseek_utils import deepseek_chat
         key = _api_key(env)
         if not key:
             return None
-        return openai_chat(
+        return deepseek_chat(
             messages=[{'role': 'user', 'content': user_msg}],
             system=system,
             max_tokens=max_tokens,
@@ -136,15 +138,15 @@ class CrmFollowupCron(models.Model):
 
         draft = _gpt_draft(self.env, system, prompt)
 
-        body = (
+        body = Markup(
             f'<b>📬 AI Follow-up Draft #{num}</b> '
             f'({days} business days since last outreach to {contact_name} at {company_name})<br/>'
             f'<i>Review below and send manually when ready.</i><br/><br/>'
         )
         if draft:
-            body += f'<pre style="white-space:pre-wrap;font-family:inherit">{draft}</pre>'
+            body += Markup(f'<pre style="white-space:pre-wrap;font-family:inherit">{Markup.escape(draft)}</pre>')
         else:
-            body += (
+            body += Markup(
                 f'<i>Could not generate draft (API key issue). '
                 f'Manually follow up with {contact_name} at {company_name}.</i>'
             )
@@ -209,26 +211,43 @@ class CrmFollowupCron(models.Model):
             prompt,
         )
 
-        body = (
-            f'<b>🔄 Cold Lead Reactivation</b> — {company_name}<br/>'
-            f'Last contact: {days} business days ago | Contact: {contact_name}<br/>'
+        body = Markup(
+            f'<b>🔄 Cold Lead Reactivation</b> — {Markup.escape(company_name)}<br/>'
+            f'Last contact: {days} business days ago | Contact: {Markup.escape(contact_name)}<br/>'
         )
         if seasonal_hint:
-            body += f'<i>📅 {seasonal_hint}</i><br/>'
+            body += Markup(f'<i>📅 {Markup.escape(seasonal_hint)}</i><br/>')
         if draft:
-            body += f'<br/><b>AI Draft:</b><br/><pre style="white-space:pre-wrap;font-family:inherit">{draft}</pre>'
+            body += Markup(f'<br/><b>AI Draft:</b><br/><pre style="white-space:pre-wrap;font-family:inherit">{Markup.escape(draft)}</pre>')
 
         self.message_post(body=body, subtype_xmlid='mail.mt_note')
 
-    # ── Outreach/Contacted no-reply → Data Collection ────────────────────────
+    def _schedule_manual_stage_review(self, summary, note, deadline=None):
+        self.ensure_one()
+        todo = self.env.ref('mail.mail_activity_data_todo', raise_if_not_found=False)
+        if not todo:
+            return False
+        existing = self.env['mail.activity'].search([
+            ('res_model', '=', 'crm.lead'),
+            ('res_id', '=', self.id),
+            ('summary', '=', summary),
+        ], limit=1)
+        if existing:
+            return False
+        self.activity_schedule(
+            activity_type_id=todo.id,
+            summary=summary,
+            note=note,
+            date_deadline=deadline or fields.Date.today(),
+            user_id=self.user_id.id or self.env.uid,
+        )
+        return True
+
+    # ── Outreach/Contacted no-reply → Manual review ──────────────────────────
 
     @api.model
     def run_outreach_stale_cron(self):
-        """Daily: leads in Outreach or Contacted with no reply after N days → Data Collection."""
-        data_col = self.env['crm.stage'].sudo().search([('name', '=', 'Data Collection')], limit=1)
-        if not data_col:
-            return
-
+        """Daily: stale outreach leads stay in place and get flagged for manual review."""
         stage_ids = self.env['crm.stage'].sudo().search(
             [('name', 'in', ['Outreach', 'Contacted'])]
         ).ids
@@ -253,18 +272,26 @@ class CrmFollowupCron(models.Model):
 
         for lead in leads:
             try:
-                lead.sudo().write({'stage_id': data_col.id})
+                created = lead._schedule_manual_stage_review(
+                    summary='Review for manual Data Collection move',
+                    note=(
+                        f'No reply after {threshold_days}+ days of outreach. '
+                        f'Review this lead manually and move it to Data Collection only if needed.'
+                    ),
+                )
+                if not created:
+                    continue
                 lead.message_post(
-                    body=(
-                        f'<b>Auto-moved to Data Collection</b> — '
+                    body=Markup(
+                        f'<b>Manual review needed</b> — '
                         f'no reply after {threshold_days}+ days of outreach. '
-                        f'Find a new contact to re-approach.'
+                        f'The stage was left unchanged so you can decide whether to move it to Data Collection.'
                     ),
                     subtype_xmlid='mail.mt_note',
                 )
-                _logger.info('CRM: lead %s moved to Data Collection (%d-day no-reply)', lead.id, threshold_days)
+                _logger.info('CRM: lead %s flagged for manual Data Collection review (%d-day no-reply)', lead.id, threshold_days)
             except Exception as exc:
-                _logger.warning('CRM: outreach stale move failed lead %s: %s', lead.id, exc)
+                _logger.warning('CRM: outreach stale manual review failed lead %s: %s', lead.id, exc)
 
     # ── Replied-stage follow-up timers ────────────────────────────────────────
 
@@ -305,10 +332,9 @@ class CrmFollowupCron(models.Model):
 
     @api.model
     def run_replied_stale_cron(self):
-        """Day +6 after customer reply with no outgoing response: move to Data Collection."""
+        """Day +6 after customer reply with no outgoing response: flag for manual review."""
         replied = self.env['crm.stage'].sudo().search([('name', '=', 'Replied')], limit=1)
-        data_col = self.env['crm.stage'].sudo().search([('name', '=', 'Data Collection')], limit=1)
-        if not replied or not data_col:
+        if not replied:
             return
         cutoff = fields.Datetime.now() - timedelta(days=6)
         leads = self.sudo().search([
@@ -319,11 +345,16 @@ class CrmFollowupCron(models.Model):
         ])
         for lead in leads:
             try:
-                lead.sudo().write({'stage_id': data_col.id})
+                created = lead._schedule_manual_stage_review(
+                    summary='Review replied lead for manual Data Collection move',
+                    note='Customer replied 6+ days ago with no follow-up sent. Review manually and move to Data Collection only if needed.',
+                )
+                if not created:
+                    continue
                 lead.message_post(
-                    body='<b>⚠️ Auto-moved to Data Collection</b> — 6 days since customer reply with no follow-up sent.',
+                    body=Markup('<b>⚠️ Manual review needed</b> — 6 days since customer reply with no follow-up sent. The stage was left unchanged for manual review.'),
                     subtype_xmlid='mail.mt_note',
                 )
-                _logger.info('CRM: lead %s moved to Data Collection (6-day stale)', lead.id)
+                _logger.info('CRM: lead %s flagged for manual Data Collection review (6-day stale)', lead.id)
             except Exception as e:
-                _logger.warning('CRM: stale move failed for lead %s: %s', lead.id, e)
+                _logger.warning('CRM: stale manual review failed for lead %s: %s', lead.id, e)

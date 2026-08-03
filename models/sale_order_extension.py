@@ -40,9 +40,8 @@ class SaleOrder(models.Model):
     def action_ai_generate_quote(self):
         """AI Generate for sale.order — reads x_ai_summary_instruction and fills product + description."""
         self.ensure_one()
-        from ..services.openai_utils import openai_chat, DEFAULT_MODEL
-        ICP = self.env["ir.config_parameter"].sudo()
-        api_key = ICP.get_param("openai.api_key") or ICP.get_param("prema_ai.api_key")
+        from ..services.deepseek_utils import deepseek_chat, get_api_key as _get_deepseek_key, get_model as _get_deepseek_model
+        api_key = _get_deepseek_key(self.env)
         if not api_key:
             return {
                 "type": "ir.actions.client", "tag": "display_notification",
@@ -61,7 +60,7 @@ class SaleOrder(models.Model):
             }
 
         partner_name = self.partner_id.name if self.partner_id else ""
-        model = ICP.get_param("prema_ai.fast_model") or DEFAULT_MODEL
+        model = _get_deepseek_model(self.env)
 
         system = (
             "You are a freight quotation assistant at PremaFirm Inc., a Canadian trucking company. "
@@ -75,7 +74,7 @@ class SaleOrder(models.Model):
         user_msg = f"Load description: {instruction}\nCustomer: {partner_name or 'Unknown'}"
 
         try:
-            raw = openai_chat(
+            raw = deepseek_chat(
                 messages=[{"role": "user", "content": user_msg}],
                 system=system, max_tokens=400, api_key=api_key, model=model, timeout=30,
             )

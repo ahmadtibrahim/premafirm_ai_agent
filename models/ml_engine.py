@@ -15,7 +15,13 @@ import re
 import requests
 from odoo import api, models
 
-from odoo.addons.premafirm_ai_engine.services.openai_utils import openai_chat as _openai_chat, DEFAULT_MODEL as _OPENAI_DEFAULT
+from odoo.addons.premafirm_ai_engine.services.deepseek_utils import (
+    deepseek_chat as _deepseek_chat,
+    get_api_key as _get_deepseek_key,
+    get_model as _get_deepseek_model,
+    today_context_line as _today_context_line,
+)
+from odoo.addons.premafirm_ai_engine.services.openai_utils import openai_chat as _openai_chat
 
 _logger = logging.getLogger(__name__)
 
@@ -27,12 +33,14 @@ class PremafirmMLEngine(models.AbstractModel):
     # ── Config helpers ─────────────────────────────────────────────
 
     def _api_key(self):
-        p = self.env['ir.config_parameter'].sudo()
-        return (p.get_param('openai.api_key') or p.get_param('prema_ai.api_key') or '').strip()
+        return _get_deepseek_key(self.env)
 
     def _model(self):
-        return self.env['ir.config_parameter'].sudo().get_param(
-            'prema_ai.fast_model', _OPENAI_DEFAULT)
+        return _get_deepseek_model(self.env)
+
+    def _vision_api_key(self):
+        """Vision extraction needs OpenAI — DeepSeek's chat API rejects image_url content."""
+        return (self.env['ir.config_parameter'].sudo().get_param('openai.api_key') or '').strip()
 
     # ── Claude call ───────────────────────────────────────────────
 
@@ -40,10 +48,10 @@ class PremafirmMLEngine(models.AbstractModel):
         """Calls OpenAI. Name kept as _gpt for backward compatibility."""
         api_key = self._api_key()
         if not api_key:
-            return None, '⚠ OpenAI API key not configured. Set openai.api_key in Settings.'
+            return None, '⚠ DeepSeek API key not configured. Set deepseek.api_key in Settings.'
         model = self._model()
         try:
-            text = _openai_chat(
+            text = _deepseek_chat(
                 messages=[{'role': 'user', 'content': user_prompt}],
                 system=system_prompt,
                 max_tokens=max_tokens,
@@ -143,6 +151,7 @@ class PremafirmMLEngine(models.AbstractModel):
 
         vision_model = self.env['ir.config_parameter'].sudo().get_param(
             'prema_ai.vision_model', 'gpt-4o')
+        vision_key = self._vision_api_key()
 
         # Build data URL for the image
         mime = (mimetype or 'image/jpeg').split(';')[0].strip()
@@ -153,7 +162,7 @@ class PremafirmMLEngine(models.AbstractModel):
                 merged_text = text
                 if message_text:
                     merged_text += '\n\n[WhatsApp message context]\n' + message_text[:1500]
-                return self._extract_load_tender_from_text(merged_text, api_key, vision_model)
+                return self._extract_load_tender_from_text(merged_text, api_key, self._model())
             return None
 
         # ── Try free OCR before paying for vision ─────────────────────
@@ -177,6 +186,7 @@ class PremafirmMLEngine(models.AbstractModel):
         data_url = f"data:{mime};base64,{image_b64.decode() if isinstance(image_b64, bytes) else image_b64}"
 
         prompt = (
+            f"{_today_context_line()} "
             "Extract all freight load tender / bill of lading data from this image. "
             "Return ONLY valid JSON with this exact structure (no markdown, no extra text):\n"
             '{"equipment_type":"","commodity":"","total_weight_lbs":0,"service_type":"Multi-stop delivery",'
@@ -196,6 +206,9 @@ class PremafirmMLEngine(models.AbstractModel):
         if message_text:
             prompt += "\n\nWhatsApp message text sent with this tender:\n" + message_text[:1500]
 
+        if not vision_key:
+            _logger.warning('extract_load_tender: no openai.api_key configured for vision fallback')
+            return None
         try:
             content = _openai_chat(
                 messages=[{'role': 'user', 'content': [
@@ -203,7 +216,7 @@ class PremafirmMLEngine(models.AbstractModel):
                     {'type': 'text', 'text': prompt},
                 ]}],
                 max_tokens=1500,
-                api_key=api_key,
+                api_key=vision_key,
                 model=vision_model,
                 timeout=60,
             )
@@ -217,6 +230,7 @@ class PremafirmMLEngine(models.AbstractModel):
     def _extract_load_tender_from_text(self, text, api_key, model):
         """Fallback: extract load tender data from plain text (e.g. PDF)."""
         prompt = (
+            f"{_today_context_line()} "
             "Extract all freight load tender data from the text below. "
             "Return ONLY valid JSON with this structure (no markdown):\n"
             '{"equipment_type":"","commodity":"","total_weight_lbs":0,'
@@ -234,7 +248,7 @@ class PremafirmMLEngine(models.AbstractModel):
             + "\n\nText:\n" + text[:3000]
         )
         try:
-            content = _openai_chat(
+            content = _deepseek_chat(
                 messages=[{'role': 'user', 'content': prompt}],
                 max_tokens=1200,
                 api_key=api_key,
@@ -259,6 +273,7 @@ class PremafirmMLEngine(models.AbstractModel):
         if not api_key:
             return None
         prompt = (
+            f"{_today_context_line()} "
             "Read this WhatsApp message from a freight dispatcher. "
             "If it contains actual load tender / freight job details (stops, addresses, pickup/delivery locations), "
             "extract them into JSON. "
@@ -277,7 +292,7 @@ class PremafirmMLEngine(models.AbstractModel):
             + "\n\nMessage:\n" + text[:2500]
         )
         try:
-            content = _openai_chat(
+            content = _deepseek_chat(
                 messages=[{'role': 'user', 'content': prompt}],
                 max_tokens=1200,
                 api_key=api_key,
@@ -469,16 +484,17 @@ class PremafirmMLEngine(models.AbstractModel):
 
         prompt = (
             "You are a freight dispatcher at PremaFirm Logistics replying via WhatsApp. "
-            "Write a SHORT, direct reply for quotation confirmation (3-5 lines max). "
-            "Keep it clean and minimal. Do not mention fuel included, liftgate, detention, or extra accessorial detail "
-            "unless the customer explicitly asked. "
-            "Say the quotation is ready for approval, state the final rate, and tell them they can review the attached PDF "
-            "and use the WhatsApp buttons to Approve, Edit, or Cancel. "
-            "Freight industry tone, professional and concise. No emojis. No greeting headers.\n\n"
-            f"Load details:\n{context}\n\nWrite the reply:"
+            "This is a VERBAL RATE OFFER during negotiation — NOT a formal quotation confirmation. "
+            "Write a SHORT, direct rate offer message (2-4 lines max). "
+            "State the rate we can do this at. Keep it conversational and professional. "
+            "Do NOT say 'quotation is ready', do NOT mention PDF, do NOT mention buttons. "
+            "Do NOT mention fuel, liftgate, detention unless the customer specifically asked. "
+            "End with a simple call to action like 'Let me know if this works for you.' or 'Does this rate work?' "
+            "Freight industry tone. No emojis. No greeting headers.\n\n"
+            f"Load details:\n{context}\n\nWrite the verbal rate offer reply:"
         )
         try:
-            return _openai_chat(
+            return _deepseek_chat(
                 messages=[{'role': 'user', 'content': prompt}],
                 max_tokens=200,
                 api_key=api_key,
@@ -505,7 +521,7 @@ class PremafirmMLEngine(models.AbstractModel):
             "Return only the rewritten reply."
         )
         try:
-            return _openai_chat(
+            return _deepseek_chat(
                 messages=[{'role': 'user', 'content': prompt}],
                 max_tokens=250,
                 api_key=api_key,
@@ -530,7 +546,7 @@ class PremafirmMLEngine(models.AbstractModel):
             "Return only the rewritten notes."
         )
         try:
-            return _openai_chat(
+            return _deepseek_chat(
                 messages=[{'role': 'user', 'content': prompt}],
                 max_tokens=500,
                 api_key=api_key,
@@ -585,7 +601,7 @@ class PremafirmMLEngine(models.AbstractModel):
             + stance
         )
         try:
-            return _openai_chat(
+            return _deepseek_chat(
                 messages=[{'role': 'user', 'content': prompt}],
                 max_tokens=220,
                 api_key=api_key,
@@ -612,7 +628,7 @@ class PremafirmMLEngine(models.AbstractModel):
             "Return only the internal note text."
         )
         try:
-            return _openai_chat(
+            return _deepseek_chat(
                 messages=[{'role': 'user', 'content': prompt}],
                 max_tokens=220,
                 api_key=api_key,

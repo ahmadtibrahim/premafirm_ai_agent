@@ -114,45 +114,6 @@
                     </div>
                 </div>
 
-                <!-- ── Fleetbase Dispatch Integration ── -->
-                <div class="app_settings_block" data-string="Fleetbase Dispatch" string="Fleetbase Dispatch" data-key="fleetbase_dispatch" id="fleetbase_settings">
-                    <h2>Fleetbase Dispatch Integration</h2>
-
-                    <div class="row mt16 o_settings_container">
-                        <div class="col-12 col-lg-6 o_setting_box">
-                            <div class="o_setting_left_pane">
-                                <field name="fleetbase_enabled" widget="boolean_toggle"/>
-                            </div>
-                            <div class="o_setting_right_pane">
-                                <label for="fleetbase_enabled" string="Enable Fleetbase Integration"/>
-                                <div class="text-muted">
-                                    Connect to Fleetbase to create dispatch orders from the Prema AI Estimator.
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div invisible="not fleetbase_enabled">
-                        <div class="row mt16 o_settings_container">
-                            <div class="col-12 col-lg-6 o_setting_box">
-                                <div class="o_setting_right_pane">
-                                    <label for="fleetbase_api_url" string="Fleetbase API URL"/>
-                                    <field name="fleetbase_api_url" placeholder="https://api.fleetbase.io"/>
-                                    <label for="fleetbase_api_key" string="API Key" class="mt8"/>
-                                    <field name="fleetbase_api_key" password="True" placeholder="Bearer token from Fleetbase › Settings › API Keys"/>
-                                    <div class="mt16">
-                                        <button
-                                            name="action_test_fleetbase_connection"
-                                            string="Test Connection"
-                                            type="object"
-                                            class="btn btn-secondary"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
             </xpath>
         </field>
     </record>
@@ -174,6 +135,196 @@
                                     This contact silently receives a copy of every invoice email. Customers cannot see this recipient.
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </xpath>
+        </field>
+    </record>
+ 
+    <record id="res_config_settings_view_hub_and_products" model="ir.ui.view">
+        <field name="name">res.config.settings.view.hub.and.products</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base_setup.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <div class="app_settings_block" data-string="Prema AI" string="Prema AI" data-key="prema_ai_settings" id="prema_ai_settings">
+                    <h2>Prema AI — Logistics Settings</h2>
+                    <h3 class="mt16">Hub Location</h3>
+                    <div class="text-muted mb-2">
+                        Central depot used as the start and end point for estimator route calculations.
+                    </div>
+                    <div class="row mt8 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <label for="hub_location_name" string="Hub Name"/>
+                                <field name="hub_location_name" placeholder="e.g. PremaFirm Ajax Terminal"/>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <label for="hub_location_address" string="Hub Address"/>
+                                <field name="hub_location_address" placeholder="Search address with Google Places…" widget="google_places"/>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt8 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <label for="hub_location_lat" string="Hub Latitude"/>
+                                <field name="hub_location_lat" placeholder="43.680000"/>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <label for="hub_location_lng" string="Hub Longitude"/>
+                                <field name="hub_location_lng" placeholder="-79.350000"/>
+                            </div>
+                        </div>
+                    </div>
+                    <h3 class="mt16">Freight Product Mapping</h3>
+                    <div class="text-muted mb-2">
+                        Products automatically selected when creating invoices from confirmed bookings.
+                    </div>
+                    <div class="row mt8 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <label for="product_ca_dry_ltl_id" string="Canada Dry LTL Product"/>
+                                <field name="product_ca_dry_ltl_id" domain="[('type','=','service')]"/>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <label for="product_ca_reefer_ltl_id" string="Canada Reefer LTL Product"/>
+                                <field name="product_ca_reefer_ltl_id" domain="[('type','=','service')]"/>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt8 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <label for="product_us_dry_ltl_id" string="USA Dry LTL Product"/>
+                                <field name="product_us_dry_ltl_id" domain="[('type','=','service')]"/>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <label for="product_us_reefer_ltl_id" string="USA Reefer LTL Product"/>
+                                <field name="product_us_reefer_ltl_id" domain="[('type','=','service')]"/>
+                                <div class="text-muted">Leave empty if no USA Reefer product exists.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h3 class="mt16">FTL Product Mapping</h3>
+                    <div class="text-muted mb-2">
+                        Products for Full Truck Load (FTL) bookings.
+                    </div>
+                    <div class="row mt8 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <label for="product_ca_dry_ftl_id" string="Canada Dry FTL Product"/>
+                                <field name="product_ca_dry_ftl_id" domain="[('type','=','service')]"/>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <label for="product_ca_reefer_ftl_id" string="Canada Reefer FTL Product"/>
+                                <field name="product_ca_reefer_ftl_id" domain="[('type','=','service')]"/>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt8 o_settings_container">
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <label for="product_us_dry_ftl_id" string="USA Dry FTL Product"/>
+                                <field name="product_us_dry_ftl_id" domain="[('type','=','service')]"/>
+                            </div>
+                        </div>
+                        <div class="col-12 col-lg-6 o_setting_box">
+                            <div class="o_setting_right_pane">
+                                <label for="product_us_reefer_ftl_id" string="USA Reefer FTL Product"/>
+                                <field name="product_us_reefer_ftl_id" domain="[('type','=','service')]"/>
+                                <div class="text-muted">Leave empty if none.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="res_config_settings_view_freight_tax" model="ir.ui.view">
+        <field name="name">res.config.settings.view.freight.tax</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base_setup.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[@id='prema_ai_settings']" position="inside">
+                <h3 class="mt16">Freight Tax Configuration</h3>
+                <div class="text-muted mb-2">
+                    Destination-based freight tax rules. Tax is selected based on the FINAL delivery province.
+                </div>
+                <div class="row mt8 o_settings_container">
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="freight_tax_ontario_id" string="Ontario Freight Tax (13% HST)"/>
+                            <field name="freight_tax_ontario_id" domain="[('type_tax_use','=','sale')]"/>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="freight_tax_quebec_id" string="Quebec Freight Tax (GST+QST)"/>
+                            <field name="freight_tax_quebec_id" domain="[('type_tax_use','=','sale')]"/>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt8 o_settings_container">
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="freight_tax_ns_id" string="Nova Scotia (15% HST)"/>
+                            <field name="freight_tax_ns_id" domain="[('type_tax_use','=','sale')]"/>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="freight_tax_nb_id" string="New Brunswick (15% HST)"/>
+                            <field name="freight_tax_nb_id" domain="[('type_tax_use','=','sale')]"/>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt8 o_settings_container">
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="freight_tax_pei_id" string="PEI (15% HST)"/>
+                            <field name="freight_tax_pei_id" domain="[('type_tax_use','=','sale')]"/>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="freight_tax_nl_id" string="Newfoundland &amp; Labrador (15% HST)"/>
+                            <field name="freight_tax_nl_id" domain="[('type_tax_use','=','sale')]"/>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt8 o_settings_container">
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="freight_tax_gst_id" string="GST (5% — AB/BC/MB/SK/NT/YT/NU)"/>
+                            <field name="freight_tax_gst_id" domain="[('type_tax_use','=','sale')]"/>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="freight_tax_zero_interlining_id" string="Zero Rated Interlining (0%)"/>
+                            <field name="freight_tax_zero_interlining_id" domain="[('type_tax_use','=','sale')]"/>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt8 o_settings_container">
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="freight_tax_zero_international_id" string="International Zero Rated (0%)"/>
+                            <field name="freight_tax_zero_international_id" domain="[('type_tax_use','=','sale')]"/>
                         </div>
                     </div>
                 </div>

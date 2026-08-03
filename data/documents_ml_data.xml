@@ -2,6 +2,24 @@
 <odoo>
 
     <!-- ════════════════════════════════════════════════════════════
+         Server Action  (noupdate=0 — updated on every upgrade)
+         Defined first so the embedded action below can reference it
+         by this module's own xmlid.
+         ════════════════════════════════════════════════════════════ -->
+
+    <!-- Binding to documents.document makes it appear in the Actions dropdown
+         on multi-select in list/kanban as a fallback. The primary UX is the
+         embedded folder button below. -->
+    <record id="ir_actions_server_process_with_ml" model="ir.actions.server">
+        <field name="name">Process with AI</field>
+        <field name="model_id" ref="documents.model_documents_document"/>
+        <field name="binding_model_id" ref="documents.model_documents_document"/>
+        <field name="binding_view_types">list,kanban</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_process_with_ml()</field>
+    </record>
+
+    <!-- ════════════════════════════════════════════════════════════
          Folders + Embedded Action
          noupdate=1: only created on first install, never reset on upgrade
          ════════════════════════════════════════════════════════════ -->
@@ -32,30 +50,14 @@
         <record id="embedded_action_process_with_ml" model="ir.embedded.actions">
             <field name="name">Process with AI</field>
             <field name="parent_action_id" ref="documents.document_action"/>
-            <field name="action_id" ref="premafirm_ml.ir_actions_server_process_with_ml"/>
+            <field name="action_id" ref="ir_actions_server_process_with_ml"/>
             <field name="parent_res_model">documents.document</field>
-            <field name="parent_res_id" eval="ref('premafirm_ml.documents_folder_bills_entry')"/>
+            <field name="parent_res_id" eval="ref('documents_folder_bills_entry')"/>
             <field name="groups_ids" eval="[(4, ref('base.group_user'))]"/>
             <field name="sequence">200</field>
         </record>
 
     </data>
-
-    <!-- ════════════════════════════════════════════════════════════
-         Server Action  (noupdate=0 — updated on every upgrade)
-         ════════════════════════════════════════════════════════════ -->
-
-    <!-- Binding to documents.document makes it appear in the Actions dropdown
-         on multi-select in list/kanban as a fallback. The primary UX is the
-         embedded folder button above. -->
-    <record id="ir_actions_server_process_with_ml" model="ir.actions.server">
-        <field name="name">Process with AI</field>
-        <field name="model_id" ref="documents.model_documents_document"/>
-        <field name="binding_model_id" ref="documents.model_documents_document"/>
-        <field name="binding_view_types">list,kanban</field>
-        <field name="state">code</field>
-        <field name="code">action = records.action_process_with_ml()</field>
-    </record>
 
     <!-- ════════════════════════════════════════════════════════════
          Cron  (inactive by default — enable in Technical → Scheduled Actions)

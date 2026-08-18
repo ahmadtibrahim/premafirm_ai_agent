@@ -12,8 +12,10 @@ PHASE 6 (keep manual Fetch Now, but make it safe):
   * per-server failure isolation: one mailbox blowing up never stops the
     others; the manual path shows the operator a result notification
   * ICP ``premafirm.crm_immediate_fetch_server_ids`` (comma-separated
-    server ids, empty = all) restricts which servers a MANUAL fetch may
-    touch — set it to [] to fully disable manual fetching
+    server ids) is the MANUAL Fetch Now whitelist. ONE rule, everywhere:
+    empty/absent config = manual Fetch Now disabled on EVERY server; only
+    the explicitly listed server ids may be fetched by hand. The scheduled
+    cron is never restricted by this parameter (it stays independent).
 
 PHASE 7 (duplicate inbound protection):
   * ``premafirm.fetchmail.message`` records every IMAP message processed

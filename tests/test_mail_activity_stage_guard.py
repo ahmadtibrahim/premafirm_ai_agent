@@ -15,13 +15,21 @@ class TestMailActivityStageGuard(TransactionCase):
         cls.todo = cls.env.ref("mail.mail_activity_data_todo")
         cls.crm_lead_model_id = cls.Model._get_id("crm.lead")
 
-        cls.data_collection = cls.env["crm.stage"].search([("name", "=", "Data Collection")], limit=1)
+        # The guard restores leads that end up in the CANONICAL data-collection
+        # stage ("qualified / data collected") after an answered activity —
+        # legacy-named stages are not protected by design.
+        cls.data_collection = cls.env["crm.stage"].search(
+            [("name", "=ilike", "qualified / data collected")], limit=1)
         if not cls.data_collection:
-            cls.data_collection = cls.env["crm.stage"].create({"name": "Data Collection"})
+            cls.data_collection = cls.env["crm.stage"].create(
+                {"name": "QUALIFIED / DATA COLLECTED"})
 
     @classmethod
     def _get_stage(cls, name):
-        stage = cls.env["crm.stage"].search([("name", "=", name)], limit=1)
+        # Case-insensitive match so canonical stage names ('ONBOARDING',
+        # 'ENGAGED / REPLIED', …) are reused instead of duplicated; falls
+        # back to creating the stage when the DB has no match.
+        stage = cls.env["crm.stage"].search([("name", "=ilike", name)], limit=1)
         if not stage:
             stage = cls.env["crm.stage"].create({"name": name})
         return stage

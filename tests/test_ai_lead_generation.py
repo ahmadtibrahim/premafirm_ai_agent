@@ -47,7 +47,11 @@ class TestAILeadGeneration(TransactionCase):
 
         self.assertEqual(len(company), 1)
         self.assertEqual(len(contact), 1)
-        self.assertEqual(lead.partner_id, contact)
+        # PHASE 11 rule: the opportunity's partner is the COMPANY — a contact
+        # passed as partner_id is repointed to its parent company on create
+        # (the contact stays as a res.partner child row for the Contacts tab).
+        self.assertEqual(lead.partner_id, company)
+        self.assertEqual(contact.parent_id, company)
         self.assertEqual(lead.partner_name, "Acme Produce Logistics")
         self.assertEqual(lead.stage_id.name, "New")
         self.assertEqual(lead.type, "opportunity")

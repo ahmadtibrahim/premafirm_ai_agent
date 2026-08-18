@@ -609,6 +609,11 @@ class MailThread(models.AbstractModel):
                     if author and tid:
                         self.env['crm.lead.contact']._attach_sender(
                             tid, author)
+                    # PHASE 14 — reply discipline: complete the automatic
+                    # follow-up(s) the reply answers, schedule Respond to
+                    # Customer. Never touches Call/Email/Meeting/To-Do.
+                    if tid:
+                        self.env['crm.lead'].sudo().browse(tid)._on_meaningful_reply()
                 if tid:
                     self.env['crm.lead'].sudo().browse(tid).write(stamp)
                 else:
@@ -714,6 +719,9 @@ class PremafirmInboundQueue(models.Model):
                 # items on the lead.
                 self.env['premafirm.crm.bulk.email.queue']._mark_replied(
                     lead.id)
+                # PHASE 14 — reply discipline: complete the automatic
+                # follow-up(s), schedule Respond to Customer.
+                lead._on_meaningful_reply()
             lead.message_post(
                 body=rec.body or '<p>(no body captured)</p>',
                 subject='Imported from Inbound Review Queue: %s' % (rec.name or ''),

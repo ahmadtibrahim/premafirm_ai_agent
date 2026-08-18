@@ -6,5 +6,66 @@
             <field name="sequence">15</field>
             <field name="requirements">Lead not responding — Snov.io suggested contact pending Ahmad approval</field>
         </record>
+
+        <!-- PHASE 13 — clean pipeline structure (the target pipeline).
+             The obsolete stages are NOT deleted; the migration
+             (crm.stage.action_premafirm_pipeline_restructure) exports an
+             audit file, remaps leads, tags segment-stage leads, and
+             archives the obsolete stage records (folded at the end). -->
+        <record id="crm_stage_new_uncontacted" model="crm.stage">
+            <field name="name">NEW / UNCONTACTED</field>
+            <field name="sequence">1</field>
+            <field name="requirements">First touch has not been made yet.</field>
+        </record>
+        <record id="crm_stage_outreach_sent" model="crm.stage">
+            <field name="name">OUTREACH SENT</field>
+            <field name="sequence">2</field>
+            <field name="requirements">Initial outreach sent, no reply yet.</field>
+        </record>
+        <record id="crm_stage_engaged_replied" model="crm.stage">
+            <field name="name">ENGAGED / REPLIED</field>
+            <field name="sequence">3</field>
+            <field name="requirements">Customer engaged or replied — meaningful contact made.</field>
+        </record>
+        <record id="crm_stage_qualified" model="crm.stage">
+            <field name="name">QUALIFIED / DATA COLLECTED</field>
+            <field name="sequence">4</field>
+            <field name="requirements">Needs, volumes and lanes collected.</field>
+        </record>
+        <record id="crm_stage_quote_requested" model="crm.stage">
+            <field name="name">QUOTE REQUESTED</field>
+            <field name="sequence">5</field>
+            <field name="requirements">Customer asked for a quote.</field>
+        </record>
+        <record id="crm_stage_quote_sent" model="crm.stage">
+            <field name="name">QUOTE SENT</field>
+            <field name="sequence">6</field>
+            <field name="requirements">Quote delivered, awaiting decision.</field>
+        </record>
+        <record id="crm_stage_negotiation" model="crm.stage">
+            <field name="name">NEGOTIATION</field>
+            <field name="sequence">7</field>
+            <field name="requirements">Pricing / terms in discussion.</field>
+        </record>
+        <record id="crm_stage_onboarding" model="crm.stage">
+            <field name="name">ONBOARDING</field>
+            <field name="sequence">8</field>
+            <field name="requirements">Won — onboarding the customer.</field>
+        </record>
+        <record id="crm_stage_won_active" model="crm.stage">
+            <field name="name">WON / ACTIVE CUSTOMER</field>
+            <field name="sequence">9</field>
+            <field name="is_won">1</field>
+        </record>
+        <record id="crm_stage_lost" model="crm.stage">
+            <field name="name">LOST</field>
+            <field name="sequence">10</field>
+            <field name="fold">1</field>
+        </record>
+        <record id="crm_stage_paused" model="crm.stage">
+            <field name="name">PAUSED / ON HOLD</field>
+            <field name="sequence">11</field>
+            <field name="fold">1</field>
+        </record>
     </data>
 </odoo>

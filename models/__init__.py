@@ -24,6 +24,12 @@ from . import crm_reply_status  # PHASE 8 — reply-status fields (after
 from . import crm_lead_contacts  # PHASES 11-12 — company→contacts +
                                  # Freight Profile (after crm_lead_extension:
                                  # its create hook attaches senders)
+from . import crm_pipeline  # PHASE 13 — pipeline restructure (after
+                            # crm_reply_status: uses the reply flags)
+from . import crm_activity_discipline  # PHASE 14 — activity/next-action
+                                       # discipline (imported last among the
+                                       # crm.lead extends so its create/write
+                                       # hooks wrap the others)
 from . import fleet_vehicle_extension
 from . import sale_order_extension
 from . import account_move_extension

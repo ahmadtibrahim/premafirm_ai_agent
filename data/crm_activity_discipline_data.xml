@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- PHASE 14 — the discipline's automatic activity types.
+             delay_from='auto_complete' lets the manual "schedule next"
+             button chain deadlines from the previous activity; the
+             PHASE 14 scheduler always passes explicit deadlines.
+             Timings default below but are ALWAYS read from
+             ir.config_parameter at runtime (never hardcoded). -->
+        <record id="premafirm_activity_initial_contact" model="mail.activity.type">
+            <field name="name">Initial Contact</field>
+            <field name="delay_count">3</field>
+            <field name="delay_unit">days</field>
+            <field name="delay_from">previous_activity</field>
+        </record>
+        <record id="premafirm_activity_follow_up" model="mail.activity.type">
+            <field name="name">Follow-Up</field>
+            <field name="delay_count">3</field>
+            <field name="delay_unit">days</field>
+            <field name="delay_from">previous_activity</field>
+        </record>
+        <record id="premafirm_activity_respond_customer" model="mail.activity.type">
+            <field name="name">Respond to Customer</field>
+            <field name="delay_count">1</field>
+            <field name="delay_unit">days</field>
+            <field name="delay_from">current_date</field>
+        </record>
+        <record id="premafirm_activity_gather_requirements" model="mail.activity.type">
+            <field name="name">Gather Requirements</field>
+            <field name="delay_count">5</field>
+            <field name="delay_unit">days</field>
+            <field name="delay_from">current_date</field>
+        </record>
+        <record id="premafirm_activity_quote_follow_up" model="mail.activity.type">
+            <field name="name">Quote Follow-Up</field>
+            <field name="delay_count">5</field>
+            <field name="delay_unit">days</field>
+            <field name="delay_from">previous_activity</field>
+        </record>
+        <record id="premafirm_activity_negotiation_follow_up" model="mail.activity.type">
+            <field name="name">Negotiation Follow-Up</field>
+            <field name="delay_count">5</field>
+            <field name="delay_unit">days</field>
+            <field name="delay_from">previous_activity</field>
+        </record>
+        <record id="premafirm_activity_onboarding_check" model="mail.activity.type">
+            <field name="name">Onboarding Check</field>
+            <field name="delay_count">7</field>
+            <field name="delay_unit">days</field>
+            <field name="delay_from">previous_activity</field>
+        </record>
+
+        <!-- PHASE 14 — timing parameters (user-configurable, defaults
+             here; never hardcoded in code). -->
+        <record id="param_crm_followup_outreach_days" model="ir.config_parameter">
+            <field name="key">crm.followup.outreach_days</field>
+            <field name="value">3</field>
+        </record>
+        <record id="param_crm_followup_quote_days" model="ir.config_parameter">
+            <field name="key">crm.followup.quote_days</field>
+            <field name="value">5</field>
+        </record>
+        <record id="param_crm_followup_engaged_hours" model="ir.config_parameter">
+            <field name="key">crm.followup.engaged_hours</field>
+            <field name="value">24</field>
+        </record>
+        <record id="param_crm_followup_stale_days" model="ir.config_parameter">
+            <field name="key">crm.followup.stale_days</field>
+            <field name="value">7</field>
+        </record>
+
+    </data>
+</odoo>

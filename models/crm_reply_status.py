@@ -111,6 +111,9 @@ class CrmLead(models.Model):
                     or msg_values.get('in_reply_to')):
                 vals['last_outreach_at'] = now
             self.write(vals)
+            # PHASE 14 — response discipline: complete Respond to Customer
+            # activities, schedule the stage's next follow-up.
+            self._on_sales_response()
         elif (message.message_type == 'comment'
                 and author and author.partner_share):
             # Customer-authored chatter (portal comment) = engagement.
@@ -122,4 +125,6 @@ class CrmLead(models.Model):
             # PHASE 10 — portal reply answers any open bulk item too.
             self.env['premafirm.crm.bulk.email.queue']._mark_replied(
                 self.id, response_message_id=message.message_id or False)
+            # PHASE 14 — reply discipline (see _on_meaningful_reply).
+            self._on_meaningful_reply()
         return res

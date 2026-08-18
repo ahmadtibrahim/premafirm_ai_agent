@@ -1,6 +1,6 @@
 {
     "name": "PremaFirm AI Engine",
-    "version": "18.0.6.13.0",
+    "version": "18.0.6.14.0",
     "summary": "CRM Outreach, Snov.io Contacts, Geotab ELD, Invoicing for PremaFirm Logistics",
     "author": "PremaFirm",
     "license": "LGPL-3",
@@ -35,6 +35,7 @@
         "data/pod_sync_cron.xml",
         "data/crm_bulk_email_cron.xml",
         "data/crm_stages.xml",
+        "data/crm_activity_discipline_data.xml",
         "data/crm_followup_cron.xml",
         "data/crm_workflow_automations.xml",
         "views/ml_knowledge_views.xml",

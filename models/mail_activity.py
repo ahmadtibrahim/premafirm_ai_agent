@@ -4,8 +4,14 @@ from odoo import models
 
 _logger = logging.getLogger(__name__)
 
-_DATA_COLLECTION_STAGE = "data collection"
-_PROTECTED_STAGE_NAMES = frozenset({"replied", "onboarding", "call approach", "pause", "paused"})
+# PHASE 13 — retargeted onto the new pipeline names (legacy names kept
+# harmlessly: those stages are archived with zero leads after the
+# restructure, but a restored stage must still be protected).
+_DATA_COLLECTION_STAGE = "qualified / data collected"
+_PROTECTED_STAGE_NAMES = frozenset({
+    "engaged / replied", "onboarding", "paused / on hold",
+    "new / uncontacted", "replied", "pause", "paused", "call approach",
+    "data collection"})
 
 
 class MailActivity(models.Model):

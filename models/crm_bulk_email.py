@@ -254,6 +254,15 @@ class PremafirmCrmBulkEmailQueue(models.Model):
                         "state": "sent",
                         "sent_at": fields.Datetime.now(),
                     })
+                    # PHASE 14 — a bulk outreach is an initiated outbound
+                    # touch: stamp the reply-status fields (mail.mail sends
+                    # do not pass through _message_post_after_hook) and run
+                    # the response discipline (schedule the stage's next
+                    # follow-up).
+                    lead = claim.lead_id.sudo()
+                    lead.write({'last_outbound_at': fields.Datetime.now(),
+                                'last_outreach_at': fields.Datetime.now()})
+                    lead._on_sales_response()
                 self.env.cr.commit()
             except Exception as exc:
                 claim.write({"state": "failed", "error_msg": str(exc)[:250]})

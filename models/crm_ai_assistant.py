@@ -1044,6 +1044,9 @@ class CrmAiReplyWizard(models.TransientModel):
         lead.write({'last_outbound_at': fields.Datetime.now()})
         if not self.last_inbound_id:
             lead.write({'last_outreach_at': fields.Datetime.now()})
+        # PHASE 14 — response discipline: complete Respond to Customer
+        # activities, schedule the stage's next follow-up.
+        lead._on_sales_response()
         return mail
 
     def action_approve_send(self):

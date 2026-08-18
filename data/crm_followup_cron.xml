@@ -9,7 +9,7 @@
             <field name="code">model.run_followup_cron()</field>
             <field name="interval_number">1</field>
             <field name="interval_type">days</field>
-            <field name="active">True</field>
+            <field name="active">False</field>
             <field name="nextcall">2026-05-14 07:00:00</field>
         </record>
 
@@ -20,7 +20,7 @@
             <field name="code">model.run_cold_reactivation_cron()</field>
             <field name="interval_number">7</field>
             <field name="interval_type">days</field>
-            <field name="active">True</field>
+            <field name="active">False</field>
             <field name="nextcall">2026-05-20 07:00:00</field>
         </record>
 

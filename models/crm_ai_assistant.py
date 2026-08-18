@@ -207,6 +207,9 @@ class CrmLeadAIAssistant(models.Model):
                 'force_email':              True,
                 'mark_so_as_sent':          True,
                 'mail_add_signature':       False,
+                # PHASE 9 — the composer creates ONE mail.mail; the
+                # mail_send_hooks create hook stamps AI provenance on it.
+                'premafirm_ai_origin':      'chat_compose',
             },
         }
 
@@ -854,6 +857,36 @@ class CrmAiReplyWizard(models.TransientModel):
         help='Write in plain language — the AI will turn it into a professional email.',
     )
     draft_body = fields.Html(string='AI Draft', readonly=True)
+    # PHASE 9 — approval step: the AI draft becomes an editable final body,
+    # with CC and attachments preserved from the original inbound, and the
+    # prompt version recorded. Approve & Send produces ONE canonical
+    # mail.mail (premafirm.mail.threading) stamped with provenance
+    # (generated_by_ai / approved_by / approved_at / auto_sent=False).
+    final_body = fields.Html(
+        string='Final Body',
+        help='Review and edit the AI draft before sending.',
+    )
+    cc = fields.Char(
+        string='CC',
+        help='Carbon copy recipients. Preserve recipients from the original '
+             'email where appropriate (original inbound recipients are not '
+             'stored by core — add them here if the customer was CC\'d).',
+    )
+    attachment_ids = fields.Many2many(
+        'ir.attachment', 'premafirm_ai_reply_wizard_attachment_rel',
+        string='Attachments',
+        help='Attachments from the original inbound email — uncheck any you '
+             'do not want to forward with the reply.',
+    )
+    prompt_version = fields.Char(
+        string='AI Prompt Version', readonly=True,
+        help='Business-profile prompt that produced this draft.',
+    )
+    subject = fields.Char(string='Subject', readonly=True)
+    last_inbound_id = fields.Many2one(
+        'mail.message', string='Replying To', readonly=True,
+        help='The customer email this reply threads to.',
+    )
     state = fields.Selection([('input', 'Input'), ('preview', 'Preview')], default='input')
 
     def action_generate_draft(self):
@@ -899,13 +932,34 @@ class CrmAiReplyWizard(models.TransientModel):
             f'Email thread for context (newest first):\n{thread_text}'
         )
 
+        # PHASE 9 — approval step context: thread target, Re: subject,
+        # attachments from the original inbound, prompt version.
+        svc = self.env['premafirm.mail.threading']
+        last_inbound = svc._last_inbound_message(lead)
+        last_msg = last_inbound[:1] if last_inbound else False
+        orig_subject = (last_msg.subject if last_msg else '') or lead.name or ''
+        if orig_subject and not orig_subject.lower().startswith('re:'):
+            reply_subject = f'Re: {orig_subject}'
+        else:
+            reply_subject = orig_subject
+        module_ver = self.env['ir.module.module'].sudo().search(
+            [('name', '=', 'premafirm_ai_engine')], limit=1).latest_version
+        common = {
+            'state': 'preview',
+            'subject': reply_subject,
+            'last_inbound_id': last_msg.id if last_msg else False,
+            'attachment_ids': [(6, 0, last_msg.attachment_ids.ids)] if last_msg else [],
+            'prompt_version': module_ver or False,
+        }
+
         try:
             draft_text = _gpt(self.env, system, [{'role': 'user', 'content': user_msg}], max_tokens=500)
             draft_text = _strip_ai_meta(draft_text)
             html = '<br/>'.join(draft_text.replace('\r\n', '\n').split('\n'))
-            self.write({'draft_body': html, 'state': 'preview'})
+            common.update({'draft_body': html, 'final_body': html})
+            self.write(common)
         except Exception as exc:
-            self.write({'draft_body': f'<p>⚠ {exc}</p>', 'state': 'preview'})
+            self.write({**common, 'draft_body': f'<p>⚠ {exc}</p>'})
 
         return {
             'type': 'ir.actions.act_window',
@@ -926,27 +980,22 @@ class CrmAiReplyWizard(models.TransientModel):
             'target': 'new',
         }
 
-    def action_open_compose(self):
-        """Send the AI draft to the compose window, threaded to the last incoming email."""
+    def _build_ai_reply_mail(self):
+        """PHASE 9 — one canonical outbound record for the approved reply.
+
+        Creates (does NOT send) the single mail.mail for this approved AI
+        reply: attached to the existing lead (model/res_id), threaded to
+        the last inbound (References built from stored ids by the canonical
+        service), To = the customer, CC/attachments from the approval step,
+        canonical Reply-To (thread inbox alias), and AI provenance stamped
+        (generated_by_ai, approved_by, approved_at, auto_sent=False).
+        Never touches message_new — no new lead can be created.
+        """
         self.ensure_one()
         lead = self.lead_id
+        body = self.final_body or self.draft_body or ''
 
-        incoming = lead.message_ids.filtered(
-            lambda m: m.message_type == 'email'
-            and m.author_id and not m.author_id.user_ids
-        ).sorted('date', reverse=True)
-        last_msg = incoming[0] if incoming else None
-
-        orig_subject = (last_msg.subject if last_msg else '') or lead.name or ''
-        if orig_subject and not orig_subject.lower().startswith('re:'):
-            reply_subject = f'Re: {orig_subject}'
-        else:
-            reply_subject = orig_subject
-
-        partner = lead.partner_id
-        partner_ids = [partner.id] if partner else []
-
-        body = self.draft_body or ''
+        # Signature: the user's own, falling back to the business profile.
         user_sig = (self.env.user.signature or '').strip()
         if not user_sig:
             try:
@@ -959,28 +1008,49 @@ class CrmAiReplyWizard(models.TransientModel):
         if user_sig:
             body = f'{body}<br/><br/>--<br/>{user_sig}'
 
-        ctx = {
-            'default_model': 'crm.lead',
-            'default_res_ids': [lead.id],
-            'default_composition_mode': 'comment',
-            'default_subject': reply_subject,
-            'default_body': body,
-            'default_partner_ids': partner_ids,
-            'active_id': lead.id,
-            'active_model': 'crm.lead',
-            'force_email': True,
-            'mail_add_signature': False,
-        }
-        if last_msg:
-            ctx['default_parent_id'] = last_msg.id
+        partner = lead.partner_id
+        email_to = (partner.email or '').strip() if partner else ''
+        if not email_to and self.last_inbound_id:
+            email_to = (self.last_inbound_id.email_from or '').strip()
+        if not email_to:
+            raise ValueError(
+                'No customer email address on the lead — add a contact before replying.'
+            )
 
-        return {
-            'type': 'ir.actions.act_window',
-            'res_model': 'mail.compose.message',
-            'view_mode': 'form',
-            'target': 'new',
-            'context': ctx,
-        }
+        svc = self.env['premafirm.mail.threading']
+        values = svc.build_mail_values(
+            lead,
+            self.subject or lead.name or 'Re: your enquiry',
+            body,
+            email_to,
+            email_cc=self.cc or None,
+            auto_delete=False,
+        )
+        values.update({
+            'model': 'crm.lead',
+            'res_id': lead.id,
+            # mail.mail-created messages carry no author by default — the
+            # approving user is the sender.
+            'author_id': self.env.user.partner_id.id,
+        })
+        mail = self.env['mail.mail'].create(values)
+        if self.attachment_ids:
+            mail.write({'attachment_ids': [(6, 0, self.attachment_ids.ids)]})
+        mail._stamp_ai_provenance(prompt_version=self.prompt_version)
+        # Outbound tracking (mail.mail create does not go through
+        # message_post, so PHASE 8's _message_post_after_hook does not
+        # fire): the reply advances last_outbound_at; only an initiated
+        # touch (no parent inbound) advances last_outreach_at.
+        lead.write({'last_outbound_at': fields.Datetime.now()})
+        if not self.last_inbound_id:
+            lead.write({'last_outreach_at': fields.Datetime.now()})
+        return mail
+
+    def action_approve_send(self):
+        """Approve & Send — one canonical outbound email, stamped."""
+        self.ensure_one()
+        self._build_ai_reply_mail().send(raise_exception=False)
+        return {'type': 'ir.actions.client', 'tag': 'reload'}
 
 
 class CrmLeadAIReplyTrigger(models.Model):

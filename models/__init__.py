@@ -85,6 +85,10 @@ from . import mail_threading_service
 from . import mail_send_hooks
 from . import inbound_routing
 
+# PHASE 9 — AI provenance on mail.mail (imported after mail_send_hooks so
+# the stamping method it calls exists at model-build time)
+from . import mail_mail_provenance
+
 # PHASES 6-7 — safe Fetch Now + inbound dedupe (imported LAST so its
 # message_route override runs first in the MRO)
 from . import fetchmail_safety

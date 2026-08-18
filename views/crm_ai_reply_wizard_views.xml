@@ -21,15 +21,29 @@
                                placeholder="Examples:&#10;• The email she provided, no one is answering — I've been trying for 2 weeks&#10;• Tell them we're fully booked this week but available next Monday&#10;• Ask for the PO number before we can confirm the load&#10;• Follow up politely, we haven't heard back since our last quote"/>
                     </div>
 
-                    <!-- Preview state: show AI draft -->
+                    <!-- Preview state: review, edit, then approve & send -->
                     <div invisible="state != 'preview'">
                         <div class="alert alert-success" role="alert">
-                            <strong>Draft ready</strong> — Review below, then click
-                            <em>Open in Compose</em> to edit and send.
+                            <strong>Draft ready</strong> — Review and edit below, then
+                            <em>Approve &amp; Send</em>. One canonical outbound email is
+                            created, attached to this opportunity and threaded to the
+                            customer's last email.
                         </div>
+                        <group string="Reply To">
+                            <field name="subject" readonly="1"/>
+                            <field name="last_inbound_id" readonly="1"/>
+                        </group>
                         <group string="AI Draft">
                             <field name="draft_body" nolabel="1" widget="html"
+                                   readonly="1" style="min-height: 120px;"/>
+                        </group>
+                        <group string="Final Email (editable)">
+                            <field name="final_body" nolabel="1" widget="html"
                                    style="min-height: 150px;"/>
+                            <field name="cc" placeholder="carbon-copy@example.com, ..."/>
+                            <field name="attachment_ids" widget="many2many_tags"
+                                   placeholder="Attachments from the customer's original email"/>
+                            <field name="prompt_version" readonly="1"/>
                         </group>
                     </div>
 
@@ -44,8 +58,8 @@
                             invisible="state != 'input'"/>
 
                     <!-- Preview state buttons -->
-                    <button name="action_open_compose" type="object"
-                            string="Open in Compose" class="btn-primary"
+                    <button name="action_approve_send" type="object"
+                            string="Approve &amp; Send" class="btn-primary"
                             invisible="state != 'preview'"/>
                     <button name="action_back_to_input" type="object"
                             string="Edit Intent" class="btn-secondary"

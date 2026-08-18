@@ -24,9 +24,15 @@ class MailMail(models.Model):
     def create(self, vals_list):
         mails = super().create(vals_list)
         svc = self.env['premafirm.mail.threading']
+        # PHASE 9 — composer-based AI paths (AI chat "compose email")
+        # propagate premafirm_ai_origin in the action context; stamp the
+        # provenance on the one canonical record at create time.
+        origin = self.env.context.get('premafirm_ai_origin')
         for mail in mails:
             if mail.mail_message_id and mail.mail_message_id.model == 'crm.lead':
                 svc.normalize_mail(mail)
+                if origin:
+                    mail._stamp_ai_provenance(auto=False)
         return mails
 
 

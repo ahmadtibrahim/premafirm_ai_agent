@@ -18,6 +18,9 @@ from . import crm_contact_rotation
 from . import crm_outreach
 
 from . import crm_lead_extension
+from . import crm_reply_status  # PHASE 8 — reply-status fields (after
+                                # crm_lead_extension: overrides its plain
+                                # reply_received with the computed one)
 from . import fleet_vehicle_extension
 from . import sale_order_extension
 from . import account_move_extension

@@ -35,7 +35,8 @@ class CrmLead(models.Model):
     premafirm_bol = fields.Char(related="bol_number", store=True, readonly=False)
     premafirm_pod = fields.Char(related="pod_reference", store=True, readonly=False)
 
-    reply_received = fields.Boolean("Reply Received", default=False)
+    # reply_received is now computed/stored from last_meaningful_reply_at
+    # (see crm_reply_status.py, PHASE 8).
     next_followup_date = fields.Date("Next Follow-up")
     ai_lead_score = fields.Float("AI Lead Score", digits=(5, 1), default=0.0)
     snov_contact_ids = fields.One2many(

@@ -303,10 +303,15 @@ class CrmFollowupCron(models.Model):
         if not replied or not todo:
             return
         cutoff = fields.Datetime.now() - timedelta(days=3)
+        # PHASE 8 — read last_meaningful_reply_at (new canonical field),
+        # with the legacy studio field as fallback for pre-migration rows.
         leads = self.sudo().search([
             ('active', '=', True),
             ('stage_id', '=', replied.id),
-            ('x_reply_received_at', '!=', False),
+            '|',
+            ('last_meaningful_reply_at', '<=', cutoff),
+            '&',
+            ('last_meaningful_reply_at', '=', False),
             ('x_reply_received_at', '<=', cutoff),
         ])
         for lead in leads:
@@ -337,10 +342,14 @@ class CrmFollowupCron(models.Model):
         if not replied:
             return
         cutoff = fields.Datetime.now() - timedelta(days=6)
+        # PHASE 8 — same dual-field fallback as the +3-day warning cron.
         leads = self.sudo().search([
             ('active', '=', True),
             ('stage_id', '=', replied.id),
-            ('x_reply_received_at', '!=', False),
+            '|',
+            ('last_meaningful_reply_at', '<=', cutoff),
+            '&',
+            ('last_meaningful_reply_at', '=', False),
             ('x_reply_received_at', '<=', cutoff),
         ])
         for lead in leads:

@@ -568,20 +568,44 @@ class MailThread(models.AbstractModel):
                       custom_values=None):
         routes = super().message_route(message, message_dict, model, thread_id,
                                        custom_values)
-        # Only crm.lead alias routes are candidates. Reference-matched
-        # routes keep their thread; the classifier still guards them so
-        # OOO/auto-reply/bounce mail with headers NEVER posts to a lead
-        # (no Replied, no needs_attention — automation 60 must not see it).
+        # EVERY crm.lead route is a candidate — including reference-matched
+        # routes, which core returns with an EMPTY alias (thread found by
+        # In-Reply-To/References, no alias in the mail). Skipping those was
+        # a hole: thread-matched OOO/auto-reply/bounce mail went straight
+        # onto the lead (Replied stamped, needs_attention raised). The
+        # classifier guards them via `matched` so such mail NEVER posts to
+        # a lead (no Replied, no needs_attention — automation 60 must not
+        # see it).
         svc = self.env['premafirm.mail.routing']
-        absorb = []
-        for _model, tid, _cv, _uid, alias in routes or ():
-            if _model != 'crm.lead' or not alias:
+        kept = []
+        for route in routes or ():
+            _model, tid, _cv, _uid, alias = route
+            if _model != 'crm.lead':
+                kept.append(route)
                 continue
             verdict = svc.classify(message_dict, raw_message=message,
                                    matched=bool(tid))
             kind = verdict['kind']
             if kind in ('new_inquiry', 'normal_reply'):
-                continue  # genuine new inquiry / true reply → keep route
+                # PHASE 8 — stamp reply-status fields at ROUTE time so the
+                # gated "CRM: Replied" automation sees them when the post
+                # triggers it. Bounces/OOO/auto-replies never reach here
+                # (they are queued/absorbed below) so they can never stamp
+                # engagement. New-inquiry leads carry their classification
+                # in the create values — the automation domain then fails
+                # on them (a fresh inquiry is not a reply).
+                stamp = {'last_inbound_classification': kind,
+                         'last_inbound_at': fields.Datetime.now()}
+                if kind == 'normal_reply':
+                    stamp['last_meaningful_reply_at'] = stamp['last_inbound_at']
+                if tid:
+                    self.env['crm.lead'].sudo().browse(tid).write(stamp)
+                else:
+                    cv = dict(_cv or {})
+                    cv.update(stamp)
+                    route = (_model, tid, cv, _uid, alias)
+                kept.append(route)
+                continue
             if kind == 'unmatched_reply':
                 svc.queue_inbound(verdict, message_dict)
             elif kind in ('out_of_office', 'auto_reply'):
@@ -592,10 +616,8 @@ class MailThread(models.AbstractModel):
                 svc.handle_bounce(verdict, message_dict)
             else:  # mailing_list, system_message, spam_or_noise
                 svc.handle_silent(kind, message_dict, detail=verdict.get('detail', ''))
-            absorb.append((_model, tid, _cv, _uid, alias))
-        if absorb:
-            routes = [r for r in routes or () if r not in absorb]
-        return routes
+            # absorbed — not kept
+        return kept
 
 
 class PremafirmInboundQueue(models.Model):
@@ -666,6 +688,13 @@ class PremafirmInboundQueue(models.Model):
             if not rec.thread_candidate_id:
                 continue
             lead = rec.thread_candidate_id
+            if rec.classification == 'unmatched_reply':
+                # PHASE 8 — a human-confirmed genuine reply counts as
+                # meaningful engagement. Bounce/OOO attaches never do.
+                now = fields.Datetime.now()
+                lead.write({'last_inbound_at': now,
+                            'last_meaningful_reply_at': now,
+                            'last_inbound_classification': 'normal_reply'})
             lead.message_post(
                 body=rec.body or '<p>(no body captured)</p>',
                 subject='Imported from Inbound Review Queue: %s' % (rec.name or ''),
@@ -683,6 +712,11 @@ class PremafirmInboundQueue(models.Model):
                 'name': rec.name or 'No Subject',
                 'email_from': rec.email_from,
                 'partner_id': rec.partner_id.id or False,
+                # PHASE 8 — the reviewer confirmed this unmatched mail is a
+                # genuine inquiry: it counts as inbound engagement, never as
+                # a reply.
+                'last_inbound_classification': 'new_inquiry',
+                'last_inbound_at': fields.Datetime.now(),
             })
             lead.message_post(
                 body=rec.body or '<p>(no body captured)</p>',

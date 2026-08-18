@@ -150,16 +150,26 @@ class FetchmailServer(models.Model):
             if manual:
                 allowed = (env['ir.config_parameter'].sudo().get_param(
                     'premafirm.crm_immediate_fetch_server_ids') or '').strip()
-                if allowed:
-                    allowed_ids = {int(x) for x in allowed.split(',')
-                                   if x.strip()}
-                    if server.id not in allowed_ids:
-                        _logger.info(
-                            'premafirm.fetchmail: manual fetch skipped on '
-                            '%s server %s (not in '
-                            'premafirm.crm_immediate_fetch_server_ids)',
-                            server.server_type, server.name)
-                        return 'skipped (not in manual-fetch config)'
+                if not allowed:
+                    # PHASE 29 — the documented contract (module docstring,
+                    # "set it to [] to fully disable manual fetching"): an
+                    # EMPTY/absent config DISABLES manual Fetch Now on every
+                    # server. Only the listed servers may be fetched by
+                    # hand; the operator opts servers in explicitly.
+                    _logger.info(
+                        'premafirm.fetchmail: manual fetch skipped on '
+                        '%s server %s (manual-fetch config is empty)',
+                        server.server_type, server.name)
+                    return 'skipped (not in manual-fetch config)'
+                allowed_ids = {int(x) for x in allowed.split(',')
+                               if x.strip()}
+                if server.id not in allowed_ids:
+                    _logger.info(
+                        'premafirm.fetchmail: manual fetch skipped on '
+                        '%s server %s (not in '
+                        'premafirm.crm_immediate_fetch_server_ids)',
+                        server.server_type, server.name)
+                    return 'skipped (not in manual-fetch config)'
             run = env['premafirm.fetchmail.run'].sudo().create({
                 'server_id': server.id,
                 'source': 'manual' if manual else 'cron',

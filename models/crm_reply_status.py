@@ -103,19 +103,46 @@ class CrmLead(models.Model):
         Outbound = an INTERNAL user's partner authored the message
         (mail.mail sends post as ``email_outgoing`` — PHASE 17 fix;
         customer partners have no user link, so ``user_ids`` is the
-        airtight discriminator, not ``partner_share``)."""
+        airtight discriminator, not ``partner_share``).
+
+        PHASE 29 — the native Odoo 18 chatter/composer posts customer
+        emails as message_type ``comment`` (mail.compose.message posts
+        its wizard selection, default ``comment``; the email goes out
+        through the notification queue).  A comment authored by an
+        internal user with a From address and at least one EXTERNAL
+        recipient is a customer email, not an internal note — it must
+        stamp outbound exactly like an email send, or Needs Reply /
+        follow-up discipline dies on the primary UI path.  Internal
+        notes (no external recipient, no From address) stay unstamped."""
         res = super()._message_post_after_hook(message, msg_values)
         author = message.author_id
         now = fields.Datetime.now()
         internal = author and any(
             not u.share for u in author.user_ids)
-        if (message.message_type in ('email', 'email_outgoing')
-                and internal):
+        external_recipients = message.partner_ids.filtered(
+            lambda p: not p.user_ids.filtered(lambda u: not u.share))
+        is_email_like = (
+            message.message_type in ('email', 'email_outgoing')
+            or (message.message_type == 'comment'
+                and message.email_from and external_recipients))
+        if is_email_like and internal:
             # An internal user's partner authored the email → outbound.
-            # No parent/references ⇒ we initiated a new thread ⇒ outreach.
+            # Outreach = we initiated a new email thread.  The composer's
+            # INTENT is captured by the crm.lead.message_post override
+            # (premafirm_post_intent context) BEFORE message_post recomputes
+            # parent_id: under flat threading a fresh composer email and a
+            # reply both end up parented to the thread's first message, so
+            # the created message's parent cannot distinguish outreach from
+            # an answer.  Paths that do not route through the override fall
+            # back to the post values' own threading headers.
+            intent = self.env.context.get('premafirm_post_intent')
+            if intent is None:
+                initiated_by_us = not (msg_values.get('references')
+                                       or msg_values.get('in_reply_to'))
+            else:
+                initiated_by_us = not intent
             vals = {'last_outbound_at': now}
-            if not (message.parent_id or msg_values.get('references')
-                    or msg_values.get('in_reply_to')):
+            if initiated_by_us:
                 vals['last_outreach_at'] = now
             self.write(vals)
             # PHASE 14 — response discipline: complete Respond to Customer

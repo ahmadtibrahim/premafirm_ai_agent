@@ -101,6 +101,19 @@ class CrmLead(models.Model):
             from_addr = self._segment_email_from()
             if from_addr:
                 kwargs['email_from'] = from_addr
+        # PHASE 29 — preserve the caller's threading intent for the
+        # reply-status hook.  message_post re-computes parent_id under
+        # flat threading BEFORE _message_post_after_hook runs, so a fresh
+        # composer email and a reply both come back with the same computed
+        # parent (the thread's first message) and the hook cannot tell
+        # outreach from an answer.  The ORIGINAL values (parent_id /
+        # references / in_reply_to as passed by the composer or caller)
+        # say whether we continue an existing email thread.
+        if ('parent_id' in kwargs or 'references' in kwargs
+                or 'in_reply_to' in kwargs):
+            self = self.with_context(premafirm_post_intent=bool(
+                kwargs.get('parent_id') or kwargs.get('references')
+                or kwargs.get('in_reply_to')))
         return super().message_post(**kwargs)
 
     # ── Tag inheritance from the linked contact/company ───────────

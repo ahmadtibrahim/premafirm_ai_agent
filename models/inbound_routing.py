@@ -8,7 +8,7 @@ to msg") and drops natively-detected bounces (``is_bounce`` →
 mailer-daemon From, multipart/report content-type only — and marks
 ``mail.notification`` rows + bumps blacklist counters; never creates
 leads). This module handles EVERYTHING that falls through to the
-crm.lead aliases, with the full 10-class classification of the spec:
+crm.lead aliases, with the full 11-class classification of the spec:
 
   normal_reply       reply matched to its thread by core (keep route)
   new_inquiry        genuine new inquiry (keep route → lead created)
@@ -19,6 +19,9 @@ crm.lead aliases, with the full 10-class classification of the spec:
   out_of_office      vacation auto-reply (queue, pre-bound thread, never
                      engagement, optional return date)
   auto_reply         generic auto-replier (same handling as OOO)
+  complaint          opt-out from a known sender (PHASE 29): native
+                     suppression list + partner blacklist, absorbed —
+                     no lead, no queue
   mailing_list       digest/newsletter (silent)
   system_message     internal staff noise / no-reply system mail (silent)
   spam_or_noise      junk (silent)
@@ -29,6 +32,8 @@ Hard rules from the spec:
     premafirm.inbound.queue for human review (Attach to Opportunity /
     Create New Lead / Ignore / Mark Bounce / Mark OOO)
   * genuine new inquiries to accounts@/quotes@/sales@ still create leads
+  * new inquiries that matched NO alias (catchall mailbox / unknown
+    localpart, spec T13) NEVER become random leads — same review queue
   * never link by email address alone (thread_candidate_id is a
     best-guess for the human reviewer, never auto-applied)
 
@@ -47,6 +52,7 @@ from datetime import datetime, timedelta
 
 from odoo import api, fields, models
 from odoo.tools import email_normalize
+from odoo.tools.mail import unfold_references
 
 _logger = logging.getLogger(__name__)
 
@@ -107,6 +113,16 @@ _SPAM_PATTERNS = (
     r'\burgent action required\b', r'\btransfer of funds\b',
     r'\$\$\$', r'\b(?:free|cheap)\s+(?:viagra|meds|pills)\b',
     r'\bmoney\s+laundering\b', r'\bprince\b.*\bmoney\b',
+)
+
+# Opt-out / complaint subjects (spec test 17): the sender asks us to
+# stop. Only honored for KNOWN senders (a matched partner) — a stranger
+# cannot blacklist an address by fiat. Never creates a lead.
+_COMPLAINT_SUBJECTS = (
+    'unsubscribe', 'opt out', 'opt-out', 'stop email', 'stop sending',
+    'stop emailing', 'stop the emails', 'please remove', 'remove me',
+    'remove me from your list', 'do not contact', 'do not email',
+    'no more emails', 'no more email',
 )
 
 # "I will be back on Aug 20" / "returning Monday" / "away until 24/08"
@@ -175,11 +191,21 @@ class PremafirmMailRouting(models.AbstractModel):
                     'subject': subject, 'ooo_return_date': ooo_date,
                     'auto_submitted': auto}
 
-        # 4. mailing lists / digests — List-* headers or known senders
+        # 4. complaints / opt-outs — a KNOWN sender asks us to stop:
+        #    suppress + absorb, never a lead, never a reply candidate.
+        #    Checked BEFORE mailing lists and reply-lookalikes: the
+        #    digest subject markers include 'unsubscribe', so an opt-out
+        #    from a sender we know must be honored as a complaint, not
+        #    dropped as list noise (PHASE 29 spec T17). Unknown senders
+        #    fall through to the mailing-list/junk checks below.
+        if self._is_complaint(subject_l, msg_dict):
+            return {'kind': 'complaint', 'subject': subject}
+
+        # 5. mailing lists / digests — List-* headers or known senders
         if self._is_mailing_list(msg_dict, raw_message, from_l, subject_l):
             return {'kind': 'mailing_list', 'subject': subject}
 
-        # 5. reply-lookalikes — threading headers, Re:/quoted body,
+        # 6. reply-lookalikes — threading headers, Re:/quoted body,
         #    or a sender we contacted recently
         if self._looks_like_reply(subject, msg_dict.get('references'),
                                   msg_dict.get('in_reply_to'),
@@ -192,16 +218,16 @@ class PremafirmMailRouting(models.AbstractModel):
                 verdict['thread_candidate_id'] = self._find_thread_candidate(msg_dict)
             return verdict
 
-        # 6. system messages — no-reply senders + system subjects
+        # 7. system messages — no-reply senders + system subjects
         if self._is_system_message(from_l, subject_l):
             return {'kind': 'system_message', 'subject': subject,
                     'detail': 'system sender/subject'}
 
-        # 7. junk — conservative patterns only; anything ambiguous stays
+        # 8. junk — conservative patterns only; anything ambiguous stays
         if self._is_spam_noise(subject, from_l):
             return {'kind': 'spam_or_noise', 'subject': subject}
 
-        # 8. genuine new inquiry
+        # 9. genuine new inquiry
         return {'kind': 'new_inquiry', 'subject': subject}
 
     # ── Raw-message analysis (headers/parts message_parse drops) ────
@@ -280,7 +306,8 @@ class PremafirmMailRouting(models.AbstractModel):
         auto = self._raw_header(raw_message, 'Auto-Submitted')
         if auto and auto.strip().lower().replace('"', '') in _AUTO_SUBMITTED_VALUES:
             return auto.strip().lower()
-        suppress = self._raw_header(raw_message, 'X-Auto-Reply-Suppress')
+        suppress = (self._raw_header(raw_message, 'X-Auto-Reply-Suppress')
+                    or self._raw_header(raw_message, 'X-Auto-Response-Suppress'))
         if suppress:
             values = {v.strip().lower() for v in re.split(r'[,; ]', suppress) if v.strip()}
             if values & set(_AUTO_REPLY_SUPPRESS):
@@ -309,6 +336,38 @@ class PremafirmMailRouting(models.AbstractModel):
     def _is_spam_noise(self, subject, from_l):
         haystack = '%s %s' % (subject.lower(), from_l.lower())
         return any(re.search(p, haystack) for p in _SPAM_PATTERNS)
+
+    @api.model
+    def _resolve_sender_partner(self, msg_dict, force_create=False):
+        """Sender partner by ``email_from``, resolved INDEPENDENTLY of
+        core's author_id: Odoo 18 resolves the author in message_route
+        WITHOUT force_create, so a brand-new sender has no partner and
+        author_id is empty even though the lead-creation flow needs it
+        (crm.message_new defaults partner_id from author_id). Reuses the
+        core search heuristics; force_create recreates the Odoo ≤16
+        gateway behavior of creating the sender partner."""
+        email = (msg_dict.get('email_from') or '').strip()
+        if not email:
+            return self.env['res.partner']
+        partners = self.env['res.partner'].sudo()._mail_find_partner_from_emails(
+            [email], force_create=force_create)
+        return partners[0] if partners else self.env['res.partner']
+
+    @api.model
+    def _is_complaint(self, subject_l, msg_dict):
+        """Opt-out / stop-contact request from a KNOWN sender. Subject
+        evidence only (conservative), and only honored for senders who
+        already exist as partners — a stranger cannot blacklist an
+        address by fiat. Unknown senders fall through to the junk check."""
+        if not any(p in subject_l for p in _COMPLAINT_SUBJECTS):
+            return False
+        # PHASE 29 — core author_id is empty for senders whose partner is
+        # not (yet) created; resolve the sender partner ourselves so a
+        # complaint from a real (known) contact is honored regardless.
+        author_id = msg_dict.get('author_id')
+        if author_id and self.env['res.partner'].sudo().browse(author_id).exists():
+            return True
+        return bool(self._resolve_sender_partner(msg_dict))
 
     @api.model
     def _extract_return_date(self, subject, body):
@@ -488,6 +547,31 @@ class PremafirmMailRouting(models.AbstractModel):
         )
 
     @api.model
+    def handle_complaint(self, msg_dict):
+        """Opt-out from a known sender: add their address to the native
+        suppression list (mail.blacklist) and mark their partner
+        blacklisted, so NO outbound path (bulk, follow-up, templates, AI)
+        ever emails them again. Absorbed — no lead, no queue record."""
+        email = (msg_dict.get('email_from') or '')
+        norm = email_normalize(email) if email else ''
+        if norm:
+            blacklist = self.env['mail.blacklist'].sudo().search(
+                [('email', '=', norm)], limit=1)
+            if not blacklist:
+                self.env['mail.blacklist'].sudo().create({'email': norm})
+        partner = self._resolve_sender_partner(msg_dict)
+        if not partner and msg_dict.get('author_id'):
+            partner = self.env['res.partner'].sudo().browse(
+                msg_dict['author_id']).exists()
+        if partner:
+            partner.write({'is_blacklisted': True})
+        _logger.warning(
+            'premafirm.mail.routing: complaint/opt-out absorbed + sender '
+            'suppressed (no lead, no queue) from %s, subject "%s", '
+            'Message-Id %s',
+            email, msg_dict.get('subject'), msg_dict.get('message_id'))
+
+    @api.model
     def handle_bounce(self, verdict, msg_dict):
         """Bounce / delivery_failure that core's is_bounce detection
         missed. Spec: no lead, no Replied, no needs_attention; attach the
@@ -587,6 +671,15 @@ class MailThread(models.AbstractModel):
                                    matched=bool(tid))
             kind = verdict['kind']
             if kind in ('new_inquiry', 'normal_reply'):
+                # PHASE 29 (spec matrix T13): a new inquiry that matched
+                # NO alias came through the catchall/fallback route — an
+                # unknown localpart, wrong address, or the catchall
+                # mailbox in production. NEVER a random lead: queue it
+                # for the human reviewer exactly like unmatched replies
+                # (action_create_lead is the human's explicit decision).
+                if kind == 'new_inquiry' and not alias:
+                    svc.queue_inbound(verdict, message_dict)
+                    continue
                 # PHASE 8 — stamp reply-status fields at ROUTE time so the
                 # gated "CRM: Replied" automation sees them when the post
                 # triggers it. Bounces/OOO/auto-replies never reach here
@@ -619,8 +712,18 @@ class MailThread(models.AbstractModel):
                 else:
                     cv = dict(_cv or {})
                     cv.update(stamp)
-                    # PHASE 11 — pass the new-inquiry sender to the lead
+                    # PHASE 11/29 — pass the new-inquiry sender to the lead
                     # create hook (contact row + company-first partner).
+                    # Odoo 18 leaves author_id EMPTY for brand-new senders
+                    # (no force_create in core message_route) — resolve and
+                    # create the sender partner here, then crm.message_new
+                    # links partner_id and the inbound message carries the
+                    # real author for the chatter.
+                    if kind == 'new_inquiry' and not message_dict.get('author_id'):
+                        partner = svc._resolve_sender_partner(
+                            message_dict, force_create=True)
+                        if partner:
+                            message_dict['author_id'] = partner.id
                     if kind == 'new_inquiry' and message_dict.get('author_id'):
                         cv['premafirm_attach_contact'] = message_dict['author_id']
                     route = (_model, tid, cv, _uid, alias)
@@ -634,10 +737,45 @@ class MailThread(models.AbstractModel):
                 svc.queue_inbound(verdict, message_dict)
             elif kind in ('bounce', 'delivery_failure'):
                 svc.handle_bounce(verdict, message_dict)
+            elif kind == 'complaint':
+                svc.handle_complaint(message_dict)
             else:  # mailing_list, system_message, spam_or_noise
                 svc.handle_silent(kind, message_dict, detail=verdict.get('detail', ''))
             # absorbed — not kept
         return kept
+
+    @api.model
+    def _message_parse_extract_bounce(self, email_message, message_dict):
+        """PHASE 31 — plain-text daemon bounces: resolve the original.
+
+        Core only resolves the bounced original when the DSN embeds a
+        message/rfc822 part or a multipart/report payload. A plain
+        "Invalid Email Address" mail from MAILER-DAEMON (Bounce #984)
+        carries neither, so core's _routing_handle_bounce has no
+        bounced_message to search notifications on and the outbound
+        delivery record is never marked. Fall back to the References /
+        In-Reply-To resolution core applies to DSNs."""
+        parsed = super()._message_parse_extract_bounce(email_message,
+                                                       message_dict)
+        if not parsed.get('is_bounce') or parsed.get('bounced_message'):
+            return parsed
+        reference_ids = [r.strip() for r in unfold_references(
+            message_dict.get('in_reply_to') or '')]
+        reference_ids.extend(r.strip() for r in unfold_references(
+            message_dict.get('references') or ''))
+        bounced_message = self.env['mail.message'].sudo().search(
+            [('message_id', 'in', reference_ids)],
+            order='create_date DESC, id DESC', limit=1)
+        if bounced_message:
+            parsed['bounced_message'] = bounced_message
+            parsed['bounced_msg_ids'] = reference_ids
+            if (not parsed.get('bounced_partner')
+                    and len(bounced_message.notification_ids
+                            .res_partner_id) == 1):
+                partner = bounced_message.notification_ids.res_partner_id[0]
+                parsed['bounced_partner'] = partner
+                parsed['bounced_email'] = partner.email
+        return parsed
 
 
 class PremafirmInboundQueue(models.Model):
@@ -659,6 +797,7 @@ class PremafirmInboundQueue(models.Model):
         ('delivery_failure', 'Delivery Failure'),
         ('out_of_office', 'Out of Office'),
         ('auto_reply', 'Auto-Reply'),
+        ('complaint', 'Complaint / Opt-out'),
         ('mailing_list', 'Mailing List'),
         ('system_message', 'System Message'),
         ('spam_or_noise', 'Spam / Noise'),

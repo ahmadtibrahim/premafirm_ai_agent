@@ -122,14 +122,20 @@ class CrmWorkspace(models.Model):
         """Outbound email on ANY path → bump the counter + first stamp
         (the PHASE 8 hook already writes last_outbound/last_outreach and
         runs the response discipline; this adds the analytics fields).
-        Outbound = internal-user author, type email/email_outgoing (the
-        same discriminator as crm_reply_status)."""
+        Outbound = internal-user author, email-like message (the same
+        is_email_like discriminator as crm_reply_status, so PHASE 29
+        composer comments count exactly like email sends)."""
         res = super()._message_post_after_hook(message, msg_values)
         author = message.author_id
         internal = author and any(
             not u.share for u in author.user_ids)
-        if (message.message_type in ('email', 'email_outgoing')
-                and internal):
+        external_recipients = message.partner_ids.filtered(
+            lambda p: not p.user_ids.filtered(lambda u: not u.share))
+        is_email_like = (
+            message.message_type in ('email', 'email_outgoing')
+            or (message.message_type == 'comment'
+                and message.email_from and external_recipients))
+        if is_email_like and internal:
             now = fields.Datetime.now()
             for lead in self:
                 vals = {'x_ana_outbound_count':

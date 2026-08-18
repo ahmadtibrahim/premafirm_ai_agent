@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- PHASE 25 — CRM lead link + CDR sync on the voipms call log.
+         Inherits the voipms_sms views (same module family). -->
+
+    <record id="view_voipms_call_log_list_inherit_pf" model="ir.ui.view">
+        <field name="name">voipms.call.log.list.inherit.pf</field>
+        <field name="model">voipms.call.log</field>
+        <field name="inherit_id" ref="voipms_sms.view_voipms_call_log_list"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list/field[1]" position="before">
+                <field name="lead_id" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_voipms_call_log_form_inherit_pf" model="ir.ui.view">
+        <field name="name">voipms.call.log.form.inherit.pf</field>
+        <field name="model">voipms.call.log</field>
+        <field name="inherit_id" ref="voipms_sms.view_voipms_call_log_form"/>
+        <field name="arch" type="xml">
+            <field name="partner_id" position="after">
+                <field name="lead_id"/>
+            </field>
+            <header position="inside">
+                <button name="action_sync_cdr" type="object"
+                        string="Sync CDR" class="btn-primary"
+                        groups="base.group_user"
+                        help="Pull recent call history + recordings from the VoIP.ms account (read-only)."/>
+            </header>
+        </field>
+    </record>
+
+</odoo>

@@ -110,6 +110,11 @@ from . import crm_tag_cleanup
 from . import crm_data_cleanup
 from . import mail_provider_event
 
+# PHASES 25-26 — VoIP.ms CDR pull + recordings on the call log, and
+# the salesperson performance snapshot
+from . import voipms_call_log
+from . import crm_salesperf
+
 # PHASES 6-7 — safe Fetch Now + inbound dedupe (imported LAST so its
 # message_route override runs first in the MRO)
 from . import fetchmail_safety

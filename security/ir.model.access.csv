@@ -49,8 +49,10 @@ access_premafirm_ml_response_cache,ml response cache,model_premafirm_ml_response
 access_premafirm_ml_response_cache_mgr,ml response cache mgr,model_premafirm_ml_response_cache,base.group_system,1,1,1,1
 access_premafirm_crm_contact_rotation,crm contact rotation,model_premafirm_crm_contact_rotation,base.group_user,1,1,1,0
 access_premafirm_crm_contact_rotation_mgr,crm contact rotation mgr,model_premafirm_crm_contact_rotation,base.group_system,1,1,1,1
-access_premafirm_crm_bulk_email_batch,crm bulk email batch,model_premafirm_crm_bulk_email_batch,base.group_user,1,1,1,1
-access_premafirm_crm_bulk_email_queue,crm bulk email queue,model_premafirm_crm_bulk_email_queue,base.group_user,1,1,1,1
+access_premafirm_crm_bulk_email_batch,crm bulk email batch,model_premafirm_crm_bulk_email_batch,base.group_user,1,1,1,0
+access_premafirm_crm_bulk_email_batch_sys,crm bulk email batch sys,model_premafirm_crm_bulk_email_batch,base.group_system,1,1,1,1
+access_premafirm_crm_bulk_email_queue,crm bulk email queue,model_premafirm_crm_bulk_email_queue,base.group_user,1,1,1,0
+access_premafirm_crm_bulk_email_queue_sys,crm bulk email queue sys,model_premafirm_crm_bulk_email_queue,base.group_system,1,1,1,1
 access_premafirm_crm_bulk_email_wizard,crm bulk email wizard,model_premafirm_crm_bulk_email_wizard,base.group_user,1,1,1,1
 access_premafirm_ml_draft_user,premafirm.ml.draft user,model_premafirm_ml_draft,base.group_user,1,1,1,0
 access_premafirm_ml_draft_manager,premafirm.ml.draft manager,model_premafirm_ml_draft,base.group_system,1,1,1,1
@@ -73,3 +75,9 @@ access_premafirm_fetchmail_message_user,premafirm.fetchmail.message user,model_p
 access_premafirm_crm_tag_audit_user,premafirm.crm.tag.audit user,model_premafirm_crm_tag_audit,base.group_user,1,1,1,1
 access_premafirm_mail_provider_event_user,premafirm.mail.provider.event user,model_premafirm_mail_provider_event,base.group_user,1,0,0,0
 access_premafirm_mail_provider_event_sys,premafirm.mail.provider.event sys,model_premafirm_mail_provider_event,base.group_system,1,1,1,1
+access_premafirm_crm_salesperf_user,premafirm.crm.salesperf user,model_premafirm_crm_salesperf,base.group_user,1,0,0,0
+access_premafirm_crm_salesperf_sys,premafirm.crm.salesperf sys,model_premafirm_crm_salesperf,base.group_system,1,1,1,1
+access_crm_lead_contact_user,crm lead contact user,model_crm_lead_contact,base.group_user,1,1,1,1
+access_crm_lead_contact_sys,crm lead contact sys,model_crm_lead_contact,base.group_system,1,1,1,1
+access_crm_lead_freight_lane_user,crm lead freight lane user,model_crm_lead_freight_lane,base.group_user,1,1,1,1
+access_crm_lead_freight_lane_sys,crm lead freight lane sys,model_crm_lead_freight_lane,base.group_system,1,1,1,1

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- PHASE 26 — salesperson performance snapshot. The menu action is
+         a server action that refreshes the snapshot then opens the
+         list, so the numbers are always current. -->
+
+    <record id="premafirm_crm_salesperf_tree" model="ir.ui.view">
+        <field name="name">premafirm.crm.salesperf.list</field>
+        <field name="model">premafirm.crm.salesperf</field>
+        <field name="arch" type="xml">
+            <list string="Salesperson Performance" create="false"
+                  edit="false" delete="false">
+                <field name="user_name"/>
+                <field name="leads_assigned"/>
+                <field name="leads_new_month"/>
+                <field name="outbound_emails"/>
+                <field name="emailed_leads" optional="hide"/>
+                <field name="replied_leads" optional="hide"/>
+                <field name="reply_rate"/>
+                <field name="avg_first_response_h"/>
+                <field name="calls_answered"/>
+                <field name="inbound_calls" optional="hide"/>
+                <field name="won_count"/>
+                <field name="won_amount" sum="Total"/>
+                <field name="open_pipeline" sum="Total"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="premafirm_crm_salesperf_refresh" model="ir.actions.server">
+        <field name="name">Salesperson Performance — Refresh</field>
+        <field name="model_id" ref="model_premafirm_crm_salesperf"/>
+        <field name="state">code</field>
+        <field name="code">
+rows = env['premafirm.crm.salesperf'].sudo().compute_performance()
+action = {
+    'type': 'ir.actions.act_window',
+    'name': 'Salesperson Performance',
+    'res_model': 'premafirm.crm.salesperf',
+    'view_mode': 'list',
+    'view_id': env.ref('premafirm_ai_engine.premafirm_crm_salesperf_tree').id,
+    'target': 'current',
+}
+</field>
+    </record>
+
+    <menuitem id="menu_premafirm_crm_salesperf"
+              name="Salesperson Performance"
+              parent="crm.crm_menu_root"
+              action="premafirm_crm_salesperf_refresh"
+              sequence="7"/>
+
+</odoo>

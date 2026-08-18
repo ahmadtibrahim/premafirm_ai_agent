@@ -49,7 +49,7 @@ class MailTemplate(models.Model):
         )
         svc = self.env['premafirm.mail.threading']
         for mail_id in (mail_ids if isinstance(mail_ids, (list, tuple)) else [mail_ids]):
-            mail = self.env['mail.mail'].browse(mail_id)
+            mail = self.env['mail.mail'].browse(mail_id).exists()
             if mail and mail.mail_message_id and mail.mail_message_id.model == 'crm.lead':
                 svc.normalize_mail(mail)
         return mail_ids

@@ -131,7 +131,19 @@ class CrmLead(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        # PHASE 11 — the routed new-inquiry path passes the sender's
+        # partner id in this marker key (popped before super so the
+        # unknown field never reaches the DB).
+        attach = [vals.pop('premafirm_attach_contact', False)
+                  for vals in vals_list]
         leads = super().create(vals_list)
+        for lead, author in zip(leads, attach):
+            # company → contacts: the opportunity's partner is the COMPANY;
+            # a contact-child sender is tracked as a contact row instead.
+            if lead.partner_id and lead.partner_id.parent_id:
+                lead.write({'partner_id': lead.partner_id.parent_id.id})
+            if author:
+                self.env['crm.lead.contact']._attach_sender(lead.id, author)
         leads.filtered('partner_id')._sync_tags_from_partner()
         return leads
 

@@ -603,11 +603,21 @@ class MailThread(models.AbstractModel):
                     # response message-id). Bounces/OOO never reach here.
                     self.env['premafirm.crm.bulk.email.queue']._mark_replied(
                         tid, response_message_id=message_dict.get('message_id'))
+                    # PHASE 11 — the sender is a tracked CONTACT even when
+                    # a different contact (not the primary) replies.
+                    author = message_dict.get('author_id')
+                    if author and tid:
+                        self.env['crm.lead.contact']._attach_sender(
+                            tid, author)
                 if tid:
                     self.env['crm.lead'].sudo().browse(tid).write(stamp)
                 else:
                     cv = dict(_cv or {})
                     cv.update(stamp)
+                    # PHASE 11 — pass the new-inquiry sender to the lead
+                    # create hook (contact row + company-first partner).
+                    if kind == 'new_inquiry' and message_dict.get('author_id'):
+                        cv['premafirm_attach_contact'] = message_dict['author_id']
                     route = (_model, tid, cv, _uid, alias)
                 kept.append(route)
                 continue

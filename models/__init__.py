@@ -21,6 +21,9 @@ from . import crm_lead_extension
 from . import crm_reply_status  # PHASE 8 — reply-status fields (after
                                 # crm_lead_extension: overrides its plain
                                 # reply_received with the computed one)
+from . import crm_lead_contacts  # PHASES 11-12 — company→contacts +
+                                 # Freight Profile (after crm_lead_extension:
+                                 # its create hook attaches senders)
 from . import fleet_vehicle_extension
 from . import sale_order_extension
 from . import account_move_extension

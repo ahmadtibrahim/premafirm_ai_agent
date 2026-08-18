@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- PHASES 11-12 — CONTACTS tab + Freight Profile tab on the
+         opportunity form (company → contacts → opportunity). -->
+
+    <record id="view_crm_lead_contacts_freight_pages" model="ir.ui.view">
+        <field name="name">crm.lead.form.contacts.freight</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+
+                <page string="Contacts" name="premafirm_contacts">
+                    <field name="contact_ids">
+                        <list string="Contacts" editable="bottom">
+                            <field name="partner_id" options="{'no_create_edit': True}"/>
+                            <field name="role"/>
+                            <field name="is_primary"/>
+                            <field name="receives_email"/>
+                            <field name="receives_quotes"/>
+                        </list>
+                        <form string="Contact">
+                            <group>
+                                <field name="partner_id" options="{'no_create_edit': True}"/>
+                                <field name="role"/>
+                                <field name="is_primary"/>
+                                <field name="receives_email"/>
+                                <field name="receives_quotes"/>
+                                <field name="notes"/>
+                            </group>
+                        </form>
+                    </field>
+                </page>
+
+                <page string="Freight Profile" name="premafirm_freight_profile">
+                    <group>
+                        <group string="Customer">
+                            <field name="customer_type"/>
+                            <field name="freight_type"/>
+                            <field name="services"/>
+                            <field name="equipment"/>
+                            <field name="frequency"/>
+                            <field name="origin"/>
+                            <field name="preferred_days"/>
+                        </group>
+                        <group string="Volume &amp; Revenue">
+                            <field name="pallet_min"/>
+                            <field name="pallet_max"/>
+                            <field name="weight_lbs"/>
+                            <field name="est_weekly_revenue"/>
+                            <field name="est_monthly_revenue"/>
+                        </group>
+                        <group string="Pricing &amp; Carrier">
+                            <field name="current_carrier"/>
+                            <field name="current_rate"/>
+                            <field name="target_rate"/>
+                        </group>
+                        <group string="Pickup / Delivery Windows">
+                            <field name="pickup_window_start"/>
+                            <field name="pickup_window_end"/>
+                            <field name="delivery_window_start"/>
+                            <field name="delivery_window_end"/>
+                        </group>
+                        <group string="Relationship">
+                            <field name="decision_maker_id"/>
+                            <field name="logistics_contact_id"/>
+                            <field name="onboarding"/>
+                            <field name="contract_status"/>
+                            <field name="next_contact"/>
+                            <field name="freight_notes"/>
+                        </group>
+                    </group>
+                    <separator string="Lanes"/>
+                    <field name="lane_ids">
+                        <list string="Lanes" editable="bottom">
+                            <field name="origin"/>
+                            <field name="destination"/>
+                            <field name="rate"/>
+                            <field name="notes"/>
+                        </list>
+                        <form string="Lane">
+                            <group>
+                                <field name="origin"/>
+                                <field name="destination"/>
+                                <field name="rate"/>
+                                <field name="notes"/>
+                            </group>
+                        </form>
+                    </field>
+                </page>
+
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

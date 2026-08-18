@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- PHASES 16-17 — daily workspace facets + priority dashboard +
+         response analytics (all native Odoo views — no custom JS). -->
+
+    <!-- ── Workspace facets on the standard CRM search bar ──────────── -->
+    <record id="view_crm_lead_workspace_filters" model="ir.ui.view">
+        <field name="name">crm.lead.search.workspace.filters</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.view_crm_case_leads_filter"/>
+        <field name="arch" type="xml">
+            <xpath expr="//filter[@name='inactive']" position="before">
+                <separator/>
+                <filter string="Needs My Reply" name="ws_needs_my_reply"
+                        domain="[('needs_reply','=',True),('user_id','=',uid)]"
+                        help="Leads that need a reply from ME"/>
+                <filter string="Follow-Up Today" name="ws_followup_today"
+                        domain="[('next_followup_at','&gt;=',context_today().strftime('%Y-%m-%d 00:00:00')),('next_followup_at','&lt;=',context_today().strftime('%Y-%m-%d 23:59:59'))]"
+                        help="Follow-up scheduled for today"/>
+                <filter string="Overdue" name="ws_overdue"
+                        domain="[('next_followup_at','!=',False),('next_followup_at','&lt;',context_today().strftime('%Y-%m-%d'))]"
+                        help="Follow-up deadline already passed"/>
+                <filter string="No Next Activity" name="ws_no_next_activity"
+                        domain="[('next_followup_at','=',False),('date_closed','=',False),('stage_id.name','not in',['WON / ACTIVE CUSTOMER','LOST'])]"
+                        help="Open leads with no scheduled next action"/>
+                <filter string="New / Uncontacted" name="ws_new_uncontacted"
+                        domain="[('stage_id.name','=','NEW / UNCONTACTED')]"/>
+                <filter string="Outreach Awaiting Reply" name="ws_outreach_awaiting"
+                        domain="[('stage_id.name','=','OUTREACH SENT'),('reply_received','=',False)]"/>
+                <filter string="Replied / Needs Attention" name="ws_replied_attention"
+                        domain="[('stage_id.name','=','ENGAGED / REPLIED'),('needs_reply','=',True)]"/>
+                <filter string="Quote Follow-Up" name="ws_quote_followup"
+                        domain="[('stage_id.name','in',['QUOTE REQUESTED','QUOTE SENT','NEGOTIATION']),('needs_reply','=',True)]"/>
+                <filter string="Stale 7 Days" name="ws_stale_7"
+                        domain="[('x_ws_outreach_days','&gt;=',7),('reply_received','=',False)]"
+                        help="No reply and last outreach 7+ days ago"/>
+                <filter string="Stale 14 Days" name="ws_stale_14"
+                        domain="[('x_ws_outreach_days','&gt;=',14),('reply_received','=',False)]"
+                        help="No reply and last outreach 14+ days ago"/>
+                <filter string="Unassigned" name="ws_unassigned"
+                        domain="[('user_id','=',False),('date_closed','=',False)]"/>
+                <filter string="Bounced Email" name="ws_bounced"
+                        domain="[('last_inbound_classification','in',['bounce','delivery_failure'])]"/>
+                <filter string="OOO / Auto Reply" name="ws_ooo"
+                        domain="[('last_inbound_classification','in',['out_of_office','auto_reply'])]"/>
+                <filter string="Onboarding" name="ws_onboarding"
+                        domain="[('stage_id.name','=','ONBOARDING')]"/>
+                <filter string="Won This Month" name="ws_won_this_month"
+                        domain="[('x_ws_won_this_month','=',True)]"/>
+                <separator/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ── Priority dashboard graph (the 9 KPI bars, native) ────────── -->
+    <record id="view_crm_lead_priority_graph" model="ir.ui.view">
+        <field name="name">crm.lead.priority.graph</field>
+        <field name="model">crm.lead</field>
+        <field name="arch" type="xml">
+            <graph string="Priority Dashboard" type="bar">
+                <field name="x_ws_bucket" string="Priority"/>
+            </graph>
+        </field>
+    </record>
+
+    <!-- ── Response analytics: pivot + graph ─────────────────────────── -->
+    <record id="view_crm_lead_response_pivot" model="ir.ui.view">
+        <field name="name">crm.lead.response.pivot</field>
+        <field name="model">crm.lead</field>
+        <field name="arch" type="xml">
+            <pivot string="Response Analytics" disable_linking="1">
+                <field name="user_id" type="row" string="Salesperson"/>
+                <field name="campaign_id" type="row" string="Campaign"/>
+                <field name="x_segment" type="row" string="Segment"/>
+                <field name="x_customer_type" type="row" string="Customer Type"/>
+                <field name="date_open" type="row" string="Date"/>
+                <field name="x_ana_outbound_count" type="measure" string="Outbound Emails"/>
+                <field name="x_ana_replied" type="measure" string="Meaningful Replies"/>
+                <field name="x_ana_first_response_hours" type="measure" string="Avg First Response (h)"/>
+                <field name="x_ana_sales_reply_hours" type="measure" string="Avg Sales Reply (h)"/>
+                <field name="x_ana_won_amount" type="measure" string="Won Revenue"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_crm_lead_response_graph" model="ir.ui.view">
+        <field name="name">crm.lead.response.graph</field>
+        <field name="model">crm.lead</field>
+        <field name="arch" type="xml">
+            <graph string="Won Revenue Trend" type="bar">
+                <field name="user_id" string="Salesperson"/>
+                <field name="date_closed" type="row" interval="month"/>
+                <field name="x_ana_won_amount" type="measure" string="Won Revenue"/>
+            </graph>
+        </field>
+    </record>
+
+    <!-- ── Actions + menus ───────────────────────────────────────────── -->
+    <record id="action_crm_priority_dashboard" model="ir.actions.act_window">
+        <field name="name">Priority Dashboard</field>
+        <field name="res_model">crm.lead</field>
+        <field name="view_mode">graph,pivot,kanban,list,form</field>
+        <field name="view_id" ref="view_crm_lead_priority_graph"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Priority buckets for today's CRM work — each bar is one-click to the matching leads.</p>
+        </field>
+    </record>
+
+    <record id="action_crm_response_analytics" model="ir.actions.act_window">
+        <field name="name">Response Analytics</field>
+        <field name="res_model">crm.lead</field>
+        <field name="view_mode">pivot,graph,list,form</field>
+        <field name="view_id" ref="view_crm_lead_response_pivot"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Response performance by salesperson, campaign, segment, customer type and date.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_crm_priority_dashboard" name="Priority Dashboard"
+              parent="crm.crm_menu_root" sequence="5"
+              action="action_crm_priority_dashboard"/>
+    <menuitem id="menu_crm_response_analytics" name="Response Analytics"
+              parent="crm.crm_menu_root" sequence="6"
+              action="action_crm_response_analytics"/>
+</odoo>

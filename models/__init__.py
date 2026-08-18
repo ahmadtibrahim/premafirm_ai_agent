@@ -32,6 +32,9 @@ from . import crm_activity_discipline  # PHASE 14 — activity/next-action
                                        # hooks wrap the others)
 from . import crm_followup_service  # PHASE 15 — one consolidated follow-up
                                     # service (replaces the six legacy crons)
+from . import crm_workspace  # PHASES 16-17 — priority dashboard buckets +
+                             # response analytics (after crm_reply_status:
+                             # its _message_post_after_hook wraps the stamps)
 from . import fleet_vehicle_extension
 from . import sale_order_extension
 from . import account_move_extension

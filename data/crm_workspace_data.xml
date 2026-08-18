@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- PHASE 16 — the 15 saved workspace filters. Date-dynamic
+             domains are evaluated server-side (ir.filters evals with
+             context_today + datetime); stage references are by NAME
+             (never hardcoded DB ids — the PHASE 13 target names). -->
+
+        <record id="ws_filter_needs_my_reply" model="ir.filters">
+            <field name="name">Needs My Reply</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('needs_reply','=',True)]</field>
+        </record>
+
+        <record id="ws_filter_followup_today" model="ir.filters">
+            <field name="name">Follow-Up Today</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('next_followup_at','&gt;=',context_today().strftime('%Y-%m-%d 00:00:00')),('next_followup_at','&lt;=',context_today().strftime('%Y-%m-%d 23:59:59'))]</field>
+        </record>
+
+        <record id="ws_filter_overdue" model="ir.filters">
+            <field name="name">Overdue</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('next_followup_at','!=',False),('next_followup_at','&lt;',context_today().strftime('%Y-%m-%d'))]</field>
+        </record>
+
+        <record id="ws_filter_no_next_activity" model="ir.filters">
+            <field name="name">No Next Activity</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('next_followup_at','=',False),('date_closed','=',False),('stage_id.name','not in',['WON / ACTIVE CUSTOMER','LOST'])]</field>
+        </record>
+
+        <record id="ws_filter_new_uncontacted" model="ir.filters">
+            <field name="name">New / Uncontacted</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('stage_id.name','=','NEW / UNCONTACTED')]</field>
+        </record>
+
+        <record id="ws_filter_outreach_awaiting" model="ir.filters">
+            <field name="name">Outreach Awaiting Reply</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('stage_id.name','=','OUTREACH SENT'),('reply_received','=',False)]</field>
+        </record>
+
+        <record id="ws_filter_replied_attention" model="ir.filters">
+            <field name="name">Replied / Needs Attention</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('stage_id.name','=','ENGAGED / REPLIED'),('needs_reply','=',True)]</field>
+        </record>
+
+        <record id="ws_filter_quote_followup" model="ir.filters">
+            <field name="name">Quote Follow-Up</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('stage_id.name','in',['QUOTE REQUESTED','QUOTE SENT','NEGOTIATION']),('needs_reply','=',True)]</field>
+        </record>
+
+        <record id="ws_filter_stale_7" model="ir.filters">
+            <field name="name">Stale 7 Days</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('x_ws_outreach_days','&gt;=',7),('reply_received','=',False)]</field>
+        </record>
+
+        <record id="ws_filter_stale_14" model="ir.filters">
+            <field name="name">Stale 14 Days</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('x_ws_outreach_days','&gt;=',14),('reply_received','=',False)]</field>
+        </record>
+
+        <record id="ws_filter_unassigned" model="ir.filters">
+            <field name="name">Unassigned</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('user_id','=',False),('date_closed','=',False)]</field>
+        </record>
+
+        <record id="ws_filter_bounced" model="ir.filters">
+            <field name="name">Bounced Email</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('last_inbound_classification','in',['bounce','delivery_failure'])]</field>
+        </record>
+
+        <record id="ws_filter_ooo" model="ir.filters">
+            <field name="name">OOO / Auto Reply</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('last_inbound_classification','in',['out_of_office','auto_reply'])]</field>
+        </record>
+
+        <record id="ws_filter_onboarding" model="ir.filters">
+            <field name="name">Onboarding</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('stage_id.name','=','ONBOARDING')]</field>
+        </record>
+
+        <record id="ws_filter_won_this_month" model="ir.filters">
+            <field name="name">Won This Month</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="domain">[('x_ws_won_this_month','=',True)]</field>
+        </record>
+
+    </data>
+</odoo>

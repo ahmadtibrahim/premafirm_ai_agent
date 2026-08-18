@@ -98,12 +98,19 @@ class CrmLead(models.Model):
 
     def _message_post_after_hook(self, message, msg_values):
         """Track outbound/outreach timestamps on every path (composer,
-        mail.mail, bulk, follow-up, AI service)."""
+        mail.mail, bulk, follow-up, AI service).
+
+        Outbound = an INTERNAL user's partner authored the message
+        (mail.mail sends post as ``email_outgoing`` — PHASE 17 fix;
+        customer partners have no user link, so ``user_ids`` is the
+        airtight discriminator, not ``partner_share``)."""
         res = super()._message_post_after_hook(message, msg_values)
         author = message.author_id
         now = fields.Datetime.now()
-        if (message.message_type == 'email'
-                and author and not author.partner_share):
+        internal = author and any(
+            not u.share for u in author.user_ids)
+        if (message.message_type in ('email', 'email_outgoing')
+                and internal):
             # An internal user's partner authored the email → outbound.
             # No parent/references ⇒ we initiated a new thread ⇒ outreach.
             vals = {'last_outbound_at': now}

@@ -102,9 +102,9 @@ class PremafirmMailWebhook(http.Controller):
             _logger.warning('PHASE 21: webhook rejected (bad secret) for '
                             '%s', provider)
             return {'status': 'unauthorized'}
-        # Odoo 18: request.get_json_data() is the jsonrequest replacement
-        raw = request.get_json_data() if hasattr(request, 'get_json_data') \
-            else getattr(request, 'jsonrequest', None)
+        # Odoo 18: request.get_json_data() replaced the old jsonrequest
+        # attribute (which does not exist in 18 — no fallback kept)
+        raw = request.get_json_data()
         if not raw:
             return {'status': 'error', 'error': 'empty payload'}
         payloads = raw if isinstance(raw, list) else [raw]

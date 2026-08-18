@@ -103,6 +103,12 @@ from . import inbound_routing
 # the stamping method it calls exists at model-build time)
 from . import mail_mail_provenance
 
+# PHASES 18-19 — tag cleanup (map + archive, never delete) and the
+# data-cleanup review vocabulary (duplicate email / RE:FWD facets,
+# queue reviewer dispositions)
+from . import crm_tag_cleanup
+from . import crm_data_cleanup
+
 # PHASES 6-7 — safe Fetch Now + inbound dedupe (imported LAST so its
 # message_route override runs first in the MRO)
 from . import fetchmail_safety

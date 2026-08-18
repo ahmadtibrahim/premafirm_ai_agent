@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- PHASE 19 — review facets (lead search bar) + Inbound Review Queue
+         search view with reviewer disposition states. Review-only: no
+         facet or button deletes or merges anything. -->
+
+    <!-- ── Review facets on the CRM search bar ───────────────────────── -->
+    <record id="view_crm_lead_cleanup_filters" model="ir.ui.view">
+        <field name="name">crm.lead.search.cleanup.filters</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="premafirm_ai_engine.view_crm_lead_workspace_filters"/>
+        <field name="arch" type="xml">
+            <xpath expr="//filter[@name='ws_won_this_month']" position="after">
+                <separator/>
+                <filter string="Duplicate Email" name="ws_cleanup_dup_email"
+                        domain="[('x_cleanup_dup_email','=',True)]"
+                        help="Review-only: this email exists on 2+ leads. Never auto-merged on email match alone."/>
+                <filter string="RE:/FWD: Subject" name="ws_cleanup_re_fwd"
+                        domain="[('x_cleanup_re_fwd','=',True)]"
+                        help="Review-only: reply/forward subject that became a lead (threading lost)."/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ── Inbound Review Queue: search view + review dispositions ───── -->
+    <record id="premafirm_inbound_queue_search" model="ir.ui.view">
+        <field name="name">premafirm.inbound.queue.search</field>
+        <field name="model">premafirm.inbound.queue</field>
+        <field name="arch" type="xml">
+            <search string="Inbound Review Queue">
+                <filter string="Needs Manual Review" name="q_needs_manual"
+                        domain="[('state','=','new')]"
+                        help="Unreviewed — the default inbox of the queue."/>
+                <filter string="Duplicate Reply" name="q_duplicate_reply"
+                        domain="[('state','=','duplicate_reply')]"/>
+                <filter string="Bounce Merged" name="q_bounce_merged"
+                        domain="[('state','=','bounce_merged')]"/>
+                <filter string="Reviewed" name="q_reviewed"
+                        domain="[('state','=','reviewed')]"/>
+                <separator/>
+                <group expand="0" string="Group By">
+                    <filter string="Classification" name="group_classification"
+                            context="{'group_by': 'classification'}"/>
+                    <filter string="State" name="group_state"
+                            context="{'group_by': 'state'}"/>
+                    <filter string="Mailbox" name="group_mailbox"
+                            context="{'group_by': 'mailbox'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Reviewer disposition buttons + hide the action buttons on the
+         new terminal states -->
+    <record id="view_premafirm_inbound_queue_form_cleanup" model="ir.ui.view">
+        <field name="name">premafirm.inbound.queue.form.cleanup</field>
+        <field name="model">premafirm.inbound.queue</field>
+        <field name="inherit_id" ref="premafirm_ai_engine.premafirm_inbound_queue_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//button[@name='action_mark_ooo']" position="before">
+                <button name="action_mark_duplicate_reply" type="object"
+                        string="Mark Duplicate Reply" class="btn-secondary"
+                        invisible="state in ('threaded', 'ignored', 'lead_created', 'reviewed', 'duplicate_reply', 'bounce_merged')"/>
+                <button name="action_mark_bounce_merged" type="object"
+                        string="Mark Bounce Merged" class="btn-secondary"
+                        invisible="state in ('threaded', 'ignored', 'lead_created', 'reviewed', 'duplicate_reply', 'bounce_merged')"/>
+            </xpath>
+            <xpath expr="//button[@name='action_thread_to_lead']" position="attributes">
+                <attribute name="invisible">state in ('threaded', 'ignored', 'lead_created', 'duplicate_reply', 'bounce_merged')</attribute>
+            </xpath>
+            <xpath expr="//button[@name='action_create_lead']" position="attributes">
+                <attribute name="invisible">state in ('threaded', 'ignored', 'lead_created', 'duplicate_reply', 'bounce_merged')</attribute>
+            </xpath>
+            <xpath expr="//button[@name='action_mark_reviewed']" position="attributes">
+                <attribute name="invisible">state in ('reviewed', 'threaded', 'ignored', 'lead_created', 'duplicate_reply', 'bounce_merged')</attribute>
+            </xpath>
+            <xpath expr="//button[@name='action_mark_ignored']" position="attributes">
+                <attribute name="invisible">state in ('threaded', 'ignored', 'lead_created', 'duplicate_reply', 'bounce_merged')</attribute>
+            </xpath>
+            <xpath expr="//button[@name='action_mark_bounce']" position="attributes">
+                <attribute name="invisible">state in ('threaded', 'ignored', 'lead_created', 'reviewed', 'duplicate_reply', 'bounce_merged')</attribute>
+            </xpath>
+            <xpath expr="//button[@name='action_mark_ooo']" position="attributes">
+                <attribute name="invisible">state in ('threaded', 'ignored', 'lead_created', 'reviewed', 'duplicate_reply', 'bounce_merged')</attribute>
+            </xpath>
+        </field>
+    </record>
+</odoo>

@@ -38,6 +38,8 @@ _INDUSTRY_TAGS = (
     'reefer', 'pharmaceutical', 'logistics', 'carrier', 'b2b',
     'cold storage', 'food & produce', 'direct shipper',
     'food freight', 'storage', 'refrigerated', 'warehouse',
+    # PHASE 18 merge created the canonical title-case tags
+    'food processing',
 )
 
 _BUCKETS = [

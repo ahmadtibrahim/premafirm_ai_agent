@@ -108,6 +108,7 @@ from . import mail_mail_provenance
 # queue reviewer dispositions)
 from . import crm_tag_cleanup
 from . import crm_data_cleanup
+from . import mail_provider_event
 
 # PHASES 6-7 — safe Fetch Now + inbound dedupe (imported LAST so its
 # message_route override runs first in the MRO)

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- PHASE 21 — webhook gate. EMPTY by default (UAT); production
+             MUST set a strong value. The endpoint rejects without a
+             matching X-Webhook-Secret header when this is set. -->
+        <record id="param_mail_webhook_secret" model="ir.config_parameter">
+            <field name="key">premafirm.mail.webhook_secret</field>
+            <field name="value"></field>
+        </record>
+
+        <!-- PHASE 23 — sender identity policy. 'owner' (default): each
+             outbound email goes from the salesperson's mailbox; 'team':
+             the segment mailbox; 'default': Odoo's default sender. -->
+        <record id="param_mail_sender_mode" model="ir.config_parameter">
+            <field name="key">premafirm.mail.sender_mode</field>
+            <field name="value">owner</field>
+        </record>
+        <record id="param_mail_sender_team" model="ir.config_parameter">
+            <field name="key">premafirm.mail.sender_team</field>
+            <field name="value">accounts@premafirm.com</field>
+        </record>
+        <record id="param_mail_sender_logistics" model="ir.config_parameter">
+            <field name="key">premafirm.mail.sender_logistics</field>
+            <field name="value">dispatch@logistics.premafirm.com</field>
+        </record>
+
+    </data>
+</odoo>

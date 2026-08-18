@@ -125,22 +125,113 @@ class PremafirmMailThreading(models.AbstractModel):
             and m.author_id and not m.author_id.user_ids
         ).sorted('id', reverse=True)[:1]
 
+    # ── PHASE 22 — reply recipient discipline ──────────────────────
+
+    @api.model
+    def _reply_recipients(self, thread, mode='reply'):
+        """Recipient set for replying on a CRM thread, computed from the
+        LAST INBOUND message — never guessed from the lead record.
+
+        'reply'     → the original sender only (Reply to Sender)
+        'reply_all' → the sender + every other partner on the last
+                      inbound (Odoo 18 keeps recipients as partner_ids —
+                      no to/cc headers on mail.message anymore). When the
+                      inbound carries no resolvable partners, reply_all
+                      DEGRADES to reply — never blind-copies strangers.
+
+        Returns (email_to, email_cc) — (False, False) when the thread
+        has no inbound to reply to."""
+        last = self._last_inbound_message(thread)
+        if not last:
+            return False, False
+        author = last.author_id
+        sender = (author.email_formatted if author and author.email
+                  else False) or (last.email_from or False)
+        if not sender:
+            return False, False
+        if mode != 'reply_all':
+            return sender, False
+        others = (last.partner_ids - author) if author else last.partner_ids
+        cc = ', '.join(p.email_formatted for p in others if p.email)
+        return sender, cc or False
+
+    # ── PHASE 23 — sender identity ─────────────────────────────────
+
+    @api.model
+    def _sender_identity(self, thread=None, user=None):
+        """From address for CRM outbound sends. Config-driven, never
+        hardcoded (ir.config_parameter):
+
+          'owner'   (default) — the salesperson's mailbox (lead owner or
+                    the current user), so each reply is attributable to
+                    the person who worked the lead,
+          'team'    — the segment mailbox (logistics vs INC/sales),
+          'default' — Odoo's own default sender (outgoing server).
+
+        Owner mode falls back to the team mailbox when the user has no
+        email. The Reply-To is unaffected: replies always return to the
+        thread mailbox (PHASE 2-3), whatever the From says."""
+        mode = self._icp('premafirm.mail.sender_mode', 'owner')
+        if mode == 'default':
+            return False
+        is_logistics = (thread is not None
+                        and getattr(thread, 'email_segment', False)
+                        == 'logistics')
+        if mode == 'team':
+            if is_logistics:
+                return self._icp('premafirm.mail.sender_logistics',
+                                 'dispatch@logistics.premafirm.com')
+            return self._icp('premafirm.mail.sender_team',
+                             'accounts@premafirm.com')
+        if thread is not None and thread._name == 'crm.lead' and thread.user_id:
+            user = user or thread.user_id
+        user = user or self.env.user
+        partner = user.partner_id
+        if partner and partner.email:
+            return partner.email_formatted
+        if is_logistics:
+            return self._icp('premafirm.mail.sender_logistics',
+                             'dispatch@logistics.premafirm.com')
+        return self._icp('premafirm.mail.sender_team',
+                         'accounts@premafirm.com')
+
     # ── Canonical mail values ──────────────────────────────────────
 
     @api.model
-    def build_mail_values(self, thread, subject, body, email_to,
+    def build_mail_values(self, thread, subject, body, email_to=None,
                           email_from=None, parent_id=None, reply_to=None,
-                          references=None, **extra):
+                          references=None, reply_mode=None, **extra):
         """mail.mail values for a CRM-thread outbound email, with the
         canonical Reply-To and (optional) References. The single place
-        header policy lives for new code paths."""
+        header policy lives for new code paths.
+
+        PHASE 22: ``reply_mode`` ('reply'/'reply_all') computes email_to
+        (+email_cc) from the LAST INBOUND message and sets parent_id to
+        it, when email_to is not given explicitly.
+        PHASE 23: ``email_from=None`` resolves the config-driven sender
+        identity; False keeps Odoo's default."""
+        if reply_mode and not email_to:
+            email_to, cc = self._reply_recipients(thread, reply_mode)
+            if cc:
+                extra['email_cc'] = cc
+            parent = self._last_inbound_message(thread)
+            if parent:
+                parent_id = parent.id
+        if not email_to:
+            raise ValueError(
+                'build_mail_values: no recipient (thread %s has nothing '
+                'to reply to?)' % (thread and thread.id or '-'))
         values = {
             'subject': subject,
             'body_html': body,
             'email_to': email_to,
         }
+        if email_from is None:
+            email_from = self._sender_identity(thread)
         if email_from:
             values['email_from'] = email_from
+        if parent_id:
+            values['parent_id'] = parent_id
         good_reply_to = reply_to or self._reply_to_address(thread)
         if good_reply_to:
             values['reply_to'] = good_reply_to

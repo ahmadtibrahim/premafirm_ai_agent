@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- PHASE 21 — provider event ledger (read-only for users; the
+         webhook writes via sudo). -->
+    <record id="premafirm_mail_provider_event_tree" model="ir.ui.view">
+        <field name="name">premafirm.mail.provider.event.tree</field>
+        <field name="model">premafirm.mail.provider.event</field>
+        <field name="arch" type="xml">
+            <list string="Email Provider Events">
+                <field name="received_at"/>
+                <field name="provider"/>
+                <field name="event_type"/>
+                <field name="provider_event_id"/>
+                <field name="provider_message_id" optional="hide"/>
+                <field name="state"/>
+                <field name="lead_id" optional="hide"/>
+                <field name="queue_id" optional="hide"/>
+                <field name="mail_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="premafirm_mail_provider_event_search" model="ir.ui.view">
+        <field name="name">premafirm.mail.provider.event.search</field>
+        <field name="model">premafirm.mail.provider.event</field>
+        <field name="arch" type="xml">
+            <search string="Email Provider Events">
+                <filter name="ev_failed" string="Bounces / Failures"
+                        domain="[('event_type','in',['bounced','failed'])]"/>
+                <filter name="ev_complaints" string="Complaints"
+                        domain="[('event_type','=','complained')]"/>
+                <filter name="ev_unresolved" string="Unresolved"
+                        domain="[('state','=','unresolved')]"/>
+                <group expand="0" string="Group By">
+                    <filter name="group_state" string="State"
+                            context="{'group_by': 'state'}"/>
+                    <filter name="group_type" string="Event Type"
+                            context="{'group_by': 'event_type'}"/>
+                    <filter name="group_provider" string="Provider"
+                            context="{'group_by': 'provider'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="premafirm_mail_provider_event_action" model="ir.actions.act_window">
+        <field name="name">Email Provider Events</field>
+        <field name="res_model">premafirm.mail.provider.event</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" ref="premafirm_mail_provider_event_tree"/>
+        <field name="search_view_id" ref="premafirm_mail_provider_event_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No provider webhook events recorded yet.
+            </p>
+            <p>
+                Resend/SES webhook deliveries land here, deduplicated by
+                event id and correlated to the CRM records. Bounces and
+                complaints feed the suppression + bulk-queue state; the
+                rest is an audit trail.
+            </p>
+        </field>
+    </record>
+
+    <menuitem id="menu_premafirm_mail_provider_events"
+              name="Email Provider Events"
+              parent="crm.crm_menu_config"
+              action="premafirm_mail_provider_event_action"
+              sequence="60"/>
+
+</odoo>

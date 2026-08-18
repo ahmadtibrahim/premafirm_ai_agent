@@ -50,6 +50,7 @@
         "views/ifta_fuel_log_views.xml",
         "views/crm_lead_ml_views.xml",
         "views/crm_workspace_views.xml",
+        "views/inbound_queue_views.xml",
         "views/crm_data_cleanup_views.xml",
         "views/provider_event_views.xml",
         "views/crm_salesperf_views.xml",
@@ -86,7 +87,6 @@
         "data/attendance_summary_cron.xml",
         "views/attendance_summary_views.xml",
         "views/staff_coaching_views.xml",
-        "views/inbound_queue_views.xml",
         "views/fetchmail_audit_views.xml",
     ],
     "assets": {

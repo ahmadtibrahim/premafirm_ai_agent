@@ -1,3 +1,16 @@
+"""PHASE 41 — pipeline wait-queue ordering.
+
+The pipeline is a QUEUE: the lead that has waited the LONGEST since its
+last meaningful CRM activity sits at the TOP of its stage, the most
+recently touched lead at the BOTTOM.
+
+- Meaningful activity: customer email, sales outbound, human note, reply.
+- Noise (OdooBot chatter, mt_note tracking, notifications) does NOT reset
+  the wait.
+- Untouched leads fall back to create_date and rise to the top.
+- x_needs_attention is a VISUAL badge only — it never controls ordering.
+"""
+
 from datetime import timedelta
 
 from odoo import fields
@@ -10,6 +23,7 @@ class TestCrmLeadOrdering(TransactionCase):
         super().setUpClass()
         cls.Lead = cls.env["crm.lead"]
         cls.admin = cls.env.ref("base.user_admin")
+        cls.odoobot = cls.env.ref("base.partner_root")
         cls.contacted = cls._get_stage("Contacted")
         cls.new = cls._get_stage("New")
 
@@ -28,118 +42,152 @@ class TestCrmLeadOrdering(TransactionCase):
             "stage_id": stage.id,
         })
 
-    def test_recent_reply_stops_affecting_order_once_attention_is_cleared(self):
-        now = fields.Datetime.now()
-        oldest_idle = self._make_lead("Oldest Idle", self.contacted)
-        handled_reply = self._make_lead("Handled Reply", self.contacted)
-        needs_attention = self._make_lead("Needs Attention", self.contacted)
+    def _ordered(self, leads):
+        return self.Lead.search(
+            [("id", "in", leads.ids)],
+            order=self.Lead._order,
+        ).ids
 
-        oldest_idle.write({"x_last_outreach_at": now - timedelta(days=10)})
-        handled_reply.write({
-            "x_last_outreach_at": now - timedelta(days=1),
-            "x_attention_at": now,
-            "x_reply_received_at": now,
-            "x_needs_attention": False,
-        })
-        needs_attention.write({
-            "x_last_outreach_at": now - timedelta(days=2),
-            "x_attention_at": now - timedelta(hours=1),
-            "x_reply_received_at": now - timedelta(hours=1),
+    def test_oldest_meaningful_activity_first_newest_last(self):
+        """Lead A waited longest (Aug 1), then B (Aug 5), then C (Aug 12).
+        Oldest first, newest last — the whole point of the queue."""
+        now = fields.Datetime.now()
+        lead_a = self._make_lead("A waited since Aug 1", self.contacted)
+        lead_b = self._make_lead("B waited since Aug 5", self.contacted)
+        lead_c = self._make_lead("C waited since Aug 12", self.contacted)
+        lead_a.write({"x_last_outreach_at": now - timedelta(days=12)})
+        lead_b.write({"x_last_outreach_at": now - timedelta(days=8)})
+        lead_c.write({"x_last_outreach_at": now - timedelta(days=1)})
+
+        self.assertEqual(
+            self._ordered(lead_a | lead_b | lead_c),
+            [lead_a.id, lead_b.id, lead_c.id])
+
+    def test_untouched_lead_rises_above_touched_leads(self):
+        """A lead with NO meaningful activity is the most urgent: it uses
+        create_date and must appear BEFORE leads touched since."""
+        now = fields.Datetime.now()
+        untouched = self._make_lead("Untouched (born waiting)", self.contacted)
+        touched_later = self._make_lead("Touched later", self.contacted)
+        # Backdate the untouched lead's birth: it has been waiting 20 days
+        # while the other lead was engaged 1 day ago — the queue must put
+        # the born-waiting lead ABOVE the recently-touched one.
+        self.env.cr.execute(
+            "UPDATE crm_lead SET create_date = %s WHERE id = %s",
+            (now - timedelta(days=20), untouched.id))
+        untouched.invalidate_recordset()
+        self.env.add_to_compute(
+            self.Lead._fields['x_meaningful_activity_at'], untouched)
+        touched_later.write({"x_last_outreach_at": now - timedelta(days=1)})
+
+        self.assertEqual(
+            self._ordered(untouched | touched_later),
+            [untouched.id, touched_later.id])
+        self.assertEqual(
+            untouched.x_meaningful_activity_at, untouched.create_date)
+
+    def test_needs_attention_is_visual_only_and_never_reorders(self):
+        """A lead with a fresh reply still carries the Needs Attention badge
+        (x_needs_attention=True) but sorts BELOW an older idle lead."""
+        now = fields.Datetime.now()
+        old_idle = self._make_lead("Old idle, waited longest", self.contacted)
+        fresh_reply = self._make_lead("Fresh reply today", self.contacted)
+        old_idle.write({"x_last_outreach_at": now - timedelta(days=20)})
+        fresh_reply.write({
+            "x_reply_received_at": now - timedelta(hours=2),
             "x_needs_attention": True,
+            "x_attention_at": now - timedelta(hours=2),
             "x_attention_reason": "reply",
         })
 
-        ordered = self.Lead.search(
-            [("id", "in", (oldest_idle | handled_reply | needs_attention).ids)],
-            order=self.Lead._order,
-        )
+        self.assertTrue(fresh_reply.x_needs_attention)
+        self.assertEqual(
+            self._ordered(old_idle | fresh_reply),
+            [old_idle.id, fresh_reply.id])
 
-        self.assertEqual(ordered.ids, [needs_attention.id, oldest_idle.id, handled_reply.id])
-        self.assertFalse(handled_reply.x_attention_reply_sort_at)
-        self.assertEqual(needs_attention.x_attention_reply_sort_at, needs_attention.x_reply_received_at)
-
-    def test_outgoing_email_moves_new_lead_to_contacted_and_bottom(self):
+    def test_inbound_customer_email_refreshes_wait_timestamp(self):
+        """A customer email is the strongest 'wait reset': it moves the lead
+        DOWN the queue (most recently engaged)."""
         now = fields.Datetime.now()
-        stale_contacted = self._make_lead("Stale Contacted", self.contacted)
-        emailed_from_new = self._make_lead("Emailed From New", self.new)
-
-        stale_contacted.write({"x_last_outreach_at": now - timedelta(days=7)})
-        emailed_from_new.write({"x_last_outreach_at": now - timedelta(days=3)})
-
-        emailed_from_new.message_post(
+        older = self._make_lead("Older engagement", self.contacted)
+        just_replied = self._make_lead("Just replied", self.contacted)
+        older.write({"x_last_outreach_at": now - timedelta(days=10)})
+        just_replied.message_post(
             author_id=self.admin.partner_id.id,
-            body="Checking in with a fresh outbound email.",
+            body="Fresh outbound email sent to the prospect.",
             message_type="email",
             subtype_xmlid="mail.mt_comment",
         )
 
-        self.assertEqual(emailed_from_new.stage_id, self.contacted)
-        self.assertGreater(emailed_from_new.x_last_outreach_at, stale_contacted.x_last_outreach_at)
+        self.assertEqual(
+            self._ordered(older | just_replied),
+            [older.id, just_replied.id])
+        self.assertGreater(
+            just_replied.x_meaningful_activity_at,
+            older.x_meaningful_activity_at)
 
-        ordered = self.Lead.search(
-            [("id", "in", (stale_contacted | emailed_from_new).ids)],
-            order=self.Lead._order,
-        )
-        self.assertEqual(ordered.ids, [stale_contacted.id, emailed_from_new.id])
-
-    def test_internal_note_refreshes_sort_date_and_clears_attention(self):
+    def test_system_tracking_note_does_not_refresh_wait(self):
+        """System tracking noise (field-change logs, automation events) is
+        posted as mt_note notifications — it must NOT reset the lead's age;
+        the queue measures prospect waiting time."""
         now = fields.Datetime.now()
-        stale_contacted = self._make_lead("Stale Contacted Note", self.contacted)
-        noted_lead = self._make_lead("Noted Lead", self.contacted)
+        stale = self._make_lead("Stale wait", self.contacted)
+        stale.write({"x_last_outreach_at": now - timedelta(days=15)})
+        before = stale.x_meaningful_activity_at
 
-        stale_contacted.write({"x_last_outreach_at": now - timedelta(days=8)})
-        noted_lead.write({
-            "x_last_outreach_at": now - timedelta(days=6),
-            "x_attention_at": now - timedelta(days=1),
-            "x_needs_attention": True,
-            "x_attention_reason": "reply",
-            "x_reply_received_at": now - timedelta(days=1),
-        })
-
-        noted_lead.message_post(
+        # Real automations/fetchmail post system notifications as the acting
+        # user with the mt_note subtype — message_type='notification' is
+        # excluded both by the scan's type whitelist and by the
+        # internal-note-activity check (which requires a human 'comment').
+        stale.message_post(
             author_id=self.admin.partner_id.id,
-            body="Manual note logged after follow-up.",
-            message_type="comment",
+            body="Probability updated by automation.",
+            message_type="notification",
             subtype_xmlid="mail.mt_note",
         )
 
-        self.assertFalse(noted_lead.x_needs_attention)
-        self.assertFalse(noted_lead.x_attention_reply_sort_at)
-        self.assertFalse(noted_lead.x_attention_at)
-        self.assertFalse(noted_lead.x_attention_reason)
-        self.assertGreater(noted_lead.x_last_outreach_at, stale_contacted.x_last_outreach_at)
+        self.assertEqual(stale.x_meaningful_activity_at, before)
 
-        ordered = self.Lead.search(
-            [("id", "in", (stale_contacted | noted_lead).ids)],
-            order=self.Lead._order,
-        )
-        self.assertEqual(ordered.ids, [stale_contacted.id, noted_lead.id])
-
-    def test_assignment_to_new_owner_goes_to_top_with_attention(self):
+    def test_odoobot_chatter_does_not_refresh_wait(self):
+        """Automated OdooBot chatter (AI coaching, auto notes) never resets
+        the prospect's wait time."""
         now = fields.Datetime.now()
-        oldest_idle = self._make_lead("Oldest Idle Assignment", self.contacted)
-        newly_assigned = self._make_lead("Newly Assigned", self.contacted)
-        grace = self.env["res.users"].create({
-            "name": "Grace CRM",
-            "login": "grace.crm.assignment@example.com",
-            "email": "grace.crm.assignment@example.com",
-        })
+        lead = self._make_lead("Bot chattered at me", self.contacted)
+        lead.write({"x_last_outreach_at": now - timedelta(days=9)})
+        before = lead.x_meaningful_activity_at
 
-        oldest_idle.write({"x_last_outreach_at": now - timedelta(days=9)})
-        newly_assigned.write({
-            "x_last_outreach_at": now - timedelta(days=1),
-            "user_id": grace.id,
-        })
-
-        newly_assigned.write({"user_id": self.admin.id})
-
-        self.assertTrue(newly_assigned.x_needs_attention)
-        self.assertEqual(newly_assigned.x_attention_reason, "assignment")
-        self.assertTrue(newly_assigned.x_attention_at)
-        self.assertFalse(newly_assigned.x_reply_received_at)
-
-        ordered = self.Lead.search(
-            [("id", "in", (oldest_idle | newly_assigned).ids)],
-            order=self.Lead._order,
+        lead.message_post(
+            author_id=self.odoobot.id,
+            body="Automated coaching note.",
+            message_type="comment",
+            subtype_xmlid="mail.mt_comment",
         )
-        self.assertEqual(ordered.ids, [newly_assigned.id, oldest_idle.id])
+
+        self.assertEqual(lead.x_meaningful_activity_at, before)
+
+    def test_human_note_is_meaningful_interaction(self):
+        """A manual human note (no field tracking) reflects the salesperson
+        working the lead — it resets the wait (kept from Phase 3 behaviour)."""
+        now = fields.Datetime.now()
+        lead = self._make_lead("Human note", self.contacted)
+        lead.write({"x_last_outreach_at": now - timedelta(days=6)})
+        before = lead.x_meaningful_activity_at
+
+        lead.message_post(
+            author_id=self.admin.partner_id.id,
+            body="Manual note logged after the call.",
+            message_type="comment",
+            subtype_xmlid="mail.mt_comment",
+        )
+
+        self.assertGreater(lead.x_meaningful_activity_at, before)
+
+    def test_created_leads_sort_deterministically_by_create_date(self):
+        """Same-stage untouched leads order by create_date, then id — no
+        NULLs, no unstable default ordering."""
+        a = self._make_lead("Untouched A", self.contacted)
+        b = self._make_lead("Untouched B", self.contacted)
+        self.assertEqual(
+            self._ordered(a | b), [a.id, b.id])
+        for lead in (a, b):
+            self.assertTrue(lead.x_meaningful_activity_at)

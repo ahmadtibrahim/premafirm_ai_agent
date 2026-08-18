@@ -82,6 +82,69 @@ class CrmLeadMLHooks(models.Model):
         index=True,
         help='Oldest leads at top: x_last_outreach_at when set, create_date as fallback. Never uses epoch so old never-contacted leads sort ahead of new ones.',
     )
+    x_meaningful_activity_at = fields.Datetime(
+        string='Last Meaningful CRM Activity',
+        compute='_compute_meaningful_activity_at',
+        compute_sudo=True,
+        store=True,
+        index=True,
+        help='PHASE 41: last meaningful CRM interaction for the wait-queue '
+             'sort — customer email, sales outbound, human note, or call. '
+             'Untouched leads (no meaningful activity) fall back to '
+             'create_date so they rise to the TOP of their stage. Excludes '
+             'OdooBot/system chatter, mt_note tracking noise, and '
+             'technical notifications.',
+    )
+
+    @api.depends('x_last_outreach_at', 'x_reply_received_at', 'create_date')
+    def _compute_meaningful_activity_at(self):
+        """Oldest-waiting-first sort timestamp.
+
+        Queue semantics: HOW LONG HAS THIS PROSPECT BEEN WAITING FOR HUMAN
+        SALES ATTENTION?  = max(last meaningful thread message date,
+        x_reply_received_at, x_last_outreach_at); untouched leads use their
+        create_date (born waiting → top of the stage).  System noise is
+        excluded at the message level: mt_note tracking chatter, OdooBot
+        (partner root) messages, notifications.  Deterministic: the stored
+        value is never NULL, so SQL NULL ordering is never in play.
+        """
+        if not self:
+            return
+        now = _dt.now()
+        Note = self.env.ref('mail.mt_note', raise_if_not_found=False)
+        bot_partner_id = self.env.ref('base.partner_root',
+                                      raise_if_not_found=False).id if (
+            self.env.ref('base.partner_root', raise_if_not_found=False)
+        ) else False
+        MSG = self.env['mail.message'].sudo()
+        msg_max = {}
+        try:
+            # One grouped query for the whole batch; message_type email
+            # (inbound), email_outgoing (sales outbound) and comment
+            # (human chatter) are meaningful; mt_note + OdooBot are not.
+            domain = [('model', '=', 'crm.lead'),
+                      ('res_id', 'in', self.ids),
+                      ('message_type', 'in',
+                       ('email', 'email_outgoing', 'comment'))]
+            if Note:
+                domain.append(('subtype_id', '!=', Note.id))
+            if bot_partner_id:
+                domain.append(('author_id', '!=', bot_partner_id))
+            for d in MSG.search_read(domain, ['res_id', 'date'],
+                                     order='date desc'):
+                rid = d['res_id']
+                if rid not in msg_max or (d['date'] or now) > msg_max[rid]:
+                    msg_max[rid] = d['date'] or now
+        except Exception as exc:
+            # Sorting must never break a lead save; degrade to fields only.
+            _logger.warning('meaningful-activity scan failed: %s', exc)
+        for lead in self:
+            candidates = [msg_max.get(lead.id),
+                          lead.x_reply_received_at,
+                          lead.x_last_outreach_at]
+            good = [c for c in candidates if c]
+            lead.x_meaningful_activity_at = max(good) if good else (
+                lead.create_date or now)
 
     @api.depends('x_last_outreach_at', 'create_date')
     def _compute_kanban_sort_date(self):
@@ -93,9 +156,11 @@ class CrmLeadMLHooks(models.Model):
         for lead in self:
             lead.x_attention_reply_sort_at = lead.x_attention_at if lead.x_needs_attention else False
 
-    # Needs-attention leads (customer replied) always bubble to the top, most
-    # recent reply first; everything else falls back to oldest-outreach-first.
-    _order = 'x_needs_attention desc, x_attention_reply_sort_at desc, x_kanban_sort_date asc, id asc'
+    # PHASE 41: the pipeline is a WAIT QUEUE — oldest meaningful activity
+    # first, newest last. Needs Attention is a VISUAL badge only (rendered
+    # on the card), it no longer controls ordering. Untouched leads carry
+    # create_date in x_meaningful_activity_at and rise to the top.
+    _order = 'x_meaningful_activity_at asc, create_date asc, id asc'
 
     def read(self, fields=None, load='_classic_read'):
         # Clear the flashing "needs attention" flag when the assigned

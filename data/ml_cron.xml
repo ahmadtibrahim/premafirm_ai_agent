@@ -15,7 +15,7 @@
     <!-- Nightly: incremental ingest of new Odoo records into knowledge base -->
     <record id="cron_ml_incremental_ingest" model="ir.cron">
         <field name="name">ML: Nightly Incremental Ingest</field>
-        <field name="model_id" ref="premafirm_ml.model_premafirm_ml_ingestion"/>
+        <field name="model_id" ref="model_premafirm_ml_ingestion"/>
         <field name="state">code</field>
         <field name="code">model.action_cron_incremental_ingest()</field>
         <field name="interval_number">1</field>

@@ -47,14 +47,16 @@
         </field>
     </record>
 
-    <!-- Opportunities kanban (main desktop pipeline): needs-attention leads first, then oldest-activity-first -->
+    <!-- Opportunities kanban (main desktop pipeline): PHASE 41 — wait-queue
+         order, oldest meaningful activity first, newest last. Needs Attention
+         stays a visual badge only (rendered in the card template below). -->
     <record id="view_crm_case_kanban_order" model="ir.ui.view">
         <field name="name">crm.lead.kanban.opportunities.order</field>
         <field name="model">crm.lead</field>
         <field name="inherit_id" ref="crm.crm_case_kanban_view_leads"/>
         <field name="arch" type="xml">
             <xpath expr="//kanban" position="attributes">
-                <attribute name="default_order">x_needs_attention desc, x_attention_reply_sort_at desc, x_kanban_sort_date asc, id asc</attribute>
+                <attribute name="default_order">x_meaningful_activity_at asc, create_date asc, id asc</attribute>
             </xpath>
         </field>
     </record>
@@ -75,6 +77,7 @@
                 <field name="x_reply_received_at"/>
                 <field name="x_attention_reply_sort_at"/>
                 <field name="x_kanban_sort_date"/>
+                <field name="x_meaningful_activity_at"/>
             </xpath>
             <!-- Pulsing red badge before the card footer -->
             <xpath expr="//t[@t-name='card']/footer" position="before">
@@ -95,13 +98,14 @@
         <field name="inherit_id" ref="crm.view_crm_lead_kanban"/>
         <field name="arch" type="xml">
             <xpath expr="//kanban" position="attributes">
-                <attribute name="default_order">x_needs_attention desc, x_attention_reply_sort_at desc, x_kanban_sort_date asc, id asc</attribute>
+                <attribute name="default_order">x_meaningful_activity_at asc, create_date asc, id asc</attribute>
             </xpath>
             <xpath expr="//templates" position="before">
                 <field name="x_needs_attention"/>
                 <field name="x_reply_received_at"/>
                 <field name="x_attention_reply_sort_at"/>
                 <field name="x_kanban_sort_date"/>
+                <field name="x_meaningful_activity_at"/>
             </xpath>
             <xpath expr="//t[@t-name='card']/footer" position="before">
                 <t t-if="record.x_needs_attention.raw_value">
@@ -113,14 +117,14 @@
         </field>
     </record>
 
-    <!-- Leads list view: sort by oldest outreach first (untouched leads rise to top) -->
+    <!-- Leads list view: same wait-queue order (oldest meaningful activity first) -->
     <record id="view_crm_leads_list_outreach_order" model="ir.ui.view">
         <field name="name">crm.lead.list.outreach.order</field>
         <field name="model">crm.lead</field>
         <field name="inherit_id" ref="crm.crm_case_tree_view_oppor"/>
         <field name="arch" type="xml">
             <xpath expr="//list" position="attributes">
-                <attribute name="default_order">x_kanban_sort_date asc</attribute>
+                <attribute name="default_order">x_meaningful_activity_at asc, create_date asc, id asc</attribute>
             </xpath>
         </field>
     </record>

@@ -367,6 +367,10 @@ class CrmLeadAIAssistant(models.Model):
                     self._auto_log_reply(result)
             elif self._is_internal_note_activity(result):
                 self._mark_outbound_activity(update_stage=False)
+            # PHASE 41 — any new thread message can move the wait-queue
+            # timestamp; the compute itself filters system noise.
+            self.env.add_to_compute(
+                self._fields['x_meaningful_activity_at'], self)
         except Exception as exc:
             _logger.debug('message_post tracking error lead %s: %s', self.id, exc)
         return result

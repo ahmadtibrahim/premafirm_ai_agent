@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- PHASES 6-7 — fetchmail run audit + processed-message claims.
+         Read-only visibility for admins under Technical; the dedupe and
+         locking logic lives in models/fetchmail_safety.py. -->
+
+    <record id="view_fetchmail_run_list" model="ir.ui.view">
+        <field name="name">premafirm.fetchmail.run.list</field>
+        <field name="model">premafirm.fetchmail.run</field>
+        <field name="arch" type="xml">
+            <list string="Fetch Mail Runs (audit)">
+                <field name="create_date"/>
+                <field name="source" widget="badge"
+                       decoration-info="source == 'cron'"
+                       decoration-primary="source == 'manual'"/>
+                <field name="server_id"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'done'"
+                       decoration-warning="state == 'running'"
+                       decoration-danger="state == 'failed'"/>
+                <field name="new_count"/>
+                <field name="failed_count"/>
+                <field name="write_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_fetchmail_run_search" model="ir.ui.view">
+        <field name="name">premafirm.fetchmail.run.search</field>
+        <field name="model">premafirm.fetchmail.run</field>
+        <field name="arch" type="xml">
+            <search>
+                <filter string="Manual" name="manual" domain="[('source','=','manual')]"/>
+                <filter string="Cron" name="cron" domain="[('source','=','cron')]"/>
+                <group expand="0" string="Group By">
+                    <filter string="Server" name="server" context="{'group_by': 'server_id'}"/>
+                    <filter string="Source" name="group_source" context="{'group_by': 'source'}"/>
+                    <filter string="State" name="state" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_fetchmail_run_form" model="ir.ui.view">
+        <field name="name">premafirm.fetchmail.run.form</field>
+        <field name="model">premafirm.fetchmail.run</field>
+        <field name="arch" type="xml">
+            <form string="Fetch Mail Run">
+                <group>
+                    <group>
+                        <field name="server_id"/>
+                        <field name="source"/>
+                    </group>
+                    <group>
+                        <field name="state"/>
+                        <field name="new_count"/>
+                        <field name="failed_count"/>
+                    </group>
+                    <group>
+                        <field name="create_date"/>
+                        <field name="write_date"/>
+                    </group>
+                </group>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_fetchmail_message_list" model="ir.ui.view">
+        <field name="name">premafirm.fetchmail.message.list</field>
+        <field name="model">premafirm.fetchmail.message</field>
+        <field name="arch" type="xml">
+            <list string="Processed Inbound Messages (dedupe claims)">
+                <field name="processed_at"/>
+                <field name="server_id"/>
+                <field name="uidvalidity"/>
+                <field name="uid"/>
+                <field name="message_id"/>
+                <field name="fingerprint"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_fetchmail_run" model="ir.actions.act_window">
+        <field name="name">Fetch Mail Runs</field>
+        <field name="res_model">premafirm.fetchmail.run</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" ref="view_fetchmail_run_list"/>
+        <field name="search_view_id" ref="view_fetchmail_run_search"/>
+    </record>
+
+    <record id="action_fetchmail_message" model="ir.actions.act_window">
+        <field name="name">Processed Inbound Messages</field>
+        <field name="res_model">premafirm.fetchmail.message</field>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="view_fetchmail_message_list"/>
+    </record>
+
+    <menuitem id="menu_fetchmail_audit" name="Fetch Mail Audit"
+              parent="base.menu_custom" sequence="90"
+              groups="base.group_no_one"/>
+    <menuitem id="menu_fetchmail_run" name="Run History"
+              parent="menu_fetchmail_audit"
+              action="action_fetchmail_run"/>
+    <menuitem id="menu_fetchmail_message" name="Processed Messages"
+              parent="menu_fetchmail_audit"
+              action="action_fetchmail_message"/>
+</odoo>

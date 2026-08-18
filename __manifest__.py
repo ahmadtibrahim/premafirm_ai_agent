@@ -1,7 +1,7 @@
 {
     "name": "PremaFirm AI Engine",
-    "version": "18.0.6.29.0",
-    "summary": "CRM Outreach, Snov.io Contacts, Geotab ELD, Invoicing for PremaFirm Logistics",
+    "version": "18.0.7.0.0",
+    "summary": "CRM Automation, Geotab ELD, Invoicing for PremaFirm Logistics",
     "author": "PremaFirm",
     "license": "LGPL-3",
     "depends": [
@@ -44,6 +44,7 @@
         "data/crm_data_cleanup_data.xml",
         "data/mail_provider_event_data.xml",
         "data/crm_call_sync_cron.xml",
+        "views/crm_view.xml",
         "views/ml_knowledge_views.xml",
         "views/ml_draft_views.xml",
         "views/ml_ingestion_views.xml",
@@ -60,7 +61,6 @@
         "views/sale_order_ml_views.xml",
         "views/documents_ml_views.xml",
         "views/crm_bulk_email_views.xml",
-        "views/crm_view.xml",
         "views/sale_order_view.xml",
         "views/rate_estimator_view.xml",
         "views/ai_review_wizard_views.xml",

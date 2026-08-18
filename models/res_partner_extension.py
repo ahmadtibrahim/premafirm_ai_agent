@@ -286,7 +286,8 @@ class ResPartner(models.Model):
 
     # ------------------------------------------------------------------
     # Partner autocomplete — replace IAP (credits) with Clearbit free
-    # suggest API + Snov.io company enrichment
+    # suggest API (Snov.io enrichment removed 2026-08-18 — subscription
+    # cancelled)
     # ------------------------------------------------------------------
 
     @api.model
@@ -294,7 +295,7 @@ class ResPartner(models.Model):
         """Use Clearbit free suggest API instead of IAP DNB (zero credits).
 
         Sets duns = domain on each suggestion so our enrich_by_duns override
-        routes to Snov.io rather than back to IAP.
+        pre-fills the new-partner form without any paid API.
         """
         query = (query or "").strip()
         if len(query) < 2:
@@ -327,9 +328,10 @@ class ResPartner(models.Model):
 
     @api.model
     def enrich_by_duns(self, duns, timeout=15):
-        """If duns is a domain (set by our autocomplete_by_name), call Snov.io.
-        If it's a real DUNS number, skip to avoid consuming IAP credits.
-        Always returns at minimum {name, website} so the new-partner form is fully pre-filled.
+        """If duns is a domain (set by our autocomplete_by_name), pre-fill the
+        new-partner form from Clearbit + domain. If it's a real DUNS number,
+        skip to avoid consuming IAP credits. Always returns at minimum
+        {name, website}.
         """
         if not duns or not isinstance(duns, str):
             return {}
@@ -344,24 +346,11 @@ class ResPartner(models.Model):
             _logger.info("enrich_by_duns: skipping real DUNS %r (no IAP credits)", duns)
             return {}
 
-        from ..services.snov_service import SnovService
-        company = {}
-        try:
-            company = SnovService(self.env).get_company_info(duns) or {}
-        except ValueError as e:
-            _logger.warning("Snov.io company info failed for %s: %s", duns, e)
-
-        if company:
-            vals = self._snov_company_to_partner_vals(company)
-            # Ensure name is always present — fall back to Clearbit/domain if Snov omitted it
-            if not vals.get("name"):
-                vals["name"] = self._clearbit_name_for_domain(duns) or _domain_to_name(duns)
-            return vals
-
-        # Snov.io returned nothing — build minimum viable result from Clearbit + domain
+        # Snov.io enrichment removed 2026-08-18 (subscription cancelled) —
+        # build the minimum viable result from Clearbit + domain.
         name = self._clearbit_name_for_domain(duns) or _domain_to_name(duns)
         website = _normalize_url(duns)
-        _logger.info("enrich_by_duns: Snov.io empty for %s, using Clearbit name=%r", duns, name)
+        _logger.info("enrich_by_duns: pre-filling from Clearbit name=%r", name)
         return {"name": name, "website": website}
 
     def _clearbit_name_for_domain(self, domain):
@@ -455,54 +444,3 @@ class ResPartner(models.Model):
         partner = self.create(vals)
         return {"id": partner.id, "display_name": partner.display_name}
 
-    def _snov_company_to_partner_vals(self, company):
-        """Convert Snov.io company dict to Odoo partner field format expected by JS autocomplete."""
-        vals = {}
-        if company.get("name"):
-            vals["name"] = company["name"]
-
-        raw_website = company.get("website") or ""
-        if raw_website:
-            vals["website"] = _normalize_url(raw_website)
-
-        if company.get("phone"):
-            vals["phone"] = company["phone"]
-
-        # Internal note / about text
-        if company.get("description"):
-            vals["comment"] = company["description"]
-
-        country = None
-        cc = (company.get("country") or "").strip().upper()
-        if cc:
-            country = self.env["res.country"].search([("code", "=", cc)], limit=1)
-            if country:
-                vals["country_id"] = {"id": country.id, "display_name": country.display_name}
-
-        locality = (company.get("locality") or "").strip()
-        if locality:
-            parts = [p.strip() for p in locality.split(",")]
-            if parts[0]:
-                vals["city"] = parts[0]
-            if country and len(parts) > 1:
-                s_hint = parts[1].strip()
-                state = (
-                    self.env["res.country.state"].search(
-                        [("name", "ilike", s_hint), ("country_id", "=", country.id)], limit=1
-                    ) or self.env["res.country.state"].search(
-                        [("code", "=ilike", s_hint), ("country_id", "=", country.id)], limit=1
-                    )
-                )
-                if state:
-                    vals["state_id"] = {"id": state.id, "display_name": state.display_name}
-
-        # Map Snov.io industry string to Odoo res.partner.industry
-        snov_industry = (company.get("industry") or "").strip()
-        if snov_industry:
-            industry = self.env["res.partner.industry"].search(
-                [("name", "ilike", snov_industry)], limit=1
-            )
-            if industry:
-                vals["industry_id"] = {"id": industry.id, "display_name": industry.display_name}
-
-        return vals

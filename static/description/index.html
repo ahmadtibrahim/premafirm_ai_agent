@@ -59,10 +59,6 @@
         <p>Daily cron detects no-reply leads. After 3 business days: value-add follow-up draft. After 5 more: urgency follow-up. Cold for 60+ days: reactivation draft. All posted as notes for review.</p>
     </div>
     <div class="feature-card">
-        <h4>🔍 Snov.io Contact Escalation</h4>
-        <p>When a contact doesn't reply, finds next best contact at the same company via Snov.io. Title-priority scoring (VP/Director → Manager → Staff). Creates Suggestion lead for Ahmad to approve.</p>
-    </div>
-    <div class="feature-card">
         <h4>🏆 Won/Lost Debrief + Checklist</h4>
         <p>AI-generated debrief posted to company notes on Won or Lost. Won triggers carrier onboarding checklist automatically (carrier packet, insurance, portal, first load, rate con).</p>
     </div>
@@ -112,7 +108,6 @@
 <table>
     <tr><th>Service</th><th>Purpose</th><th>System Parameter</th></tr>
     <tr><td>OpenAI / Claude</td><td>AI reasoning, drafting, extraction</td><td><code>openai.api_key</code></td></tr>
-    <tr><td>Snov.io</td><td>Contact discovery, email verification</td><td><code>snov.client_id</code> + <code>snov.client_secret</code></td></tr>
     <tr><td>MapBox</td><td>Geocoding, truck-profile routing</td><td><code>mapbox.access_token</code></td></tr>
     <tr><td>Google Places</td><td>Address autocomplete</td><td><code>google_maps_api_key</code></td></tr>
     <tr><td>Geotab</td><td>ELD telematics, driver logs, fuel data</td><td>Settings → Geotab / ELD</td></tr>
@@ -131,7 +126,6 @@
     <tr><td>ML: Purge Response Cache</td><td>Weekly</td><td><span class="badge badge-green">Active</span></td></tr>
     <tr><td>Knowledge Center: Index Documents</td><td>Every 1 hour</td><td><span class="badge badge-green">Active</span></td></tr>
     <tr><td>Sync Completed Jobs &amp; PODs</td><td>Every 4 hours</td><td><span class="badge badge-green">Active</span></td></tr>
-    <tr><td>CRM: Contact Rotation Check</td><td>Daily</td><td><span class="badge badge-orange">Off — enable manually</span></td></tr>
     <tr><td>Geotab: All sync crons</td><td>Various</td><td><span class="badge badge-orange">Off — enable in Settings</span></td></tr>
 </table>
 

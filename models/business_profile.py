@@ -133,53 +133,6 @@ DEFAULT_ACCOUNT_SUMMARY_PROMPT = (
 )
 
 
-class PremafirmSnovIndustry(models.Model):
-    _name = 'premafirm.snov.industry'
-    _description = 'Snov Industry'
-    _order = 'name'
-
-    name = fields.Char(required=True)
-
-
-class PremafirmSnovCompanySize(models.Model):
-    _name = 'premafirm.snov.company.size'
-    _description = 'Snov Company Size'
-    _order = 'sequence'
-
-    name = fields.Char(required=True)
-    sequence = fields.Integer(default=10)
-
-
-class PremafirmSnovSeniority(models.Model):
-    _name = 'premafirm.snov.seniority'
-    _description = 'Snov Seniority Level'
-    _order = 'sequence'
-
-    name = fields.Char(required=True)
-    sequence = fields.Integer(default=10)
-
-
-class PremafirmSnovJobTitle(models.Model):
-    _name = 'premafirm.snov.job.title'
-    _description = 'Snov Job Title'
-    _order = 'name'
-
-    name = fields.Char(required=True)
-
-
-class PremafirmSnovRegion(models.Model):
-    _name = 'premafirm.snov.region'
-    _description = 'Snov Target Region'
-    _order = 'sequence, name'
-
-    name = fields.Char(required=True)
-    region_type = fields.Selection(
-        [('country', 'Country'), ('province', 'Province / State')],
-        default='country',
-    )
-    sequence = fields.Integer(default=10)
-
-
 class PremafirmBusinessProfile(models.Model):
     """
     Singleton model — always access via get_profile().
@@ -211,31 +164,7 @@ class PremafirmBusinessProfile(models.Model):
     )
 
     # ── Ideal Customer Profile (ICP) ─────────────────────────────
-    icp_industry_ids = fields.Many2many(
-        'premafirm.snov.industry',
-        relation='biz_profile_industry_rel',
-        string='Target Industries',
-    )
-    icp_company_size_ids = fields.Many2many(
-        'premafirm.snov.company.size',
-        relation='biz_profile_size_rel',
-        string='Target Company Sizes',
-    )
-    icp_seniority_ids = fields.Many2many(
-        'premafirm.snov.seniority',
-        relation='biz_profile_seniority_rel',
-        string='Target Seniority Levels',
-    )
-    icp_title_ids = fields.Many2many(
-        'premafirm.snov.job.title',
-        relation='biz_profile_title_rel',
-        string='Target Job Titles',
-    )
-    icp_region_ids = fields.Many2many(
-        'premafirm.snov.region',
-        relation='biz_profile_region_rel',
-        string='Target Regions',
-    )
+    # Snov.io ICP taxonomy fields removed 2026-08-18 (subscription cancelled).
     icp_non_response_days = fields.Integer(
         default=5,
         string='Non-Response Threshold (days)',
@@ -324,16 +253,7 @@ class PremafirmBusinessProfile(models.Model):
 
         # ── IDEAL CUSTOMER PROFILE ──
         lines.append('\n=== IDEAL CUSTOMER PROFILE ===')
-        if self.icp_industry_ids:
-            lines.append('Target Industries: ' + ', '.join(self.icp_industry_ids.mapped('name')))
-        if self.icp_company_size_ids:
-            lines.append('Target Company Sizes: ' + ', '.join(self.icp_company_size_ids.mapped('name')))
-        if self.icp_seniority_ids:
-            lines.append('Target Seniority: ' + ', '.join(self.icp_seniority_ids.mapped('name')))
-        if self.icp_title_ids:
-            lines.append('Target Job Titles: ' + ', '.join(self.icp_title_ids.mapped('name')))
-        if self.icp_region_ids:
-            lines.append('Target Regions: ' + ', '.join(self.icp_region_ids.mapped('name')))
+        # Snov.io ICP taxonomy removed 2026-08-18 (subscription cancelled).
 
         # ── COMPANY DOCUMENTS from Knowledge Center ──
         kc_text = self._get_kc_knowledge()

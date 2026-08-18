@@ -27,28 +27,12 @@ access_premafirm_load_mgr,premafirm load mgr,model_premafirm_load,base.group_sys
 access_premafirm_load_stop_user,premafirm load stop user,model_premafirm_load_stop,base.group_user,1,1,1,1
 access_premafirm_bill_scan_import_user,bill scan import user,model_premafirm_bill_scan_import,base.group_user,1,1,1,0
 access_premafirm_bill_scan_import_manager,bill scan import manager,model_premafirm_bill_scan_import,account.group_account_manager,1,1,1,1
-access_premafirm_snov_industry,snov industry,model_premafirm_snov_industry,base.group_user,1,1,1,0
-access_premafirm_snov_industry_mgr,snov industry mgr,model_premafirm_snov_industry,base.group_system,1,1,1,1
-access_premafirm_snov_company_size,snov company size,model_premafirm_snov_company_size,base.group_user,1,1,1,0
-access_premafirm_snov_company_size_mgr,snov company size mgr,model_premafirm_snov_company_size,base.group_system,1,1,1,1
-access_premafirm_snov_seniority,snov seniority,model_premafirm_snov_seniority,base.group_user,1,1,1,0
-access_premafirm_snov_seniority_mgr,snov seniority mgr,model_premafirm_snov_seniority,base.group_system,1,1,1,1
-access_premafirm_snov_job_title,snov job title,model_premafirm_snov_job_title,base.group_user,1,1,1,1
-access_premafirm_snov_job_title_mgr,snov job title mgr,model_premafirm_snov_job_title,base.group_system,1,1,1,1
-access_premafirm_snov_region,snov region,model_premafirm_snov_region,base.group_user,1,1,1,0
-access_premafirm_snov_region_mgr,snov region mgr,model_premafirm_snov_region,base.group_system,1,1,1,1
-access_premafirm_snov_contact_user,premafirm snov contact user,model_premafirm_snov_contact,base.group_user,1,1,1,0
-access_premafirm_snov_contact_mgr,premafirm snov contact mgr,model_premafirm_snov_contact,base.group_system,1,1,1,1
-access_premafirm_crm_outreach_user,premafirm crm outreach user,model_premafirm_crm_outreach,base.group_user,1,1,1,0
-access_premafirm_crm_outreach_mgr,premafirm crm outreach mgr,model_premafirm_crm_outreach,base.group_system,1,1,1,1
 access_premafirm_business_profile,business profile,model_premafirm_business_profile,base.group_user,1,1,1,0
 access_premafirm_business_profile_mgr,business profile mgr,model_premafirm_business_profile,base.group_system,1,1,1,1
 access_premafirm_ml_ingest_queue,ml ingest queue,model_premafirm_ml_ingest_queue,base.group_user,1,0,0,0
 access_premafirm_ml_ingest_queue_mgr,ml ingest queue mgr,model_premafirm_ml_ingest_queue,base.group_system,1,1,1,1
 access_premafirm_ml_response_cache,ml response cache,model_premafirm_ml_response_cache,base.group_user,1,0,0,0
 access_premafirm_ml_response_cache_mgr,ml response cache mgr,model_premafirm_ml_response_cache,base.group_system,1,1,1,1
-access_premafirm_crm_contact_rotation,crm contact rotation,model_premafirm_crm_contact_rotation,base.group_user,1,1,1,0
-access_premafirm_crm_contact_rotation_mgr,crm contact rotation mgr,model_premafirm_crm_contact_rotation,base.group_system,1,1,1,1
 access_premafirm_crm_bulk_email_batch,crm bulk email batch,model_premafirm_crm_bulk_email_batch,base.group_user,1,1,1,0
 access_premafirm_crm_bulk_email_batch_sys,crm bulk email batch sys,model_premafirm_crm_bulk_email_batch,base.group_system,1,1,1,1
 access_premafirm_crm_bulk_email_queue,crm bulk email queue,model_premafirm_crm_bulk_email_queue,base.group_user,1,1,1,0

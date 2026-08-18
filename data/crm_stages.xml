@@ -4,7 +4,7 @@
         <record id="crm_stage_suggestion" model="crm.stage">
             <field name="name">Suggestion</field>
             <field name="sequence">15</field>
-            <field name="requirements">Lead not responding — Snov.io suggested contact pending Ahmad approval</field>
+            <field name="requirements">Lead not responding — suggested follow-up approach pending approval</field>
         </record>
 
         <!-- PHASE 13 — clean pipeline structure (the target pipeline).

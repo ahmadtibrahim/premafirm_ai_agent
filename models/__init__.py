@@ -14,8 +14,6 @@ from . import ml_ingest_queue
 from . import ml_orm_hooks
 from . import ml_response_cache
 from . import odoo_bot_kc
-from . import crm_contact_rotation
-from . import crm_outreach
 
 from . import crm_lead_extension
 from . import crm_reply_status  # PHASE 8 — reply-status fields (after
@@ -65,7 +63,6 @@ from . import dispatch_wizard
 from . import ml_learning_hooks
 
 from . import crm_bulk_email
-from . import snov_contact
 
 # ML model extensions (migrated from premafirm_ml)
 from . import crm_lead_ml

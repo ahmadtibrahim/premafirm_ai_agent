@@ -163,10 +163,6 @@
                 <button name="action_fetch_emails" type="object"
                         string="Fetch Emails" class="btn-secondary"
                         icon="fa-refresh"/>
-                <button name="action_snov_escalate_now" type="object"
-                        string="Find New Contact (Snov)" class="btn-secondary"
-                        icon="fa-search"
-                        title="Search Snov.io for a new contact at this company and create a Suggestion lead"/>
                 <field name="email_segment" widget="badge"
                        decoration-info="email_segment == 'inc'"
                        decoration-warning="email_segment == 'logistics'"

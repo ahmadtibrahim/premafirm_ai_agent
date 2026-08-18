@@ -25,18 +25,6 @@ if stage:
             <field name="action_server_ids" eval="[(4, ref('action_server_new_to_outreach'))]"/>
         </record>
 
-        <!-- ── Cron: Contact rotation check (daily) ──────────────────────────── -->
-        <record id="ir_cron_contact_rotation" model="ir.cron">
-            <field name="name">CRM: Contact Rotation — Suggest Next Contact / Snov Escalation</field>
-            <field name="model_id" ref="crm.model_crm_lead"/>
-            <field name="state">code</field>
-            <field name="code">env['premafirm.crm.contact.rotation'].run_contact_rotation()</field>
-            <field name="interval_number">1</field>
-            <field name="interval_type">days</field>
-            <field name="active">False</field>
-            <field name="nextcall">2026-05-18 07:30:00</field>
-        </record>
-
         <!-- ── Cron: Outreach/Contacted no reply → Data Collection ─────────── -->
         <record id="ir_cron_outreach_stale" model="ir.cron">
             <field name="name">CRM: Outreach/Contacted — No Reply → Data Collection</field>

@@ -28,17 +28,6 @@ class CrmLeadMLHooks(models.Model):
         default='none',
         string='Response Status',
     )
-    x_rotation_count = fields.Integer(default=0, string='Rotation Count')
-    x_snov_enrichment_requested = fields.Boolean(
-        string='Snov.io Searched',
-        default=False,
-        help='Set to True after Snov.io has been called for this lead to prevent duplicate API calls.',
-    )
-    x_contact_rotation_ids = fields.One2many(
-        'premafirm.crm.contact.rotation',
-        'lead_id',
-        string='Contact Rotations',
-    )
     x_needs_attention = fields.Boolean(
         string='Needs Attention',
         default=False,
@@ -195,33 +184,6 @@ class CrmLeadMLHooks(models.Model):
                 except Exception as exc:
                     _logger.debug('Failed to clear x_needs_attention on read for lead %s: %s', self.id, exc)
         return result
-
-    def action_snov_escalate_now(self):
-        """Manual trigger: search Snov.io for a new contact and create a Suggestion lead.
-        Can be called directly from the lead form — bypasses the cron timing check.
-        """
-        self.ensure_one()
-        # Reset the guard so a manual re-run is always allowed
-        self.sudo().write({'x_snov_enrichment_requested': False})
-
-        primary_partner = self.partner_id
-        if not primary_partner:
-            return self._snov_warn('No contact linked to this lead.')
-
-        company_partner = (
-            primary_partner.parent_id if primary_partner.parent_id
-            else (primary_partner if primary_partner.is_company else None)
-        )
-        if not company_partner:
-            return self._snov_warn('No company found for this lead.')
-
-        rotation_model = self.env['premafirm.crm.contact.rotation']
-        rotation_model._escalate_to_snov(self, primary_partner, company_partner)
-        return {'type': 'ir.actions.client', 'tag': 'reload'}
-
-    def _snov_warn(self, msg):
-        self.message_post(body=f'<b>Snov.io:</b> {msg}', subtype_xmlid='mail.mt_note')
-        return {'type': 'ir.actions.client', 'tag': 'reload'}
 
     def write(self, vals):
         previous_user_ids = {}

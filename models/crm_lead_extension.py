@@ -39,16 +39,6 @@ class CrmLead(models.Model):
     # (see crm_reply_status.py, PHASE 8).
     next_followup_date = fields.Date("Next Follow-up")
     ai_lead_score = fields.Float("AI Lead Score", digits=(5, 1), default=0.0)
-    snov_contact_ids = fields.One2many(
-        "premafirm.snov.contact",
-        "lead_id",
-        string="Snov Contacts",
-    )
-    primary_contact_id = fields.Many2one(
-        "premafirm.snov.contact",
-        string="Primary Snov Contact",
-        ondelete="set null",
-    )
 
     # ── Email segment (tag-based routing) ─────────────────────────
     email_segment = fields.Selection(

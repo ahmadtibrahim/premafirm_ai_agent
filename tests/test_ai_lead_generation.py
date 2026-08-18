@@ -166,7 +166,7 @@ class TestAILeadGeneration(TransactionCase):
                 "city": "Ottawa",
                 "state": "ON",
                 "country": "Canada",
-                "description": "Best Snov match for ottawafresh.example",
+                "description": "Best suggested contact for ottawafresh.example",
             },
             {
                 "company_name": "Capital Distribution Hub",
@@ -177,7 +177,7 @@ class TestAILeadGeneration(TransactionCase):
                 "city": "Ottawa",
                 "state": "ON",
                 "country": "Canada",
-                "description": "Best Snov match for capitalhub.example",
+                "description": "Best suggested contact for capitalhub.example",
             },
         ]
 

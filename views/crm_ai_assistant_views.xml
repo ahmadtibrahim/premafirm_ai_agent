@@ -60,8 +60,6 @@
                         <field name="x_response_status"/>
                         <field name="x_needs_attention" string="Needs Attention"
                                widget="boolean_toggle"/>
-                        <field name="x_rotation_count" string="Contacts Tried"/>
-                        <field name="x_snov_enrichment_requested" string="Snov Searched"/>
                         <field name="x_followup_1_sent_at"/>
                         <field name="x_followup_2_sent_at"/>
                         <field name="x_referred_by_partner_id" string="Referred By"/>

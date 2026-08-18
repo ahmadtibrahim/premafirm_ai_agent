@@ -75,23 +75,10 @@
 
                         <!-- ── Tab 3: Ideal Customer Profile ── -->
                         <page string="Ideal Customer Profile (ICP)" name="icp">
-                            <group string="Target Audience">
-                                <group>
-                                    <field name="icp_industry_ids" widget="many2many_tags"/>
-                                    <field name="icp_company_size_ids" widget="many2many_tags"/>
-                                    <field name="icp_seniority_ids" widget="many2many_tags"/>
-                                </group>
-                                <group>
-                                    <field name="icp_title_ids"
-                                           widget="many2many_tags"
-                                           options="{'no_create_edit': False, 'no_create': False}"/>
-                                    <field name="icp_region_ids" widget="many2many_tags"/>
-                                </group>
-                            </group>
                             <group string="Follow-up Settings">
                                 <field name="icp_non_response_days"
                                        string="Non-Response Threshold (days)"
-                                       help="Number of days without a reply before the contact rotation cron triggers a new contact suggestion."/>
+                                       help="Number of days without a reply before a lead is flagged for follow-up. (Snov.io contact rotation removed 2026-08-18 — subscription cancelled.)"/>
                             </group>
                         </page>
 

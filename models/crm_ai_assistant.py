@@ -570,8 +570,6 @@ class CrmLeadAIAssistant(models.Model):
         if self.x_last_outreach_at:
             days_ago = (date.today() - self.x_last_outreach_at.date()).days
             parts.append(f'Last outreach: {self.x_last_outreach_at.strftime("%Y-%m-%d")} ({days_ago} days ago)')
-        if self.x_rotation_count:
-            parts.append(f'Contacts tried so far: {self.x_rotation_count}')
         referred = getattr(self, 'x_referred_by_partner_id', None)
         if referred:
             parts.append(f'Referred by: {referred.name}'

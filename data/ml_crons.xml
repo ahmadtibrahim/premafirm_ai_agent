@@ -17,22 +17,7 @@
     </record>
 
     <!-- ══════════════════════════════════════════════════════════════
-         2. ML: CRM Contact Rotation Check — daily (INACTIVE)
-    ══════════════════════════════════════════════════════════════ -->
-    <record id="cron_ml_crm_contact_rotation" model="ir.cron">
-        <field name="name">ML: CRM Contact Rotation Check</field>
-        <field name="model_id" ref="model_premafirm_crm_contact_rotation"/>
-        <field name="state">code</field>
-        <field name="code">model.run_contact_rotation()</field>
-        <field name="interval_number">1</field>
-        <field name="interval_type">days</field>
-
-        <field name="active" eval="False"/>
-        <field name="priority">10</field>
-    </record>
-
-    <!-- ══════════════════════════════════════════════════════════════
-         3. ML: Purge Response Cache — weekly (ACTIVE)
+         2. ML: Purge Response Cache — weekly (ACTIVE)
     ══════════════════════════════════════════════════════════════ -->
     <record id="cron_ml_purge_response_cache" model="ir.cron">
         <field name="name">ML: Purge Response Cache</field>

@@ -76,3 +76,8 @@ from . import attendance_summary
 from . import auto_attendance
 from . import staff_coaching
 from . import mail_bot_fix
+
+# PHASES 2-3 — canonical outbound threading + robust reply routing
+from . import mail_threading_service
+from . import mail_send_hooks
+from . import inbound_routing

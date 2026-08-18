@@ -1,6 +1,6 @@
 {
     "name": "PremaFirm AI Engine",
-    "version": "18.0.6.7.0",
+    "version": "18.0.6.8.0",
     "summary": "CRM Outreach, Snov.io Contacts, Geotab ELD, Invoicing for PremaFirm Logistics",
     "author": "PremaFirm",
     "license": "LGPL-3",

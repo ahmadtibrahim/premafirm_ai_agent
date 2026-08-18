@@ -13,6 +13,7 @@
                 <field name="partner_id"/>
                 <field name="classification"/>
                 <field name="thread_candidate_id"/>
+                <field name="ooo_return_date"/>
                 <field name="mailbox"/>
                 <field name="state"/>
             </list>
@@ -37,6 +38,12 @@
                     <button name="action_mark_ignored" type="object"
                             string="Ignore" class="btn-secondary"
                             invisible="state in ('threaded', 'ignored', 'lead_created')"/>
+                    <button name="action_mark_bounce" type="object"
+                            string="Mark Bounce" class="btn-secondary"
+                            invisible="state in ('threaded', 'ignored', 'lead_created')"/>
+                    <button name="action_mark_ooo" type="object"
+                            string="Mark OOO" class="btn-secondary"
+                            invisible="state in ('threaded', 'ignored', 'lead_created')"/>
                 </header>
                 <sheet>
                     <group>
@@ -53,6 +60,8 @@
                             <field name="message_id" readonly="1"/>
                             <field name="thread_candidate_id"
                                    help="Best guess only — verify before threading."/>
+                            <field name="ooo_return_date"
+                                   help="Extracted from an out-of-office mail (best effort)."/>
                             <field name="review_note"/>
                         </group>
                     </group>

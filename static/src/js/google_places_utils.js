@@ -1,26 +1,14 @@
 /** @odoo-module **/
 
-const GOOGLE_SCRIPT_ID = "premafirm-google-places-api";
+import { loadGoogleMaps } from "@prema_dispatch/js/google_maps_loader";
 
+// Kept as the public API used by the AI-engine widgets, but now delegates to
+// the canonical prema_dispatch loader so the Places API is only ever
+// injected once across the codebase.
 export async function loadGooglePlaces(apiKey) {
-    if (window.google?.maps?.places) return true;
-    return new Promise((resolve) => {
-        const poll = () => {
-            let tries = 0;
-            const t = setInterval(() => {
-                if (window.google?.maps?.places) { clearInterval(t); resolve(true); return; }
-                if (++tries > 60) { clearInterval(t); resolve(false); }
-            }, 200);
-        };
-        if (document.getElementById(GOOGLE_SCRIPT_ID)) { poll(); return; }
-        const s = document.createElement("script");
-        s.id = GOOGLE_SCRIPT_ID;
-        s.async = true;
-        s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places`;
-        s.onload = poll;
-        s.onerror = () => resolve(false);
-        document.head.appendChild(s);
-    });
+    return loadGoogleMaps(apiKey, { libraries: "places" })
+        .then(() => true)
+        .catch(() => false);
 }
 
 export function parseGoogleComponents(components) {

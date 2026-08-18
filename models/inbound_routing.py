@@ -598,6 +598,11 @@ class MailThread(models.AbstractModel):
                          'last_inbound_at': fields.Datetime.now()}
                 if kind == 'normal_reply':
                     stamp['last_meaningful_reply_at'] = stamp['last_inbound_at']
+                    # PHASE 10 — a genuine reply answers any open bulk item
+                    # on this lead (moves it to 'replied', records the
+                    # response message-id). Bounces/OOO never reach here.
+                    self.env['premafirm.crm.bulk.email.queue']._mark_replied(
+                        tid, response_message_id=message_dict.get('message_id'))
                 if tid:
                     self.env['crm.lead'].sudo().browse(tid).write(stamp)
                 else:
@@ -695,6 +700,10 @@ class PremafirmInboundQueue(models.Model):
                 lead.write({'last_inbound_at': now,
                             'last_meaningful_reply_at': now,
                             'last_inbound_classification': 'normal_reply'})
+                # PHASE 10 — the human-confirmed reply answers open bulk
+                # items on the lead.
+                self.env['premafirm.crm.bulk.email.queue']._mark_replied(
+                    lead.id)
             lead.message_post(
                 body=rec.body or '<p>(no body captured)</p>',
                 subject='Imported from Inbound Review Queue: %s' % (rec.name or ''),

@@ -62,6 +62,10 @@
                             <field name="sent_count" readonly="1"/>
                             <field name="pending_count" readonly="1"/>
                             <field name="failed_count" readonly="1"/>
+                            <field name="bounced_count" readonly="1"/>
+                            <field name="replied_count" readonly="1"/>
+                            <field name="reply_rate" readonly="1" string="Reply Rate (%)"/>
+                            <field name="complaints_count" readonly="1"/>
                         </group>
                     </group>
                     <separator string="Email Queue"/>
@@ -71,10 +75,13 @@
                             <field name="email_to"/>
                             <field name="scheduled_at"/>
                             <field name="sent_at" optional="show"/>
+                            <field name="send_attempt" optional="hide"/>
+                            <field name="idempotency_key" optional="hide"/>
+                            <field name="reply_received_at" optional="show"/>
                             <field name="state" widget="badge"
-                                   decoration-success="state == 'sent'"
+                                   decoration-success="state in ('sent', 'replied')"
                                    decoration-danger="state in ('failed', 'bounced')"
-                                   decoration-warning="state == 'queued'"
+                                   decoration-warning="state in ('queued', 'sending')"
                                    decoration-muted="state == 'cancelled'"/>
                             <field name="error_msg" optional="hide"/>
                         </list>
@@ -96,6 +103,9 @@
                 <field name="delay_seconds" string="Delay (sec)"/>
                 <field name="total_count" string="Total"/>
                 <field name="sent_count" string="Sent"/>
+                <field name="bounced_count" string="Bounced"/>
+                <field name="replied_count" string="Replied"/>
+                <field name="reply_rate" string="Reply Rate (%)"/>
                 <field name="failed_count" string="Failed"/>
                 <field name="pending_count" string="Queued"/>
                 <field name="state" widget="badge"

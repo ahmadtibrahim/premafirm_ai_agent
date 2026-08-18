@@ -43,6 +43,12 @@ class MailMail(models.Model):
         'AI Prompt Version',
         help='Prompt/profile version that produced the draft.',
     )
+    idempotency_key = fields.Char(
+        'Idempotency Key', index=True,
+        help='PHASE 10 — unique key of the bulk-send attempt that created '
+             'this mail; a crashed queue item can never resend the same '
+             'mail (the key travels on the record).',
+    )
 
     def _stamp_ai_provenance(self, *, auto=False, prompt_version=False):
         """Stamp AI provenance on this mail.mail (approve-send path)."""

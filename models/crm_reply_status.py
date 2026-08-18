@@ -119,4 +119,7 @@ class CrmLead(models.Model):
                 'last_meaningful_reply_at': now,
                 'last_inbound_classification': 'normal_reply',
             })
+            # PHASE 10 — portal reply answers any open bulk item too.
+            self.env['premafirm.crm.bulk.email.queue']._mark_replied(
+                self.id, response_message_id=message.message_id or False)
         return res

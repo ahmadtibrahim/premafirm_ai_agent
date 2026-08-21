@@ -2,26 +2,32 @@
 <odoo>
     <data noupdate="1">
 
-        <!-- ── Server action: set stage to Outreach ───────────────────────── -->
+        <!-- ── Server action: set stage to OUTREACH SENT (canonical) ─────── -->
+        <!-- Resolves the canonical stage by XMLID first (never by name —
+             the legacy folded "Outreach" stage still exists and a name
+             search would move leads INTO the archived stage). -->
         <record id="action_server_new_to_outreach" model="ir.actions.server">
-            <field name="name">CRM: Set Stage → Outreach</field>
+            <field name="name">CRM: Set Stage → OUTREACH SENT</field>
             <field name="model_id" ref="crm.model_crm_lead"/>
             <field name="state">code</field>
             <field name="code">
-stage = env['crm.stage'].search([('name', '=', 'Outreach')], limit=1)
+stage = env.ref('premafirm_ai_engine.crm_stage_outreach_sent', raise_if_not_found=False)
+if not stage:
+    stage = env['crm.stage'].search(
+        [('name', '=ilike', 'outreach sent'), ('fold', '=', False)], limit=1)
 if stage:
     record.write({'stage_id': stage.id})
             </field>
         </record>
 
-        <!-- ── Automated action: New → Outreach when contact details complete ── -->
+        <!-- ── Automated action: NEW / UNCONTACTED → OUTREACH SENT when contact details complete ── -->
         <record id="automation_new_to_outreach" model="base.automation">
-            <field name="name">CRM: New → Outreach (contact details complete)</field>
+            <field name="name">CRM: NEW / UNCONTACTED → OUTREACH SENT (contact details complete)</field>
             <field name="model_id" ref="crm.model_crm_lead"/>
             <field name="trigger">on_write</field>
             <field name="active" eval="True"/>
-            <!-- Filter: must be in New stage, have a tag, have an email, and contact must be under a company -->
-            <field name="filter_domain">[('stage_id.name', '=', 'New'), ('tag_ids', '!=', False), ('email_from', '!=', False), ('partner_id', '!=', False), ('partner_id.parent_id', '!=', False)]</field>
+            <!-- Filter: must be in NEW / UNCONTACTED, have a tag, have an email, and contact must be under a company -->
+            <field name="filter_domain">[('stage_id.name', '=', 'NEW / UNCONTACTED'), ('tag_ids', '!=', False), ('email_from', '!=', False), ('partner_id', '!=', False), ('partner_id.parent_id', '!=', False)]</field>
             <field name="action_server_ids" eval="[(4, ref('action_server_new_to_outreach'))]"/>
         </record>
 

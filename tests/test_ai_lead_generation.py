@@ -53,7 +53,7 @@ class TestAILeadGeneration(TransactionCase):
         self.assertEqual(lead.partner_id, company)
         self.assertEqual(contact.parent_id, company)
         self.assertEqual(lead.partner_name, "Acme Produce Logistics")
-        self.assertEqual(lead.stage_id.name, "New")
+        self.assertEqual(lead.stage_id.name, "NEW / UNCONTACTED")
         self.assertEqual(lead.type, "opportunity")
         self.assertEqual(lead.user_id, self.admin)
         self.assertEqual(lead.website, "https://acmeproduce.example")

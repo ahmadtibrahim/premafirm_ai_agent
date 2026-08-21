@@ -42,6 +42,17 @@ def _api_key(env):
     return _get_deepseek_key(env)
 
 
+def _canonical_stage(env, xmlid, name):
+    """Resolve a canonical pipeline stage by XMLID first, then by name —
+    never by legacy name lookup, which would resolve the archived
+    (folded) stage of the same name and move leads INTO it."""
+    stage = env.ref(xmlid, raise_if_not_found=False)
+    if not stage:
+        stage = env['crm.stage'].search(
+            [('name', '=ilike', name), ('fold', '=', False)], limit=1)
+    return stage
+
+
 def _gpt_draft(env, system, user_msg, max_tokens=300):
     try:
         from odoo.addons.premafirm_ai_engine.services.deepseek_utils import deepseek_chat
@@ -248,11 +259,11 @@ class CrmFollowupCron(models.Model):
     @api.model
     def run_outreach_stale_cron(self):
         """Daily: stale outreach leads stay in place and get flagged for manual review."""
-        stage_ids = self.env['crm.stage'].sudo().search(
-            [('name', 'in', ['Outreach', 'Contacted'])]
-        ).ids
-        if not stage_ids:
+        outreach = _canonical_stage(self.env, 'premafirm_ai_engine.crm_stage_outreach_sent',
+                                    'outreach sent')
+        if not outreach:
             return
+        stage_ids = [outreach.id]
 
         try:
             profile = self.env['premafirm.business.profile'].sudo().get_profile()
@@ -297,8 +308,9 @@ class CrmFollowupCron(models.Model):
 
     @api.model
     def run_replied_warning_cron(self):
-        """Day +3 after customer reply: create warning activity if still in Replied stage."""
-        replied = self.env['crm.stage'].sudo().search([('name', '=', 'Replied')], limit=1)
+        """Day +3 after customer reply: create warning activity if still in ENGAGED / REPLIED stage."""
+        replied = _canonical_stage(self.env, 'premafirm_ai_engine.crm_stage_engaged_replied',
+                                   'engaged / replied')
         todo = self.env.ref('mail.mail_activity_data_todo', raise_if_not_found=False)
         if not replied or not todo:
             return
@@ -338,7 +350,8 @@ class CrmFollowupCron(models.Model):
     @api.model
     def run_replied_stale_cron(self):
         """Day +6 after customer reply with no outgoing response: flag for manual review."""
-        replied = self.env['crm.stage'].sudo().search([('name', '=', 'Replied')], limit=1)
+        replied = _canonical_stage(self.env, 'premafirm_ai_engine.crm_stage_engaged_replied',
+                                   'engaged / replied')
         if not replied:
             return
         cutoff = fields.Datetime.now() - timedelta(days=6)

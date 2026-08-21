@@ -150,7 +150,8 @@
                 <attribute name="placeholder">Company name — type to search (Google)…</attribute>
             </xpath>
 
-            <!-- Fetch Emails button + Email Segment badge in form header -->
+            <!-- Fetch Emails + AI Reply buttons in form header
+                 (Email Segment badge removed 2026-08-20 — default sender only) -->
             <xpath expr="//header" position="inside">
                 <button name="action_open_ai_reply_wizard" type="object"
                         string="AI Reply" class="btn-primary"
@@ -163,12 +164,6 @@
                 <button name="action_fetch_emails" type="object"
                         string="Fetch Emails" class="btn-secondary"
                         icon="fa-refresh"/>
-                <field name="email_segment" widget="badge"
-                       decoration-info="email_segment == 'inc'"
-                       decoration-warning="email_segment == 'logistics'"
-                       invisible="not email_segment"
-                       readonly="1"
-                       string="Email Via"/>
             </xpath>
 
         </field>

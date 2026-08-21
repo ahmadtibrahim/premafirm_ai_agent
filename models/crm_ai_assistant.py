@@ -376,24 +376,26 @@ class CrmLeadAIAssistant(models.Model):
         return result
 
     def _maybe_advance_on_outgoing(self):
-        """Route outbound emails into the next actionable stage."""
-        stage_name = self._normalized_stage_name()
-        if stage_name == 'replied':
-            onboarding = self.env['crm.stage'].sudo().search([('name', '=', 'Onboarding')], limit=1)
-            if onboarding:
-                self.sudo().write({'stage_id': onboarding.id})
+        """Route the FIRST outbound email from a fresh lead into OUTREACH SENT.
+
+        Canonical-pipeline behavior only: a lead in NEW / UNCONTACTED that
+        just received its first outbound email moves to OUTREACH SENT.
+        Every other stage (ENGAGED / REPLIED, QUALIFIED / DATA COLLECTED,
+        QUOTE*, NEGOTIATION, ONBOARDING, WON, LOST, PAUSED) is left
+        untouched — the legacy version searched the archived "Contacted" /
+        "Onboarding" stage names by raw name lookup, which silently moved
+        leads INTO the folded legacy stages.
+        """
+        if self._normalized_stage_name() != 'new / uncontacted':
             return
-        if stage_name in {'contacted', 'onboarding'}:
-            return
-        if stage_name in {'won', 'lost'}:
-            return
-        contacted = self.env['crm.stage'].sudo().search([('name', '=', 'Contacted')], limit=1)
-        if contacted:
-            self.sudo().write({'stage_id': contacted.id})
+        targets = self._premafirm_target_stages()
+        outreach = targets.get('outreach sent')
+        if outreach:
+            self.sudo().write({'stage_id': outreach.id})
 
     def _maybe_schedule_followup_activity(self):
         """Create a follow-up To-Do activity after outbound outreach."""
-        if self._normalized_stage_name() not in {'outreach', 'contacted'}:
+        if self._normalized_stage_name() not in {'new / uncontacted', 'outreach sent'}:
             return
         # Dedup: skip if an open follow-up activity already exists
         existing = self.env['mail.activity'].search([

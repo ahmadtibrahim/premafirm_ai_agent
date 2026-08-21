@@ -94,6 +94,19 @@ _TARGET_XMLIDS = {
 _AUDIT_PATH_PARAM = 'premafirm.pipeline.audit_path'
 
 
+class CrmStage(models.Model):
+    _inherit = 'crm.stage'
+
+    # PHASE 43.2 — hide legacy stages from the pipeline UI entirely.
+    # Odoo 18 core crm.stage has no `active`; the pipeline column list is
+    # built by crm.lead._read_group_stage_ids via `_search`, which applies
+    # the default active_test when the model has an `active` field. So a
+    # deactivated stage (active=False) stops being a pipeline column
+    # (folded or not) while the record survives for history. Module data
+    # is noupdate="1", so the flag is never reset by re-upgrades.
+    active = fields.Boolean(default=True)
+
+
 class CrmLead(models.Model):
     _inherit = 'crm.lead'
 

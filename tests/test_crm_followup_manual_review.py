@@ -11,17 +11,11 @@ class TestCrmFollowupManualReview(TransactionCase):
         cls.Lead = cls.env["crm.lead"]
         cls.Activity = cls.env["mail.activity"]
         cls.admin = cls.env.ref("base.user_admin")
-        cls.outreach = cls._get_stage("Outreach")
-        cls.contacted = cls._get_stage("Contacted")
-        cls.replied = cls._get_stage("Replied")
-        cls.data_collection = cls._get_stage("Data Collection")
-
-    @classmethod
-    def _get_stage(cls, name):
-        stage = cls.env["crm.stage"].search([("name", "=", name)], limit=1)
-        if not stage:
-            stage = cls.env["crm.stage"].create({"name": name})
-        return stage
+        # PHASE 43 — canonical stages only (xmlid resolution, same as the
+        # cron code itself); legacy 'Outreach'/'Replied' are folded and
+        # must never be the cron target.
+        cls.outreach = cls.env.ref("premafirm_ai_engine.crm_stage_outreach_sent")
+        cls.replied = cls.env.ref("premafirm_ai_engine.crm_stage_engaged_replied")
 
     def test_outreach_stale_cron_creates_manual_review_without_stage_move(self):
         lead = self.Lead.create({

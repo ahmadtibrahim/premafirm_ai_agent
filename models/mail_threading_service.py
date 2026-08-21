@@ -52,17 +52,13 @@ class PremafirmMailThreading(models.AbstractModel):
         """Address replies to this thread should return to.
 
         Must be a mail.alias Odoo's fetchmail pulls back — never a bare
-        send identity. Logistics leads reply to dispatch@logistics.premafirm.com;
-        INC/sales leads reply to the team alias (accounts@premafirm.com),
+        send identity. Replies go to the team alias (accounts@premafirm.com),
         matching the Reply-To Odoo's own comment-mode composer already emits.
+        (Tag-based segment routing removed 2026-08-20 — inbound routing is
+        unchanged; fetchmail still pulls every mailbox listed above.)
         """
         if not thread or thread._name != 'crm.lead':
             return False
-        if getattr(thread, 'email_segment', False) == 'logistics':
-            return self._icp(
-                'premafirm.mail.reply_to_logistics',
-                'dispatch@logistics.premafirm.com',
-            )
         alias = getattr(thread, 'team_id', False) and thread.team_id.alias_id
         if alias and alias.alias_domain_id and alias.alias_name:
             return '%s@%s' % (alias.alias_name, alias.alias_domain_id.name)
@@ -159,41 +155,14 @@ class PremafirmMailThreading(models.AbstractModel):
 
     @api.model
     def _sender_identity(self, thread=None, user=None):
-        """From address for CRM outbound sends. Config-driven, never
-        hardcoded (ir.config_parameter):
+        """From address for CRM outbound sends.
 
-          'owner'   (default) — the salesperson's mailbox (lead owner or
-                    the current user), so each reply is attributable to
-                    the person who worked the lead,
-          'team'    — the segment mailbox (logistics vs INC/sales),
-          'default' — Odoo's own default sender (outgoing server).
-
-        Owner mode falls back to the team mailbox when the user has no
-        email. The Reply-To is unaffected: replies always return to the
-        thread mailbox (PHASE 2-3), whatever the From says."""
-        mode = self._icp('premafirm.mail.sender_mode', 'owner')
-        if mode == 'default':
-            return False
-        is_logistics = (thread is not None
-                        and getattr(thread, 'email_segment', False)
-                        == 'logistics')
-        if mode == 'team':
-            if is_logistics:
-                return self._icp('premafirm.mail.sender_logistics',
-                                 'dispatch@logistics.premafirm.com')
-            return self._icp('premafirm.mail.sender_team',
-                             'accounts@premafirm.com')
-        if thread is not None and thread._name == 'crm.lead' and thread.user_id:
-            user = user or thread.user_id
-        user = user or self.env.user
-        partner = user.partner_id
-        if partner and partner.email:
-            return partner.email_formatted
-        if is_logistics:
-            return self._icp('premafirm.mail.sender_logistics',
-                             'dispatch@logistics.premafirm.com')
-        return self._icp('premafirm.mail.sender_team',
-                         'accounts@premafirm.com')
+        Business decision 2026-08-20: always Odoo's own default sender —
+        no tag/segment/salesperson override. Returns False so the caller
+        leaves ``email_from`` unset and mail.mail resolves it the normal
+        way (author's mailbox, else the company email). Reply-To is
+        unaffected: replies return to the thread mailbox (PHASE 2-3)."""
+        return False
 
     # ── Canonical mail values ──────────────────────────────────────
 
@@ -208,8 +177,8 @@ class PremafirmMailThreading(models.AbstractModel):
         PHASE 22: ``reply_mode`` ('reply'/'reply_all') computes email_to
         (+email_cc) from the LAST INBOUND message and sets parent_id to
         it, when email_to is not given explicitly.
-        PHASE 23: ``email_from=None`` resolves the config-driven sender
-        identity; False keeps Odoo's default."""
+        PHASE 23: ``email_from=None`` resolves to Odoo's default sender
+        (override removed 2026-08-20); False keeps Odoo's default."""
         if reply_mode and not email_to:
             email_to, cc = self._reply_recipients(thread, reply_mode)
             if cc:

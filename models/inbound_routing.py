@@ -884,8 +884,11 @@ class PremafirmInboundQueue(models.Model):
 
     def action_thread_to_lead(self):
         """Human-confirmed attach: post the stored mail onto the lead's
-        chatter as a comment (no message_id — keeps dedupe clean) and
-        close the queue record. Only ever called by a human reviewer."""
+        chatter as an INTERNAL note (comment + mail.mt_note, authored by
+        the real inbound sender, no message_id — keeps dedupe clean) and
+        close the queue record. Internal subtype guarantees the import
+        never generates follower emails or outbound mail. Only ever
+        called by a human reviewer."""
         for rec in self:
             if not rec.thread_candidate_id:
                 continue
@@ -907,7 +910,10 @@ class PremafirmInboundQueue(models.Model):
             lead.message_post(
                 body=rec.body or '<p>(no body captured)</p>',
                 subject='Imported from Inbound Review Queue: %s' % (rec.name or ''),
-                subtype_xmlid='mail.mt_comment',
+                message_type='comment',
+                subtype_xmlid='mail.mt_note',
+                author_id=rec.partner_id.id or None,
+                email_from=rec.email_from,
             )
             rec.write({'state': 'threaded', 'review_note': 'Threaded to lead %s' % lead.id})
         return True
@@ -930,7 +936,10 @@ class PremafirmInboundQueue(models.Model):
             lead.message_post(
                 body=rec.body or '<p>(no body captured)</p>',
                 subject='Imported from Inbound Review Queue: %s' % (rec.name or ''),
-                subtype_xmlid='mail.mt_comment',
+                message_type='comment',
+                subtype_xmlid='mail.mt_note',
+                author_id=rec.partner_id.id or None,
+                email_from=rec.email_from,
             )
             rec.write({'state': 'lead_created', 'review_note': 'Lead %s created' % lead.id})
         return True

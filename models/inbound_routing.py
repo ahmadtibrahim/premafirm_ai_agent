@@ -547,9 +547,9 @@ class PremafirmMailRouting(models.AbstractModel):
         Returns the lead id, or False when the model is absent, the
         reference is unmapped, or the target lead no longer exists.
         """
-        map_model = self.env.get('prema.resend.message.map')
-        if not map_model:
+        if 'prema.resend.message.map' not in self.env.registry:
             return False
+        map_model = self.env['prema.resend.message.map']
         refs = []
         for header in (msg_dict.get('references'), msg_dict.get('in_reply_to')):
             for raw in (header or '').split():

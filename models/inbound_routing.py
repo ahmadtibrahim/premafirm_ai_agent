@@ -532,6 +532,41 @@ class PremafirmMailRouting(models.AbstractModel):
                 return msg
         return False
 
+    @api.model
+    def resolve_ses_reply(self, msg_dict):
+        """Deterministic thread match for replies to Resend/SES-sent mail.
+
+        Odoo core stamps ``X-Odoo-Objects: <model>-<res_id>`` on every
+        outbound mail; the Resend webhook (prema_mail_tracking) echoes that
+        header together with the final provider Message-ID — the Amazon SES
+        id the recipient's reply puts in In-Reply-To/References. That pair is
+        stored on prema.resend.message.map, so a reply referencing a mapped
+        final Message-ID identifies its original crm.lead exactly — no
+        subject/sender heuristics, never auto-applied otherwise.
+
+        Returns the lead id, or False when the model is absent, the
+        reference is unmapped, or the target lead no longer exists.
+        """
+        map_model = self.env.get('prema.resend.message.map')
+        if not map_model:
+            return False
+        refs = []
+        for header in (msg_dict.get('references'), msg_dict.get('in_reply_to')):
+            for raw in (header or '').split():
+                mid = raw.strip('<>')
+                if mid:
+                    refs += [mid, '<%s>' % mid]
+        if not refs:
+            return False
+        mapped = map_model.sudo().search(
+            [('message_id', 'in', refs), ('model_name', '=', 'crm.lead'),
+             ('res_id', '>', 0)], limit=1)
+        if not mapped:
+            return False
+        if not self.env['crm.lead'].sudo().browse(mapped.res_id).exists():
+            return False
+        return mapped.res_id
+
     # ── Outcomes ───────────────────────────────────────────────────
 
     @api.model
@@ -667,6 +702,14 @@ class MailThread(models.AbstractModel):
             if _model != 'crm.lead':
                 kept.append(route)
                 continue
+            if not tid:
+                # Resend/SES-sent mail: core cannot match the provider
+                # Message-ID, but the mapping table can — deterministically
+                # (prema.resend.message.map, built from webhook payloads).
+                ses_tid = svc.resolve_ses_reply(message_dict)
+                if ses_tid:
+                    tid = ses_tid
+                    route = (_model, tid, _cv, _uid, alias)
             verdict = svc.classify(message_dict, raw_message=message,
                                    matched=bool(tid))
             kind = verdict['kind']

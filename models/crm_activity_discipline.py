@@ -153,7 +153,13 @@ class CrmLead(models.Model):
         """Reply received (route-matched reply, portal comment, or
         human-confirmed queue attach). Completes ONLY the automatic
         follow-up activities the reply answers — Call/Email/Meeting/To-Do
-        tasks are never touched — and schedules Respond to Customer."""
+        tasks are never touched — and schedules Respond to Customer.
+
+        This is the single ATTENTION ACTIVATION funnel: any genuine
+        customer reply raises Needs Attention (and refreshes the reply
+        timestamps). An already-open Respond to Customer activity is never
+        duplicated — only attention/timestamps refresh (dedup lives in
+        _schedule_discipline_activity)."""
         for lead in self:
             lead = lead.sudo()
             open_auto = lead._open_discipline_activities()
@@ -161,12 +167,19 @@ class CrmLead(models.Model):
                 open_auto.action_feedback(
                     feedback='Customer replied — response scheduled.')
             lead._schedule_discipline_activity(*_RESPOND_SPEC)
+            now = fields.Datetime.now()
+            lead.write({'x_reply_received_at': now})
+            lead._set_attention('reply', at=now)
 
     def _on_sales_response(self):
         """Response sent (composer post, AI reply wizard, bulk send).
         Completes open Respond to Customer activities and schedules the
         stage's next follow-up (needs_reply recomputes False because the
-        outbound stamp write happens first)."""
+        outbound stamp write happens first).
+
+        This is the single ATTENTION RESOLUTION funnel: an actual response
+        from the salesperson is the only business event that clears Needs
+        Attention. Safe on leads that were never flagged (no-op)."""
         for lead in self:
             lead = lead.sudo()
             respond_id = self.env.ref(
@@ -176,6 +189,7 @@ class CrmLead(models.Model):
             if respond:
                 respond.action_feedback(feedback='Answered — reply sent.')
             lead._ensure_stage_activity()
+            lead._clear_attention()
 
     # ── discipline report ────────────────────────────────────────────
 

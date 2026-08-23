@@ -1,6 +1,6 @@
 {
     "name": "PremaFirm AI Engine",
-    "version": "18.0.7.2.2",
+    "version": "18.0.7.3.0",
     "summary": "CRM Automation, Geotab ELD, Invoicing for PremaFirm Logistics",
     "author": "PremaFirm",
     "license": "LGPL-3",
@@ -45,6 +45,7 @@
         "data/mail_provider_event_data.xml",
         "data/crm_call_sync_cron.xml",
         "views/crm_view.xml",
+        "views/crm_attention_views.xml",
         "views/ml_knowledge_views.xml",
         "views/ml_draft_views.xml",
         "views/ml_ingestion_views.xml",
@@ -91,10 +92,14 @@
     "assets": {
         "web.assets_backend": [
             "premafirm_ai_engine/static/src/css/crm_kanban.css",
+            "premafirm_ai_engine/static/src/css/crm_attention.css",
             "premafirm_ai_engine/static/src/css/estimator_chat_panel.css",
             "premafirm_ai_engine/static/src/xml/google_address_widget.xml",
             "premafirm_ai_engine/static/src/xml/estimator_chat_panel.xml",
+            "premafirm_ai_engine/static/src/xml/crm_attention_templates.xml",
             "premafirm_ai_engine/static/src/js/google_places_utils.js",
+            "premafirm_ai_engine/static/src/js/crm_attention_chip.js",
+            "premafirm_ai_engine/static/src/js/crm_attention_list.js",
             "premafirm_ai_engine/static/src/js/google_address_widget.js",
             "premafirm_ai_engine/static/src/js/google_company_widget.js",
             "premafirm_ai_engine/static/src/js/google_partner_m2o.js",

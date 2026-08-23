@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <!-- Needs Attention drill-down list -->
+    <t t-name="premafirm.AttentionList">
+        <div class="o_premafirm_attention_list">
+            <div class="o_premafirm_attention_header">
+                <h2>
+                    <i class="fa fa-exclamation-circle text-danger me-2"/>
+                    Needs Attention
+                    <t t-if="state.loading">— loading…</t>
+                    <t t-else="">— <t t-esc="state.count"/></t>
+                </h2>
+                <span t-if="state.health"
+                      class="o_premafirm_health_badge o_premafirm_health_"
+                      t-att-class="'o_premafirm_health_badge o_premafirm_health_' + state.health.status"
+                      t-att-title="state.health.issues.join(' · ') || state.health.label">
+                    Email Health: <t t-esc="state.health.emoji"/>
+                    <t t-esc="state.health.label"/>
+                </span>
+            </div>
+
+            <section t-if="state.leads.length" class="o_premafirm_attention_section">
+                <h3>Leads</h3>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Customer / Company</th>
+                            <th>Reason</th>
+                            <th>Subject</th>
+                            <th>Received</th>
+                            <th>Salesperson</th>
+                            <th>Source</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <t t-foreach="state.leads" t-as="lead" t-key="lead.id">
+                            <tr>
+                                <td t-esc="lead.partner || lead.name"/>
+                                <td t-esc="lead.reason"/>
+                                <td t-esc="lead.subject"/>
+                                <td t-esc="lead.received_at"/>
+                                <td t-esc="lead.salesperson"/>
+                                <td t-esc="lead.source"/>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-primary"
+                                            t-on-click="() => openLead(lead.id)">
+                                        Open Lead
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary"
+                                            t-on-click="() => replyLead(lead.id)">
+                                        Reply
+                                    </button>
+                                </td>
+                            </tr>
+                        </t>
+                    </tbody>
+                </table>
+            </section>
+
+            <section t-if="state.queue.length" class="o_premafirm_attention_section">
+                <h3>Inbound Review</h3>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Subject</th>
+                            <th>From</th>
+                            <th>Classification</th>
+                            <th>Received</th>
+                            <th>Mailbox</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <t t-foreach="state.queue" t-as="item" t-key="item.id">
+                            <tr>
+                                <td t-esc="item.subject"/>
+                                <td t-esc="item.email_from"/>
+                                <td t-esc="item.classification_label"/>
+                                <td t-esc="item.received_at"/>
+                                <td t-esc="item.mailbox"/>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-primary"
+                                            t-on-click="() => openQueue(item.id)">
+                                        Review Thread
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary"
+                                            t-on-click="() => queueReviewed(item.id)">
+                                        Mark Reviewed
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary"
+                                            t-on-click="() => queueNoReply(item.id)">
+                                        No Reply Needed
+                                    </button>
+                                </td>
+                            </tr>
+                        </t>
+                    </tbody>
+                </table>
+            </section>
+
+            <div t-if="!state.loading &amp;&amp; !state.leads.length &amp;&amp; !state.queue.length"
+                 class="alert alert-success o_premafirm_attention_empty">
+                Nothing needs attention right now.
+            </div>
+        </div>
+    </t>
+</templates>

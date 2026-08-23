@@ -676,6 +676,8 @@ class PremafirmMailRouting(models.AbstractModel):
             ', return %s' % queue.ooo_return_date if queue.ooo_return_date else '',
             msg_dict.get('email_from'), msg_dict.get('subject'),
         )
+        # A new actionable queue item raises the global Needs Attention count.
+        self.env['premafirm.inbound.queue']._notify_attention()
         return queue
 
 
@@ -769,6 +771,13 @@ class MailThread(models.AbstractModel):
                             message_dict['author_id'] = partner.id
                     if kind == 'new_inquiry' and message_dict.get('author_id'):
                         cv['premafirm_attach_contact'] = message_dict['author_id']
+                    if kind == 'new_inquiry':
+                        # A genuine new sales inquiry is impossible to miss:
+                        # the created lead carries Needs Attention with the
+                        # New Inquiry reason until reviewed/contacted.
+                        cv['x_needs_attention'] = True
+                        cv['x_attention_at'] = fields.Datetime.now()
+                        cv['x_attention_reason'] = 'inquiry'
                     route = (_model, tid, cv, _uid, alias)
                 kept.append(route)
                 continue
@@ -866,20 +875,24 @@ class PremafirmInboundQueue(models.Model):
 
     def action_mark_reviewed(self):
         self.write({'state': 'reviewed'})
+        self._notify_attention()
         return True
 
     def action_mark_ignored(self):
         self.write({'state': 'ignored'})
+        self._notify_attention()
         return True
 
     def action_mark_bounce(self):
         self.write({'classification': 'bounce', 'state': 'reviewed',
                     'review_note': 'Marked as bounce by reviewer.'})
+        self._notify_attention()
         return True
 
     def action_mark_ooo(self):
         self.write({'classification': 'out_of_office', 'state': 'reviewed',
                     'review_note': 'Marked as out-of-office by reviewer.'})
+        self._notify_attention()
         return True
 
     def action_thread_to_lead(self):
@@ -907,6 +920,10 @@ class PremafirmInboundQueue(models.Model):
                 # PHASE 14 — reply discipline: complete the automatic
                 # follow-up(s), schedule Respond to Customer.
                 lead._on_meaningful_reply()
+            elif rec.classification == 'new_inquiry':
+                # Attention TRANSFERS to the lead — threading a queue item
+                # must never make the issue disappear.
+                lead._set_attention('inquiry')
             lead.message_post(
                 body=rec.body or '<p>(no body captured)</p>',
                 subject='Imported from Inbound Review Queue: %s' % (rec.name or ''),
@@ -916,6 +933,7 @@ class PremafirmInboundQueue(models.Model):
                 email_from=rec.email_from,
             )
             rec.write({'state': 'threaded', 'review_note': 'Threaded to lead %s' % lead.id})
+        self._notify_attention()
         return True
 
     def action_create_lead(self):
@@ -932,6 +950,10 @@ class PremafirmInboundQueue(models.Model):
                 # a reply.
                 'last_inbound_classification': 'new_inquiry',
                 'last_inbound_at': fields.Datetime.now(),
+                # New inbound inquiry — flagged until reviewed/contacted.
+                'x_needs_attention': True,
+                'x_attention_at': fields.Datetime.now(),
+                'x_attention_reason': 'inquiry',
             })
             lead.message_post(
                 body=rec.body or '<p>(no body captured)</p>',
@@ -942,4 +964,226 @@ class PremafirmInboundQueue(models.Model):
                 email_from=rec.email_from,
             )
             rec.write({'state': 'lead_created', 'review_note': 'Lead %s created' % lead.id})
+        self._notify_attention()
         return True
+
+    # ── Global Needs Attention (single server-side source of truth) ──
+
+    @api.model
+    def _attention_count(self):
+        """Canonical count of unresolved actionable CRM items:
+
+        A. crm.lead with x_needs_attention = True (customer reply, new
+           inquiry, queue-threaded reply, or assignment) on a live stage
+           (won/folded leads are resolved by definition);
+        B. Inbound Review Queue rows still in state 'new' for the two
+           classes that REQUIRE a human decision (unmatched_reply /
+           new_inquiry).
+
+        An item is either on a lead (A) or still in the queue (B) — never
+        both — so nothing is counted twice. Non-actionable classes
+        (bounce/OOO/auto-reply/complaint/noise) and queue items already
+        reviewed/threaded/ignored/lead_created never count.
+        """
+        leads = self.env['crm.lead'].sudo().search_count([
+            ('x_needs_attention', '=', True),
+            ('stage_id.is_won', '=', False),
+            ('stage_id.fold', '=', False),
+        ])
+        queued = self.search_count([
+            ('state', '=', 'new'),
+            ('classification', 'in', ('unmatched_reply', 'new_inquiry')),
+        ])
+        return leads + queued
+
+    @api.model
+    def attention_count(self):
+        """RPC-able wrapper for the webclient chip."""
+        return self._attention_count()
+
+    @api.model
+    def _notify_attention(self):
+        """Push the live count to the CRM webclient via the Odoo bus.
+        Best-effort: a failed push must never break the triggering save."""
+        try:
+            self.env['bus.bus']._sendone(
+                'crm_needs_attention', 'attention_update',
+                {'count': self._attention_count()})
+        except Exception:
+            _logger.debug('attention bus push failed', exc_info=True)
+
+    @api.model
+    def attention_payload(self, limit=100):
+        """Drill-down payload for the Needs Attention list: the canonical
+        count, the unresolved leads, the actionable queue rows, and the
+        small read-only Email Health status."""
+        now = fields.Datetime.now()
+        Lead = self.env['crm.lead'].sudo()
+        leads = Lead.search([
+            ('x_needs_attention', '=', True),
+            ('stage_id.is_won', '=', False),
+            ('stage_id.fold', '=', False),
+        ], order='x_attention_at desc, id desc', limit=limit)
+        lead_rows = []
+        if leads:
+            # Latest chatter message per lead (one grouped query) for the
+            # subject column.
+            msg_rows = self.env['mail.message'].sudo().search_read(
+                [('model', '=', 'crm.lead'),
+                 ('res_id', 'in', leads.ids),
+                 ('message_type', 'in',
+                  ('email', 'email_outgoing', 'comment'))],
+                ['res_id', 'subject'], order='date desc')
+            subj = {}
+            for r in msg_rows:
+                if r['res_id'] not in subj:
+                    subj[r['res_id']] = r['subject'] or ''
+            for l in leads:
+                lead_rows.append({
+                    'id': l.id,
+                    'name': l.name,
+                    'partner': l.partner_id.name or '',
+                    'reason': l.x_attention_reason or '',
+                    'source': {'reply': 'Customer Reply',
+                               'inquiry': 'New Inquiry',
+                               'assignment': 'Assignment',
+                               'queue': 'Inbound Review'}.get(
+                                   l.x_attention_reason or '', ''),
+                    'subject': subj.get(l.id, ''),
+                    'received_at': (l.x_attention_at or l.create_date or now)
+                        .strftime('%Y-%m-%d %H:%M'),
+                    'salesperson': l.user_id.name or '',
+                })
+        queued = self.search([
+            ('state', '=', 'new'),
+            ('classification', 'in', ('unmatched_reply', 'new_inquiry')),
+        ], order='create_date desc, id desc', limit=limit)
+        queue_rows = []
+        class_labels = dict(
+            self._fields['classification'].selection)
+        for q in queued:
+            queue_rows.append({
+                'id': q.id,
+                'subject': q.name,
+                'email_from': q.email_from,
+                'partner': q.partner_id.name or '',
+                'classification': q.classification,
+                'classification_label': class_labels.get(
+                    q.classification, q.classification),
+                'received_at': (q.create_date or now)
+                    .strftime('%Y-%m-%d %H:%M'),
+                'mailbox': q.mailbox or '',
+                'thread_candidate': q.thread_candidate_id.name or '',
+            })
+        return {
+            'count': self._attention_count(),
+            'leads': lead_rows,
+            'queue': queue_rows,
+            'email_health': self._email_health(now),
+        }
+
+    # ── Email Health (small, read-only infrastructure status) ────────
+
+    @api.model
+    def _email_health(self, now=None):
+        """Email Health = mail INFRASTRUCTURE only (inbound fetches,
+        outbound webhooks, bounces, stuck outbound). It is deliberately
+        separate from Needs Attention (sales work). "Not opened" is
+        informational and NEVER a health problem.
+
+        Thresholds derive from the actual infrastructure cadence:
+        - inbound: 3× the real fetchmail cron interval (the cron defines
+          the expected fetch cadence; 3× is the grace before "stale")
+        - outbound: > 24h without a Resend webhook event on a
+          daily-outbound shop
+        - bounces/complaints/failures and mail.mail exceptions: counted
+          over the last 24h
+        """
+        now = now or fields.Datetime.now()
+        issues = []
+        red = orange = False
+
+        # 1 — inbound mailbox fetch freshness (per active server)
+        interval_min = 30
+        cron = self.env['ir.cron'].sudo().search([
+            ('model_id.model', '=', 'fetchmail.server'),
+        ], limit=1)
+        if cron:
+            n = cron.interval_number or 1
+            unit = cron.interval_type or 'minutes'
+            interval_min = {'minutes': n, 'hours': n * 60,
+                            'days': n * 1440, 'weeks': n * 10080}.get(
+                                unit, n)
+        grace_min = interval_min * 3
+        Run = self.env['premafirm.fetchmail.run'].sudo()
+        last_fetch = None
+        for server in self.env['fetchmail.server'].sudo().search(
+                [('active', '=', True)]):
+            last = Run.search([('server_id', '=', server.id)],
+                              order='create_date desc, id desc', limit=1)
+            if not last:
+                continue
+            if last_fetch is None or last.create_date > last_fetch:
+                last_fetch = last.create_date
+            age_min = (now - last.create_date).total_seconds() / 60
+            if last.state == 'failed' and age_min < interval_min:
+                orange = True
+                issues.append('last fetch failed: %s' % server.name)
+            elif age_min > grace_min:
+                red = True
+                issues.append('no inbound fetch for %.0f min: %s'
+                              % (age_min, server.name))
+
+        # 2 — outbound webhook freshness (Resend provider events)
+        Event = self.env['premafirm.mail.provider.event'].sudo()
+        last_event = Event.search([], order='received_at desc, id desc',
+                                  limit=1)
+        if last_event:
+            age_h = (now - last_event.received_at).total_seconds() / 3600
+            if age_h > 24:
+                orange = True
+                issues.append('no webhook event for %.0fh' % age_h)
+        elif self.env['prema.resend.message.map'].sudo().search_count([]):
+            orange = True
+            issues.append('no webhook events ever recorded')
+
+        # 3 — hard infrastructure events in the last 24h
+        cut = now - timedelta(hours=24)
+        hard_24 = Event.search_count([
+            ('received_at', '>=', cut),
+            ('event_type', 'in', ('bounced', 'complained', 'failed'))])
+        if hard_24:
+            orange = True
+            issues.append('%d bounce/complaint/failure events in 24h'
+                          % hard_24)
+
+        # 4 — mail.mail exceptions in the last 24h (outbound stuck)
+        exc_24 = self.env['mail.mail'].sudo().search_count([
+            ('state', '=', 'exception'), ('write_date', '>=', cut)])
+        if exc_24:
+            orange = True
+            issues.append('%d mail.mail exceptions in 24h' % exc_24)
+
+        # 5 — informational only, never a health problem
+        unmatched = self.search_count([('state', '=', 'new')])
+
+        if red:
+            status, label = 'red', 'Attention Required'
+        elif orange:
+            status, label = 'orange', 'Attention'
+        else:
+            status, label = 'green', 'Healthy'
+        return {
+            'status': status,
+            'label': label,
+            'emoji': {'green': '🟢', 'orange': '🟠',
+                      'red': '🔴'}[status],
+            'issues': issues,
+            'last_fetch': (last_fetch.strftime('%Y-%m-%d %H:%M')
+                           if last_fetch else ''),
+            'fetch_interval_min': interval_min,
+            'last_webhook_event': (last_event.received_at
+                                   .strftime('%Y-%m-%d %H:%M')
+                                   if last_event else ''),
+            'unmatched_queue': unmatched,
+        }

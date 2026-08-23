@@ -53,6 +53,8 @@ class CrmLeadMLHooks(models.Model):
         [
             ('reply', 'Reply'),
             ('assignment', 'Assignment'),
+            ('inquiry', 'New Inquiry'),
+            ('queue', 'Inbound Review'),
         ],
         string='Attention Reason',
         help='Why this lead is currently marked as needing attention.',
@@ -151,39 +153,14 @@ class CrmLeadMLHooks(models.Model):
     # create_date in x_meaningful_activity_at and rise to the top.
     _order = 'x_meaningful_activity_at asc, create_date asc, id asc'
 
-    def read(self, fields=None, load='_classic_read'):
-        # Clear the flashing "needs attention" flag when the assigned
-        # salesperson actually opens this specific lead. Guarded tightly:
-        # - len(self) == 1: kanban/list always read a batch of ids, only a
-        #   form view reads exactly one, so this is never true for a list/kanban render.
-        # - not self.env.su: excludes cron jobs / any .sudo() internal call.
-        # - self.env.uid == self.user_id.id: only the record's own assigned
-        #   salesperson clears it by viewing it -- not admin, not a colleague
-        #   browsing, not an unrelated background process touching the record.
-        # Without these guards this fired on ANY internal single-record read
-        # (crons, compute methods, etc.) and silently cleared the flag with
-        # nobody ever having looked at the lead -- caught in testing 2026-07-07.
-        #
-        # Extended 2026-07-15: team-queue leads (e.g. website "Call Back" requests)
-        # are created unassigned (user_id is False) so any team member can pick one
-        # up -- the strict self.user_id.id check above never matches for those, so
-        # opening one never cleared the flag. For an unassigned lead, also allow any
-        # member of the lead's own sales team to clear it by opening it (still
-        # excludes unrelated colleagues outside that team).
-        result = super().read(fields=fields, load=load)
-        if len(self) == 1 and self.x_needs_attention and not self.env.su:
-            is_assigned_owner = self.env.uid == self.user_id.id
-            is_team_member_on_unassigned = (
-                not self.user_id
-                and self.team_id
-                and self.env.uid in self.team_id.crm_team_member_ids.user_id.ids
-            )
-            if is_assigned_owner or is_team_member_on_unassigned:
-                try:
-                    self.sudo().write({'x_needs_attention': False})
-                except Exception as exc:
-                    _logger.debug('Failed to clear x_needs_attention on read for lead %s: %s', self.id, exc)
-        return result
+    # NOTE 2026-08-22: the clear-on-open mechanism (a read() override that
+    # silently cleared x_needs_attention when the assigned salesperson
+    # opened the lead) has been DELIBERATELY REMOVED. Opening or viewing a
+    # lead must NEVER resolve Needs Attention — the attention stays until a
+    # real resolution happens (salesperson reply sent, Mark Reviewed,
+    # No Reply Needed, or non-actionable classification). See
+    # _set_attention/_clear_attention below and _on_meaningful_reply /
+    # _on_sales_response in crm_activity_discipline.py.
 
     def write(self, vals):
         previous_user_ids = {}
@@ -212,6 +189,17 @@ class CrmLeadMLHooks(models.Model):
                 except Exception as exc:
                     _logger.debug('CRM lead assignment attention hook error on lead %s: %s', lead.id, exc)
 
+        # Won / folded (archived) leads never need attention — a resolved
+        # deal or a parked column is no longer actionable sales work.
+        if 'stage_id' in vals:
+            for lead in self:
+                try:
+                    if (lead.stage_id and (lead.stage_id.is_won or lead.stage_id.fold)
+                            and lead.x_needs_attention):
+                        lead._clear_attention()
+                except Exception as exc:
+                    _logger.debug('CRM attention clear-on-won error on lead %s: %s', lead.id, exc)
+
         # Queue on stage change or probability change
         if 'stage_id' in vals or 'probability' in vals:
             for lead in self:
@@ -237,6 +225,41 @@ class CrmLeadMLHooks(models.Model):
                     _logger.debug('CRM lead write hook error: %s', exc)
 
         return result
+
+    # ── Needs Attention lifecycle (single activation/resolution API) ──
+
+    def _set_attention(self, reason='reply', at=None):
+        """Activation — attention may ONLY be raised by real events:
+        a customer reply, a new inbound inquiry, a queue-threaded reply,
+        or a new assignment. NEVER by viewing the lead.
+
+        Resolution comes only from _clear_attention (real response sent,
+        explicit Mark Reviewed / No Reply Needed, non-actionable
+        classification, or won/folded stage)."""
+        if not self:
+            return False
+        at = at or fields.Datetime.now()
+        self.sudo().write({
+            'x_needs_attention': True,
+            'x_attention_at': at,
+            'x_attention_reason': reason,
+        })
+        self.env['premafirm.inbound.queue']._notify_attention()
+        return True
+
+    def _clear_attention(self):
+        """Resolution — clears attention. Called ONLY when the
+        salesperson actually responded or explicitly resolved the item.
+        Safe to call on leads that were never flagged (no-op)."""
+        if not self or not any(lead.x_needs_attention for lead in self):
+            return False
+        self.sudo().write({
+            'x_needs_attention': False,
+            'x_attention_at': False,
+            'x_attention_reason': False,
+        })
+        self.env['premafirm.inbound.queue']._notify_attention()
+        return True
 
     def _queue_ingest(self, operation, knowledge_type, input_context, good_output, source_ref, weight=1.0):
         """Create a queue item for async ML ingestion. Never raises."""

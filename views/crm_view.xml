@@ -166,6 +166,21 @@
                         icon="fa-refresh"/>
             </xpath>
 
+            <!-- Needs Attention banner: visible while unresolved, NOT
+                 cleared by opening the lead (clear-on-open removed
+                 2026-08-22 — only a real response/review resolves it). -->
+            <xpath expr="//sheet" position="before">
+                <div class="alert alert-danger premafirm-attention"
+                     invisible="x_needs_attention == False"
+                     style="margin: 8px 12px 0;">
+                    <field name="x_needs_attention" invisible="1"/>
+                    <i class="fa fa-exclamation-circle me-2"/>
+                    <span><b>Customer Reply — Needs Response</b> —
+                        this lead stays flagged until a reply is sent or it
+                        is explicitly marked reviewed.</span>
+                </div>
+            </xpath>
+
         </field>
     </record>
 </odoo>

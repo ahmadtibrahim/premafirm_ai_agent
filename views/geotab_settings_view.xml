@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <!-- 18.0.7.5.0: the old "Freight Tax Configuration" settings block was
+         removed (duplicate UI over the canonical prema_logistics_booking
+         mappings). Odoo does NOT drop records removed from XML on upgrade,
+         so explicitly delete the stale view — its fields no longer exist
+         and its presence breaks res.config.settings view validation. -->
+    <delete model="ir.ui.view"
+            search="[('name', '=', 'res.config.settings.view.freight.tax')]"/>
     <record id="res_config_settings_view_geotab" model="ir.ui.view">
         <field name="name">res.config.settings.view.geotab</field>
         <field name="model">res.config.settings</field>
@@ -254,81 +261,4 @@
         </field>
     </record>
 
-    <record id="res_config_settings_view_freight_tax" model="ir.ui.view">
-        <field name="name">res.config.settings.view.freight.tax</field>
-        <field name="model">res.config.settings</field>
-        <field name="inherit_id" ref="base_setup.res_config_settings_view_form"/>
-        <field name="arch" type="xml">
-            <xpath expr="//div[@id='prema_ai_settings']" position="inside">
-                <h3 class="mt16">Freight Tax Configuration</h3>
-                <div class="text-muted mb-2">
-                    Destination-based freight tax rules. Tax is selected based on the FINAL delivery province.
-                </div>
-                <div class="row mt8 o_settings_container">
-                    <div class="col-12 col-lg-6 o_setting_box">
-                        <div class="o_setting_right_pane">
-                            <label for="freight_tax_ontario_id" string="Ontario Freight Tax (13% HST)"/>
-                            <field name="freight_tax_ontario_id" domain="[('type_tax_use','=','sale')]"/>
-                        </div>
-                    </div>
-                    <div class="col-12 col-lg-6 o_setting_box">
-                        <div class="o_setting_right_pane">
-                            <label for="freight_tax_quebec_id" string="Quebec Freight Tax (GST+QST)"/>
-                            <field name="freight_tax_quebec_id" domain="[('type_tax_use','=','sale')]"/>
-                        </div>
-                    </div>
-                </div>
-                <div class="row mt8 o_settings_container">
-                    <div class="col-12 col-lg-6 o_setting_box">
-                        <div class="o_setting_right_pane">
-                            <label for="freight_tax_ns_id" string="Nova Scotia (15% HST)"/>
-                            <field name="freight_tax_ns_id" domain="[('type_tax_use','=','sale')]"/>
-                        </div>
-                    </div>
-                    <div class="col-12 col-lg-6 o_setting_box">
-                        <div class="o_setting_right_pane">
-                            <label for="freight_tax_nb_id" string="New Brunswick (15% HST)"/>
-                            <field name="freight_tax_nb_id" domain="[('type_tax_use','=','sale')]"/>
-                        </div>
-                    </div>
-                </div>
-                <div class="row mt8 o_settings_container">
-                    <div class="col-12 col-lg-6 o_setting_box">
-                        <div class="o_setting_right_pane">
-                            <label for="freight_tax_pei_id" string="PEI (15% HST)"/>
-                            <field name="freight_tax_pei_id" domain="[('type_tax_use','=','sale')]"/>
-                        </div>
-                    </div>
-                    <div class="col-12 col-lg-6 o_setting_box">
-                        <div class="o_setting_right_pane">
-                            <label for="freight_tax_nl_id" string="Newfoundland &amp; Labrador (15% HST)"/>
-                            <field name="freight_tax_nl_id" domain="[('type_tax_use','=','sale')]"/>
-                        </div>
-                    </div>
-                </div>
-                <div class="row mt8 o_settings_container">
-                    <div class="col-12 col-lg-6 o_setting_box">
-                        <div class="o_setting_right_pane">
-                            <label for="freight_tax_gst_id" string="GST (5% — AB/BC/MB/SK/NT/YT/NU)"/>
-                            <field name="freight_tax_gst_id" domain="[('type_tax_use','=','sale')]"/>
-                        </div>
-                    </div>
-                    <div class="col-12 col-lg-6 o_setting_box">
-                        <div class="o_setting_right_pane">
-                            <label for="freight_tax_zero_interlining_id" string="Zero Rated Interlining (0%)"/>
-                            <field name="freight_tax_zero_interlining_id" domain="[('type_tax_use','=','sale')]"/>
-                        </div>
-                    </div>
-                </div>
-                <div class="row mt8 o_settings_container">
-                    <div class="col-12 col-lg-6 o_setting_box">
-                        <div class="o_setting_right_pane">
-                            <label for="freight_tax_zero_international_id" string="International Zero Rated (0%)"/>
-                            <field name="freight_tax_zero_international_id" domain="[('type_tax_use','=','sale')]"/>
-                        </div>
-                    </div>
-                </div>
-            </xpath>
-        </field>
-    </record>
 </odoo>

@@ -230,62 +230,6 @@ class ResConfigSettings(models.TransientModel):
     )
 
     # ------------------------------------------------------------------
-    # Freight Tax Configuration (destination-based)
-    # ------------------------------------------------------------------
-
-    freight_tax_ontario_id = fields.Many2one(
-        "account.tax", string="Ontario Freight Tax",
-        config_parameter="logistics.freight_tax_ontario_id",
-        help="Tax applied when final delivery is in Ontario (13% HST).",
-    )
-    freight_tax_quebec_id = fields.Many2one(
-        "account.tax", string="Quebec Freight Tax",
-        config_parameter="logistics.freight_tax_quebec_id",
-        help="Tax applied when final delivery is in Quebec (GST+QST group).",
-    )
-    freight_tax_ns_id = fields.Many2one(
-        "account.tax", string="Nova Scotia Freight Tax",
-        config_parameter="logistics.freight_tax_ns_id",
-        help="Tax applied when final delivery is in Nova Scotia (15% HST).",
-    )
-    freight_tax_nb_id = fields.Many2one(
-        "account.tax", string="New Brunswick Freight Tax",
-        config_parameter="logistics.freight_tax_nb_id",
-        help="Tax applied when final delivery is in New Brunswick (15% HST).",
-    )
-    freight_tax_pei_id = fields.Many2one(
-        "account.tax", string="PEI Freight Tax",
-        config_parameter="logistics.freight_tax_pei_id",
-        help="Tax applied when final delivery is in PEI (15% HST).",
-    )
-    freight_tax_nl_id = fields.Many2one(
-        "account.tax", string="NL Freight Tax",
-        config_parameter="logistics.freight_tax_nl_id",
-        help="Tax applied when final delivery is in Newfoundland & Labrador (15% HST).",
-    )
-    freight_tax_gst_id = fields.Many2one(
-        "account.tax", string="GST Freight Tax",
-        config_parameter="logistics.freight_tax_gst_id",
-        help="Tax applied when final delivery is in AB, BC, MB, SK, NT, YT, or NU (5% GST).",
-    )
-    freight_tax_zero_interlining_id = fields.Many2one(
-        "account.tax", string="Zero Rated Interlining Tax",
-        config_parameter="logistics.freight_tax_zero_interlining_id",
-        help="Tax applied for interlining/subcontract customers (0%).",
-    )
-    freight_tax_zero_international_id = fields.Many2one(
-        "account.tax", string="International Zero Rated Tax",
-        config_parameter="logistics.freight_tax_zero_international_id",
-        help="Tax applied for international/export shipments (0%).",
-    )
-    freight_tax_manual_review_default = fields.Boolean(
-        string="Default Manual Review Status",
-        config_parameter="logistics.freight_tax_manual_review_default",
-        default=False,
-        help="If enabled, bookings with Manual Review tax treatment will be set to Needs Tax Review.",
-    )
-
-    # ------------------------------------------------------------------
     # Invoice BCC
     # ------------------------------------------------------------------
 

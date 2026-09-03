@@ -21,11 +21,18 @@ if stage:
         </record>
 
         <!-- ── Automated action: NEW / UNCONTACTED → OUTREACH SENT when contact details complete ── -->
+        <!-- Issue 13: DISABLED.  Contact completeness never means outreach
+             was sent — this on_write rule (no watched field) moved any
+             complete-details lead on ANY ordinary edit.  The stage now
+             advances only from a genuine outbound customer email posted on
+             the lead (crm_reply_status._message_post_after_hook).  The
+             existing DB record is deactivated by the 18.0.7.7.0 migration
+             (noupdate="1" cannot flip it on upgraded databases). -->
         <record id="automation_new_to_outreach" model="base.automation">
             <field name="name">CRM: NEW / UNCONTACTED → OUTREACH SENT (contact details complete)</field>
             <field name="model_id" ref="crm.model_crm_lead"/>
             <field name="trigger">on_write</field>
-            <field name="active" eval="True"/>
+            <field name="active" eval="False"/>
             <!-- Filter: must be in NEW / UNCONTACTED, have a tag, have an email, and contact must be under a company -->
             <field name="filter_domain">[('stage_id.name', '=', 'NEW / UNCONTACTED'), ('tag_ids', '!=', False), ('email_from', '!=', False), ('partner_id', '!=', False), ('partner_id.parent_id', '!=', False)]</field>
             <field name="action_server_ids" eval="[(4, ref('action_server_new_to_outreach'))]"/>

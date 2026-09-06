@@ -119,3 +119,6 @@ from . import voipms_call_log
 # PHASES 6-7 — safe Fetch Now + inbound dedupe (imported LAST so its
 # message_route override runs first in the MRO)
 from . import fetchmail_safety
+
+# E-A2 — estimate-draft (non-binding draft replies; no send path)
+from . import premafirm_estimate_reply

@@ -63,3 +63,4 @@ access_crm_lead_contact_user,crm lead contact user,model_crm_lead_contact,base.g
 access_crm_lead_contact_sys,crm lead contact sys,model_crm_lead_contact,base.group_system,1,1,1,1
 access_crm_lead_freight_lane_user,crm lead freight lane user,model_crm_lead_freight_lane,base.group_user,1,1,1,1
 access_crm_lead_freight_lane_sys,crm lead freight lane sys,model_crm_lead_freight_lane,base.group_system,1,1,1,1
+access_premafirm_lead_estimate_reply_user,premafirm lead estimate reply user,model_premafirm_lead_estimate_reply,base.group_user,1,1,1,0

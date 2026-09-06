@@ -40,6 +40,7 @@
         "data/crm_followup_service_data.xml",
         "data/crm_followup_cron.xml",
         "data/crm_workflow_automations.xml",
+        "data/crm_automation_fixes.xml",
         "data/crm_workspace_data.xml",
         "data/crm_data_cleanup_data.xml",
         "data/mail_provider_event_data.xml",

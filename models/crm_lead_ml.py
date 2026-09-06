@@ -94,6 +94,18 @@ class CrmLeadML(models.Model):
 
     # ── Full conversation learning hook ─────────────────────────────
 
+    def _register_hook(self):
+        """base_automation monkey-patches message_post on mail-thread models with a bare
+        closure (make_message_post) that carries no @api.returns — its .origin is our
+        decorated override, but the installed wrapper is what call_kw() sees, so XML-RPC
+        gets an unmarshalable recordset. Stamp _returns onto the wrapper (runs after
+        base.automation's hook: registry order 411 < 413)."""
+        super()._register_hook()
+        fn = type(self).__dict__.get('message_post')
+        if fn is not None and hasattr(fn, 'origin') and not getattr(fn, '_returns', None):
+            api.returns('mail.message', lambda value: value.id)(fn)
+
+    @api.returns('mail.message', lambda value: value.id)
     def message_post(self, **kwargs):
         result = super().message_post(**kwargs)
         if not result:

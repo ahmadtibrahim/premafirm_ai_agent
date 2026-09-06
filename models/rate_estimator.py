@@ -1168,15 +1168,13 @@ class PremafirmRateEstimator(models.Model):
                 }
 
             from ..services.deepseek_utils import get_api_key as _get_deepseek_key
-            openai_key = _get_deepseek_key(self.env) or ""
-            if not openai_key:
+            ai_key = _get_deepseek_key(self.env) or ""
+            if not ai_key:
                 return {"error": "AI API key not configured. Set deepseek.api_key in System Parameters."}
 
             from ..services.deepseek_utils import deepseek_chat
-            from ..services.openai_utils import openai_chat
             import json as _json
             raw_text = local_result.get("raw_text", "")
-            used_vision = False
 
             system_prompt = (
                 "You are a freight dispatch assistant. Extract all pickup and delivery stops "
@@ -1189,72 +1187,35 @@ class PremafirmRateEstimator(models.Model):
             )
 
             from ..services.deepseek_utils import get_model as _get_deepseek_model
-            claude_key = openai_key
             claude_model = _get_deepseek_model(self.env)
 
-            ICP = self.env["ir.config_parameter"].sudo()
-            vision_key = ICP.get_param("openai.api_key") or ICP.get_param("prema_ai.api_key") or ""
-            vision_model = ICP.get_param("prema_ai.vision_model") or "gpt-4o-mini"
+            # DeepSeek is text-only — if the local parser produced little/no
+            # text, OCR the file locally (tesseract). Images never leave the box.
+            if not raw_text or len(raw_text) < 100:
+                try:
+                    import base64 as _b64
+                    from ..services import document_extractor
+                    ocr_text, _ocr_method = document_extractor.extract_text(
+                        _b64.b64decode(file_b64), mimetype, filename)
+                    if ocr_text and len(ocr_text) >= 100:
+                        raw_text = ocr_text
+                except Exception as ocr_err:
+                    _logger.warning("Route-sheet local OCR failed: %s", ocr_err)
+                if not raw_text or len(raw_text) < 100:
+                    return {"error": "Could not read the route sheet. Try a clearer scan or a PDF with a text layer."}
 
-            if raw_text and len(raw_text) >= 100:
-                messages = [
+            content = deepseek_chat(
+                messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Route sheet content:\n\n{raw_text[:8000]}\n\nExtra notes from dispatcher: {extra_notes}"},
-                ]
-            else:
-                # Vision path — DeepSeek's API rejects image content outright, so this
-                # must go through OpenAI. Only JPEG/PNG/GIF/WebP, NOT PDF (converted below).
-                used_vision = True
-                if not vision_key:
-                    return {"error": "OpenAI API key not configured. Set openai.api_key in System Parameters (required for scanning image route sheets)."}
-                vision_b64 = file_b64
-                vision_mime = mimetype
-
-                if mimetype in ("application/pdf", "pdf"):
-                    # Convert first PDF page to JPEG for vision
-                    try:
-                        import base64 as _b64
-                        from pdf2image import convert_from_bytes
-                        raw_pdf = _b64.b64decode(file_b64)
-                        pages = convert_from_bytes(raw_pdf, first_page=1, last_page=2,
-                                                   dpi=150, fmt="jpeg")
-                        if pages:
-                            import io as _io
-                            buf = _io.BytesIO()
-                            pages[0].save(buf, format="JPEG", quality=85)
-                            vision_b64 = _b64.b64encode(buf.getvalue()).decode("utf-8")
-                            vision_mime = "image/jpeg"
-                        else:
-                            return {"error": "Could not render PDF to image for analysis."}
-                    except Exception as pdf_err:
-                        _logger.warning("PDF→JPEG conversion failed: %s", pdf_err)
-                        return {"error": f"PDF vision conversion failed: {pdf_err}. Try uploading a JPEG image instead."}
-
-                image_url = f"data:{vision_mime};base64,{vision_b64}"
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": [
-                        {"type": "image_url", "image_url": {"url": image_url, "detail": "high"}},
-                        {"type": "text", "text": f"Extract all stops from this route sheet. Extra notes: {extra_notes}"},
-                    ]},
-                ]
-
-            if used_vision:
-                content = openai_chat(
-                    messages=messages,
-                    max_tokens=2000,
-                    api_key=vision_key,
-                    model=vision_model,
-                    timeout=90,
-                )
-            else:
-                content = deepseek_chat(
-                    messages=messages,
-                    max_tokens=2000,
-                    api_key=claude_key,
-                    model=claude_model,
-                    timeout=90,
-                )
+                    {"role": "user", "content": (
+                        f"Route sheet content:\n\n{raw_text[:8000]}\n\n"
+                        f"Extra notes from dispatcher: {extra_notes}")},
+                ],
+                max_tokens=2000,
+                api_key=ai_key,
+                model=claude_model,
+                timeout=90,
+            )
             # Robust JSON extraction (handles markdown fences from Claude)
             content = content.strip()
             # Try direct parse, then fence strip, then brace-match
@@ -1316,7 +1277,7 @@ class PremafirmRateEstimator(models.Model):
                 "stops": stops,
                 "notes": trip_notes,
                 "raw_text": raw_text[:500] if raw_text else "",
-                "used_vision": used_vision,
+                "used_vision": False,
                 "used_ai": True,
                 "document_type": local_result.get("document_type", "unknown"),
                 "confidence": local_result.get("confidence", 0.0),

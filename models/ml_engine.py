@@ -21,8 +21,6 @@ from odoo.addons.premafirm_ai_engine.services.deepseek_utils import (
     get_model as _get_deepseek_model,
     today_context_line as _today_context_line,
 )
-from odoo.addons.premafirm_ai_engine.services.openai_utils import openai_chat as _openai_chat
-
 _logger = logging.getLogger(__name__)
 
 
@@ -38,14 +36,10 @@ class PremafirmMLEngine(models.AbstractModel):
     def _model(self):
         return _get_deepseek_model(self.env)
 
-    def _vision_api_key(self):
-        """Vision extraction needs OpenAI — DeepSeek's chat API rejects image_url content."""
-        return (self.env['ir.config_parameter'].sudo().get_param('openai.api_key') or '').strip()
-
-    # ── Claude call ───────────────────────────────────────────────
+    # ── LLM call ──────────────────────────────────────────────────
 
     def _gpt(self, system_prompt, user_prompt, max_tokens=1024):
-        """Calls OpenAI. Name kept as _gpt for backward compatibility."""
+        """DeepSeek call. Name kept as _gpt for backward compatibility."""
         api_key = self._api_key()
         if not api_key:
             return None, '⚠ DeepSeek API key not configured. Set deepseek.api_key in Settings.'
@@ -142,18 +136,15 @@ class PremafirmMLEngine(models.AbstractModel):
 
     def extract_load_tender(self, image_b64, mimetype, message_text=''):
         """
-        Use GPT-4o vision to extract structured freight data from a load tender image.
+        Extract structured freight data from a load tender file.
+        PDF → text layer / DeepSeek text parse; image → local tesseract OCR →
+        DeepSeek text parse. No vision API — images never leave the server.
         Returns a dict or None on failure.
         """
         api_key = self._api_key()
         if not api_key:
             return None
 
-        vision_model = self.env['ir.config_parameter'].sudo().get_param(
-            'prema_ai.vision_model', 'gpt-4o')
-        vision_key = self._vision_api_key()
-
-        # Build data URL for the image
         mime = (mimetype or 'image/jpeg').split(';')[0].strip()
         if 'pdf' in mime:
             # PDF: try text extraction instead of vision
@@ -165,7 +156,7 @@ class PremafirmMLEngine(models.AbstractModel):
                 return self._extract_load_tender_from_text(merged_text, api_key, self._model())
             return None
 
-        # ── Try free OCR before paying for vision ─────────────────────
+        # ── Local OCR (tesseract) → DeepSeek text parse ──────────────
         try:
             from odoo.addons.premafirm_ai_engine.services import document_extractor
             raw = base64.b64decode(image_b64)
@@ -175,57 +166,12 @@ class PremafirmMLEngine(models.AbstractModel):
                 merged = ocr_text
                 if message_text:
                     merged += '\n\n[WhatsApp message context]\n' + message_text[:1500]
-                result = self._extract_load_tender_from_text(merged, api_key, self._model())
-                if result and result.get('stops'):
-                    return result
-                # OCR text was present but GPT couldn't parse it cleanly — fall through to vision
+                return self._extract_load_tender_from_text(merged, api_key, self._model())
+            _logger.warning('extract_load_tender: local OCR produced too little text (%d chars)',
+                            len(ocr_text or ''))
         except Exception as e:
-            _logger.debug('OCR pre-check failed, falling back to vision: %s', e)
-        # ── Vision API fallback (only when OCR fails or yields no stops) ──
-
-        data_url = f"data:{mime};base64,{image_b64.decode() if isinstance(image_b64, bytes) else image_b64}"
-
-        prompt = (
-            f"{_today_context_line()} "
-            "Extract all freight load tender / bill of lading data from this image. "
-            "Return ONLY valid JSON with this exact structure (no markdown, no extra text):\n"
-            '{"equipment_type":"","commodity":"","total_weight_lbs":0,"service_type":"Multi-stop delivery",'
-            '"offered_rate":0,"pickup_company":"","fuel_included":true,"liftgate_included":false,'
-            '"reefer_or_dry":"dry",'
-            '"pickup_time":"'
-            '",'
-            '"stops":[{"type":"pickup","company_name":"","street":"","city":"","province":"",'
-            '"po_number":"","load_tender_ref":"","pallets":0,"weight_lbs":0,'
-            '"scheduled_time":"","liftgate":false,"special_instructions":""}]}'
-            "\n\nRules:"
-            "\n- offered_rate = 0 if not shown."
-            "\n- reefer_or_dry: 'reefer' if refrigerated/frozen/chilled load, otherwise 'dry'."
-            "\n- total_weight_lbs: sum of all stop weights ONLY if explicitly shown on the document. If weight is not stated, set total_weight_lbs to 0 and all stop weight_lbs to 0. Never estimate weight from pallet or box counts."
-            + self._load_tender_stop_rules()
-        )
-        if message_text:
-            prompt += "\n\nWhatsApp message text sent with this tender:\n" + message_text[:1500]
-
-        if not vision_key:
-            _logger.warning('extract_load_tender: no openai.api_key configured for vision fallback')
-            return None
-        try:
-            content = _openai_chat(
-                messages=[{'role': 'user', 'content': [
-                    {'type': 'image_url', 'image_url': {'url': data_url, 'detail': 'high'}},
-                    {'type': 'text', 'text': prompt},
-                ]}],
-                max_tokens=1500,
-                api_key=vision_key,
-                model=vision_model,
-                timeout=60,
-            )
-            content = re.sub(r'^```(?:json)?\s*', '', content)
-            content = re.sub(r'\s*```$', '', content)
-            return json.loads(content)
-        except Exception as e:
-            _logger.warning('extract_load_tender failed: %s', e)
-            return None
+            _logger.debug('extract_load_tender: local OCR failed: %s', e)
+        return None
 
     def _extract_load_tender_from_text(self, text, api_key, model):
         """Fallback: extract load tender data from plain text (e.g. PDF)."""

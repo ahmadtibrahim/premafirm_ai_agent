@@ -48,6 +48,7 @@ class CrmLead(models.Model):
             },
         }
 
+    @api.returns('mail.message', lambda value: value.id)
     def message_post(self, **kwargs):
         # No email_from injection — Odoo's own default sender is used
         # (business decision 2026-08-20: tag-based From override removed).

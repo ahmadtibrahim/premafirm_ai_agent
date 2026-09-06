@@ -70,7 +70,11 @@ class QuoteApprovalPortal(http.Controller):
                     {'error': 'Quotation has already been processed.'}, status=409)
 
             sig = order._register_customer_approval(customer_name, ip, ua, 'portal')
-            order.sudo().action_confirm()
+            # The customer's own digital approval is an explicit action, so it may
+            # email them the confirmation — but only once: _send_order_notification_mail
+            # records an idempotency marker (S00094 guard) that blocks any later
+            # duplicate from the staff's "Send Confirmation Email" button.
+            order.sudo().with_context(send_email=True).action_confirm()
 
             # Update linked WA negotiation status → approved
             neg = request.env['premafirm.wa.negotiation'].sudo().search(

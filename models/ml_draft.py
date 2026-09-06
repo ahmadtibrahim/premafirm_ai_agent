@@ -146,6 +146,7 @@ class PremafirmMLDraft(models.Model):
             ctx = {}
 
         partner = None
+        lead = self.env['crm.lead']
         if self.source_model == 'crm.lead' and self.source_id:
             lead = self.env['crm.lead'].browse(self.source_id)
             if lead.exists():
@@ -169,6 +170,11 @@ class PremafirmMLDraft(models.Model):
             'partner_id': partner.id,
             'note': self.human_final or self.ai_suggestion,
         }
+        if lead:
+            # Link the originating CRM lead so the draft quotation appears on the
+            # lead and the lead is never left with an orphan quote (no stage move
+            # here — Studio rules stay in charge of lead stages).
+            order_vals['opportunity_id'] = lead.id
         if product:
             order_vals['order_line'] = [(0, 0, {
                 'product_id':      product.id,

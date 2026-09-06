@@ -1,6 +1,6 @@
 {
     "name": "PremaFirm AI Engine",
-    "version": "18.0.7.9.0",
+    "version": "18.0.7.10.0",
     "summary": "CRM Automation, Geotab ELD, Invoicing for PremaFirm Logistics",
     "author": "PremaFirm",
     "license": "LGPL-3",
@@ -89,6 +89,7 @@
         "views/attendance_summary_views.xml",
         "views/staff_coaching_views.xml",
         "views/fetchmail_audit_views.xml",
+        "views/premafirm_estimate_reply_views.xml",
     ],
     "assets": {
         "web.assets_backend": [

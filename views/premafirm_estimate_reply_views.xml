@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Preliminary Estimate Reply drafts (E-A2) — list/form views + window action.
+    No mail compose, no send buttons, no state machine: the draft is edited and
+    sent (if ever) through staff actions that live dispatch-side, never here.
+-->
+<odoo>
+    <record id="view_premafirm_lead_estimate_reply_list" model="ir.ui.view">
+        <field name="name">premafirm.lead.estimate.reply.list</field>
+        <field name="model">premafirm.lead.estimate.reply</field>
+        <field name="arch" type="xml">
+            <list string="Preliminary Estimate Drafts" create="false" edit="false" delete="false">
+                <field name="subject"/>
+                <field name="partner_id" optional="show"/>
+                <field name="crm_lead_id" optional="show"/>
+                <field name="price_amount" optional="show"/>
+                <field name="currency_id" optional="hide"/>
+                <field name="price_reference" optional="hide"/>
+                <field name="create_date" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_premafirm_lead_estimate_reply_form" model="ir.ui.view">
+        <field name="name">premafirm.lead.estimate.reply.form</field>
+        <field name="model">premafirm.lead.estimate.reply</field>
+        <field name="arch" type="xml">
+            <form string="Preliminary Estimate Reply Draft">
+                <header>
+                    <field name="price_amount" class="oe_inline" required="True"/>
+                    <field name="currency_id" class="oe_inline"
+                           groups="base.group_multi_currency"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="subject" placeholder="Draft subject"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="crm_lead_id"/>
+                            <field name="partner_id" readonly="1"/>
+                            <field name="price_reference"
+                                   placeholder="e.g. Customer Rate Confirmation via dispatch PricingService"
+                                   help="Provenance of the price shown. The engine never invents prices."/>
+                        </group>
+                        <group>
+                            <field name="create_date" readonly="1"/>
+                            <field name="generation_note" readonly="1"
+                                   invisible="not generation_note"/>
+                        </group>
+                    </group>
+                    <field name="body_html" string="Draft reply (non-binding — nothing is sent by this module)"/>
+                    <group string="Shipment facts used (newest customer statements)" invisible="not facts_snapshot">
+                        <field name="facts_snapshot" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_premafirm_lead_estimate_reply" model="ir.actions.act_window">
+        <field name="name">Preliminary Estimate Drafts</field>
+        <field name="res_model">premafirm.lead.estimate.reply</field>
+        <field name="view_mode">list,form</field>
+        <field name="binding_model_id" ref="model_crm_lead"/>
+        <field name="context">{'create': False}</field>
+    </record>
+</odoo>

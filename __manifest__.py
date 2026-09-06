@@ -1,10 +1,6 @@
 {
     "name": "PremaFirm AI Engine",
-<<<<<<< HEAD
     "version": "18.0.7.9.0",
-=======
-    "version": "18.0.7.7.0",
->>>>>>> origin/issue13/crm-automation-fixes
     "summary": "CRM Automation, Geotab ELD, Invoicing for PremaFirm Logistics",
     "author": "PremaFirm",
     "license": "LGPL-3",

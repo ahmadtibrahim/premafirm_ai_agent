@@ -28,6 +28,11 @@ from . import crm_activity_discipline  # PHASE 14 — activity/next-action
                                        # discipline (imported last among the
                                        # crm.lead extends so its create/write
                                        # hooks wrap the others)
+from . import crm_lead_automations  # Issue 13 — version-controlled
+                                    # replacements of the Studio CRM rules
+                                    # (handlers + external-recipient helper
+                                    # only; no create/write hook so import
+                                    # order is irrelevant)
 from . import crm_followup_service  # PHASE 15 — one consolidated follow-up
                                     # service (replaces the six legacy crons)
 from . import crm_workspace  # PHASES 16-17 — priority dashboard buckets +

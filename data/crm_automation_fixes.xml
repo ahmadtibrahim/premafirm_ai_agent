@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- Issue 13 — version-controlled replacements for the Studio CRM
+         rules (60/61/63).  noupdate="1": created once, never overwritten
+         by re-upgrades, so ops can deactivate a rule manually without an
+         upgrade resurrecting it.
+
+         The action of every rule below is ONE line delegating to a
+         version-controlled model method; no operational logic lives in
+         anonymous rule code.  The Studio rules they mirror must be
+         DISABLED only after this module version is deployed (see the
+         five-rule mapping in issue #13). -->
+    <data noupdate="1">
+
+        <!-- ── Replaces Studio "CRM: Replied" (rule 1) ──────────────── -->
+        <record id="action_engaged_on_normal_reply" model="ir.actions.server">
+            <field name="name">CRM: Reply → ENGAGED / REPLIED (early-stage only)</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="state">code</field>
+            <field name="code">record.prema_process_normal_reply()</field>
+        </record>
+        <record id="automation_engaged_on_normal_reply" model="base.automation">
+            <field name="name">CRM: Incoming reply → ENGAGED / REPLIED (early-stage only) [replaces Studio CRM: Replied]</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="trigger">on_message_received</field>
+            <field name="active" eval="True"/>
+            <!-- filter_pre_domain is the ONLY domain the message-trigger
+                 path evaluates.  Genuine inbound external customer mail
+                 carries this classification (set at route time); bounces,
+                 OOO and auto-replies never do. -->
+            <field name="filter_pre_domain">[('last_inbound_classification', '=', 'normal_reply')]</field>
+            <field name="filter_domain">[('last_inbound_classification', '=', 'normal_reply')]</field>
+            <field name="action_server_ids" eval="[(4, ref('action_engaged_on_normal_reply'))]"/>
+        </record>
+
+        <!-- ── Replaces Studio "Notify Ahmad of new Sales team leads" ── -->
+        <record id="action_new_sales_lead_notify" model="ir.actions.server">
+            <field name="name">CRM: New Sales lead → notify owner + default assign</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="state">code</field>
+            <field name="code">record.prema_process_new_sales_lead()</field>
+        </record>
+        <record id="automation_new_sales_lead_notify" model="base.automation">
+            <field name="name">CRM: New Sales lead — notify owner + default assign [replaces Studio Notify Ahmad of new Sales team leads]</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="trigger">on_create</field>
+            <field name="active" eval="True"/>
+            <!-- No id-bearing domain: the handler gates on the Sales team
+                 via XMLID (sales_team.team_sales_department) and reads
+                 the notify/assignee targets from ir.config_parameter —
+                 no hard-coded partner or user id anywhere. -->
+            <field name="filter_domain">[]</field>
+            <field name="action_server_ids" eval="[(4, ref('action_new_sales_lead_notify'))]"/>
+        </record>
+
+        <!-- ── Replaces Studio "Callback Request - tag, notify, note" ── -->
+        <record id="action_website_callback" model="ir.actions.server">
+            <field name="name">CRM: Website callback/quote lead — normalize + dedupe</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="state">code</field>
+            <field name="code">record.prema_process_website_callback()</field>
+        </record>
+        <record id="automation_website_callback" model="base.automation">
+            <field name="name">CRM: Website callback / quote lead — normalize + dedupe [replaces Studio Callback Request - tag, notify, note]</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="trigger">on_create</field>
+            <field name="active" eval="True"/>
+            <!-- Fires only when a lead is CREATED under the website names;
+                 later name edits never re-trigger.  The handler reserves
+                 the tag/note/notify/activity extras for the genuine
+                 'Callback Request' submissions. -->
+            <field name="filter_domain">['|', ('name', '=', 'Callback Request'), ('name', 'ilike', 'Quote Request')]</field>
+            <field name="action_server_ids" eval="[(4, ref('action_website_callback'))]"/>
+        </record>
+
+    </data>
+</odoo>

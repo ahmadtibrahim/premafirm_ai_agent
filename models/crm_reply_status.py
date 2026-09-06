@@ -145,9 +145,28 @@ class CrmLead(models.Model):
             if initiated_by_us:
                 vals['last_outreach_at'] = now
             self.write(vals)
+            # Issue 13 — rule-4 replacement (the old on_write automation
+            # moved leads on ANY edit once contact details were complete;
+            # it is disabled in data + migration).  NEW / UNCONTACTED now
+            # advances to OUTREACH SENT only here: on a GENUINE outbound
+            # customer email (external recipient attached) that we
+            # initiated.  Internal-only emails, internal notes, chatter,
+            # previews and failed sends never reach this branch — a failed
+            # send posts no email message, and its failure notice is a
+            # comment — so none of them can move a stage.
+            try:
+                if initiated_by_us and self._outreach_has_external_recipient(message):
+                    self._maybe_advance_on_outgoing()
+            except Exception as exc:
+                # Stage resolution failure must never break an email send.
+                _logger.debug('outreach stage advance failed lead %s: %s',
+                              self.id, exc)
             # PHASE 14 — response discipline: complete Respond to Customer
-            # activities, schedule the stage's next follow-up.
-            self._on_sales_response()
+            # activities, schedule the stage's next follow-up.  Only a
+            # real customer-facing send counts as a sales response —
+            # an internal-only email never clears the waiting flag.
+            if self._outreach_has_external_recipient(message):
+                self._on_sales_response()
         elif (message.message_type == 'comment'
                 and author and author.partner_share):
             # Customer-authored chatter (portal comment) = engagement.

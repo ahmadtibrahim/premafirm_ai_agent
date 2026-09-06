@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- ══════════════════════════════════════════════════════════════
+         MP1 §2.7 (E-A3) — Recurring Opportunities
+         Discovery: smart button on the crm.lead form + one small menu
+         item under the existing CRM root (engine convention — never a
+         big new menu). Contracted vs potential is colour-distinct,
+         next follow-up is a first-class column, activation stays an
+         explicit human action.
+         ══════════════════════════════════════════════════════════════ -->
+
+    <!-- ── list ─────────────────────────────────────────────────────── -->
+    <record id="view_crm_recurring_opportunity_list" model="ir.ui.view">
+        <field name="name">crm.recurring.opportunity.list</field>
+        <field name="model">crm.recurring.opportunity</field>
+        <field name="arch" type="xml">
+            <list string="Recurring Opportunities"
+                  decoration-success="kind == 'contracted'"
+                  decoration-info="kind == 'potential'"
+                  decoration-danger="followup_overdue"
+                  decoration-muted="activation_state == 'ended'">
+                <field name="partner_id" string="Customer"/>
+                <field name="lead_id" string="Opportunity" optional="hide"/>
+                <field name="kind" string="Cadence"/>
+                <field name="activation_state" string="Activation"/>
+                <field name="frequency" string="Frequency"/>
+                <field name="frequency_detail" string="Detail" optional="hide"/>
+                <field name="preferred_days_display" string="Preferred Days"
+                       optional="hide"/>
+                <field name="next_followup_date" string="Next Follow-up"/>
+                <field name="expected_pallets" string="Pallets" optional="hide"/>
+                <field name="expected_temperature_mode" string="Temp"
+                       optional="hide"/>
+                <field name="intent_rate_confirmation"
+                       string="Rate Conf. on Activation" optional="hide"/>
+                <field name="followup_overdue" column_invisible="1"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ── search ───────────────────────────────────────────────────── -->
+    <record id="view_crm_recurring_opportunity_search" model="ir.ui.view">
+        <field name="name">crm.recurring.opportunity.search</field>
+        <field name="model">crm.recurring.opportunity</field>
+        <field name="arch" type="xml">
+            <search string="Recurring Opportunities">
+                <field name="partner_id"/>
+                <field name="lead_id"/>
+                <field name="frequency"/>
+                <field name="frequency_detail"/>
+                <field name="kind"/>
+                <field name="activation_state"/>
+                <filter name="open" string="Open"
+                        domain="[('activation_state','!=','ended')]"/>
+                <filter name="contracted" string="Contracted"
+                        domain="[('kind','=','contracted')]"/>
+                <filter name="potential" string="Potential"
+                        domain="[('kind','=','potential')]"/>
+                <filter name="followup_set" string="Has Follow-up Date"
+                        domain="[('next_followup_date','!=',False)]"/>
+                <group expand="0" string="Group By">
+                    <filter name="group_kind" string="Cadence Kind"
+                            context="{'group_by':'kind'}"/>
+                    <filter name="group_activation"
+                            string="Activation State"
+                            context="{'group_by':'activation_state'}"/>
+                    <filter name="group_frequency"
+                            string="Expected Frequency"
+                            context="{'group_by':'frequency'}"/>
+                    <filter name="group_lead" string="Opportunity"
+                            context="{'group_by':'lead_id'}"/>
+                    <filter name="group_followup" string="Next Follow-up"
+                            context="{'group_by':'next_followup_date'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ── form ─────────────────────────────────────────────────────── -->
+    <record id="view_crm_recurring_opportunity_form" model="ir.ui.view">
+        <field name="name">crm.recurring.opportunity.form</field>
+        <field name="model">crm.recurring.opportunity</field>
+        <field name="arch" type="xml">
+            <form string="Recurring Opportunity">
+                <header>
+                    <button name="action_confirm_customer" type="object"
+                            string="Customer Confirmed"
+                            icon="fa-check-circle" class="btn-primary"
+                            invisible="kind == 'contracted'"
+                            help="Record the customer's explicit agreement —
+                                  promotes a potential cadence to contracted."/>
+                    <button name="action_begin_verification" type="object"
+                            string="Start Verification"
+                            invisible="activation_state != 'never_activated'"/>
+                    <button name="action_mark_ready_activate" type="object"
+                            string="Mark Ready to Activate"
+                            invisible="activation_state != 'awaiting_verification'"/>
+                    <button name="action_mark_active" type="object"
+                            string="Mark Active" icon="fa-play"
+                            class="btn-primary"
+                            invisible="activation_state not in ('awaiting_activation', 'paused')"
+                            help="Explicit activation (human path). When the
+                                  dispatch recurring agreement is used, its
+                                  activation syncs here automatically."/>
+                    <button name="action_pause" type="object"
+                            string="Pause" icon="fa-pause"
+                            invisible="activation_state != 'active'"/>
+                    <button name="action_end" type="object"
+                            string="End" icon="fa-stop"
+                            invisible="activation_state == 'ended'"/>
+                    <button name="action_schedule_followup_now" type="object"
+                            string="Schedule Follow-Up" icon="fa-calendar"
+                            invisible="activation_state == 'ended'"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" readonly="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group name="deal" string="Deal &amp; Customer">
+                            <field name="lead_id"
+                                   options="{'no_create': True}"/>
+                            <field name="partner_id" readonly="1"/>
+                            <field name="agreement_reference"
+                                   placeholder="Customer contract / PO for the recurring work…"/>
+                            <field name="notes"
+                                   placeholder="Why is this recurring work tracked? Context, promises, decisions…"/>
+                        </group>
+                        <group name="cadence" string="Cadence &amp; Confirmation">
+                            <field name="kind" widget="radio"/>
+                            <field name="customer_confirmed"/>
+                            <field name="customer_confirmation_date"
+                                   required="customer_confirmed"
+                                   invisible="customer_confirmed == False"/>
+                            <field name="customer_confirmation_user_id"
+                                   invisible="customer_confirmed == False"/>
+                            <field name="frequency"/>
+                            <field name="frequency_detail"
+                                   placeholder="e.g. every other Tuesday, 1st &amp; 3rd week…"/>
+                            <field name="start_date"/>
+                            <field name="end_date"/>
+                            <field name="next_followup_date"/>
+                        </group>
+                        <group string="Preferred Weekdays" col="4">
+                            <field name="preferred_monday"/>
+                            <field name="preferred_tuesday"/>
+                            <field name="preferred_wednesday"/>
+                            <field name="preferred_thursday"/>
+                            <field name="preferred_friday"/>
+                            <field name="preferred_saturday"/>
+                            <field name="preferred_sunday"/>
+                        </group>
+                        <group name="expectations"
+                               string="Expected Shipment Profile">
+                            <field name="expected_pallets"/>
+                            <field name="expected_weight_lbs"/>
+                            <field name="expected_load_type"/>
+                            <field name="expected_temperature_mode"/>
+                            <field name="required_temperature_c"
+                                   invisible="expected_temperature_mode != 'reefer'"/>
+                            <field name="expected_equipment"/>
+                            <field name="commodity"/>
+                        </group>
+                        <group name="handoff" string="Activation &amp; Dispatch">
+                            <field name="activation_state" readonly="1"/>
+                            <field name="intent_rate_confirmation"/>
+                            <field name="activated_at" readonly="1"
+                                   invisible="activation_state == 'never_activated'"/>
+                            <field name="dispatch_agreement_reference"
+                                   readonly="1"
+                                   invisible="activation_state == 'never_activated'"/>
+                        </group>
+                    </group>
+                </sheet>
+                <div class="oe_chatter">
+                    <field name="message_follower_ids"/>
+                    <field name="activity_ids"/>
+                    <field name="message_ids"/>
+                </div>
+            </form>
+        </field>
+    </record>
+
+    <!-- ── crm.lead smart button (discovery on the opportunity) ─────── -->
+    <record id="view_crm_lead_form_recurring_stat" model="ir.ui.view">
+        <field name="name">crm.lead.form.recurring.stat</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_open_recurring_opportunities"
+                        type="object" class="oe_stat_button" icon="fa-repeat"
+                        invisible="type == 'lead'"
+                        title="Ongoing weekly / biweekly / monthly /
+                               irregular work for this customer">
+                    <div class="o_stat_info">
+                        <field name="recurring_opportunity_count"
+                               class="o_stat_value"/>
+                        <span class="o_stat_text">Recurring Work</span>
+                    </div>
+                </button>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ── action + menu (engine's existing CRM-root structure) ─────── -->
+    <record id="action_crm_recurring_opportunities"
+            model="ir.actions.act_window">
+        <field name="name">Recurring Opportunities</field>
+        <field name="res_model">crm.recurring.opportunity</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_open': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Track ongoing weekly / biweekly / monthly / irregular
+                customer work — potential or contracted. Activation of the
+                logistics generation lives on the dispatch recurring
+                engine; this screen is the sales-side record.
+            </p>
+        </field>
+    </record>
+
+    <menuitem id="menu_crm_recurring_opportunities"
+              name="Recurring Opportunities"
+              parent="crm.crm_menu_root"
+              sequence="45"
+              action="action_crm_recurring_opportunities"/>
+</odoo>

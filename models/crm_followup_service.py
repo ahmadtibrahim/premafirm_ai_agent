@@ -361,7 +361,11 @@ class CrmFollowupService(models.Model):
     @api.model
     def _generate_reactivation_drafts(self):
         """Leads silent 60+ days get one reactivation draft (never
-        duplicated within a 30-day window)."""
+        duplicated within a 30-day window).  B-10 guard: folded stages
+        (LOST, PAUSED / ON HOLD — any hold stage) and won records are
+        NEVER reactivated — whatever ``crm.followup.send_mode`` says —
+        because they are no longer prospect follow-up; the lead stays
+        where the salesperson parked it."""
         cutoff = fields.Datetime.now() - timedelta(
             days=self._followup_param('crm.followup.cold_days'))
         seasonal_hint = SEASONAL.get(
@@ -372,6 +376,11 @@ class CrmFollowupService(models.Model):
             ('reply_received', '=', False),
             ('last_outreach_at', '!=', False),
             ('last_outreach_at', '<', cutoff),
+            # B-10 stage guard — independent of the follow-up send mode:
+            # no reactivation drafts/emails for LOST, PAUSED / ON HOLD or
+            # any other folded/hold stage, and none for won records.
+            ('stage_id.fold', '=', False),
+            ('stage_id.is_won', '=', False),
         ])
         recent = fields.Datetime.now() - timedelta(days=30)
         done = 0

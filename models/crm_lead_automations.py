@@ -11,9 +11,14 @@ operationally-critical logic depends on un-versioned Studio rules:
   external customer mail routed to the lead).  Unlike the Studio rule,
   ONLY early-stage leads (NEW / UNCONTACTED, OUTREACH SENT) move to
   ENGAGED / REPLIED — QUOTE SENT, NEGOTIATION, ONBOARDING, PAUSED, LOST
-  and WON records are never moved backwards.  The waiting-response flag
-  and the one "Respond to customer" activity come from the PHASE 14
-  funnel (``_on_meaningful_reply``), which is idempotent by design.
+  and WON records are never moved backwards.  Terminal / post-sale
+  stages (WON / ACTIVE CUSTOMER, APPROVED, WAITING FOR LOADS, ONBOARDING
+  — §2.1 guard, see ``_TERMINAL_STAGES``) NEVER move either: a genuine
+  reply only raises the Needs Attention flag and guarantees the one
+  deduplicated "Respond to customer" activity (the flag-and-activity
+  branch — no downgrade, ever).  The waiting-response flag and the one
+  "Respond to customer" activity come from the PHASE 14 funnel
+  (``_on_meaningful_reply``), which is idempotent by design.
 * Studio "Notify Ahmad of new Sales team leads" → prema_process_new_sales_lead()
   Notifies the CONFIGURED internal owner (ir.config_parameter
   ``crm.new_lead.notify_partner_id``) once per new Sales-team lead and
@@ -46,11 +51,29 @@ _logger = logging.getLogger(__name__)
 # never moved backwards by an inbound event.
 _EARLY_STAGES = {'new / uncontacted', 'outreach sent'}
 
+# Terminal / post-sale stages (§2.1 guard): the deal is won or the
+# customer is already past the sale.  A genuine inbound reply must NEVER
+# drag one of these back to an earlier / engagement stage — the reply
+# takes the flag-and-activity branch instead (Needs Attention +
+# deduplicated "Respond to customer" activity).  Matched on normalized
+# stage NAME (stage records are configurable data, never hardcoded ids):
+# canonical names from data/crm_stages.xml plus the legacy DB names the
+# audit found in production (APPROVED, WAITING FOR LOADS).
+_TERMINAL_STAGES = {
+    'won / active customer', 'won', 'active customer',
+    'approved', 'waiting for loads', 'onboarding',
+}
+
 _SALES_TEAM_XMLID = 'sales_team.team_sales_department'
 
 # Configuration parameters (both optional; unset → base.user_admin).
 _PARAM_NOTIFY_PARTNER = 'crm.new_lead.notify_partner_id'
 _PARAM_DEFAULT_ASSIGNEE = 'crm.new_lead.default_salesperson_id'
+
+# PHASE 14 "Respond to customer" activity type (crm_activity_discipline
+# ``_TYPE_XMLIDS``) — the dedupe guard for the terminal-stage reply funnel.
+_RESPOND_CUSTOMER_XMLID = (
+    'premafirm_ai_engine.premafirm_activity_respond_customer')
 
 
 class CrmLead(models.Model):
@@ -69,6 +92,29 @@ class CrmLead(models.Model):
         return any(not p.user_ids.filtered(lambda u: not u.share)
                    for p in message.partner_ids)
 
+    def _is_post_sale_stage(self):
+        """True when the lead sits on a terminal / post-sale stage: the
+        deal is won (structural ``is_won`` — covers any future won stage)
+        or the customer is past the sale (WON / ACTIVE CUSTOMER, APPROVED,
+        WAITING FOR LOADS, ONBOARDING — ``_TERMINAL_STAGES`` by normalized
+        name).  Never true for LOST / PAUSED / ON HOLD (folded) stages."""
+        stage = self.stage_id
+        if not stage:
+            return False
+        return bool(stage.is_won) or (
+            self._normalized_stage_name() in _TERMINAL_STAGES)
+
+    def _open_respond_customer_activity(self):
+        """Open (not archived/done) PHASE 14 'Respond to customer'
+        activities on the lead.  ``activity_ids`` already excludes done
+        activities (Odoo 18 archives them via ``active``), so this is the
+        dedupe guard for the §2.1 terminal-stage reply funnel — an open
+        Respond to customer means the reply was already funneled at route
+        time (inbound_routing) and must not be duplicated or moved."""
+        type_id = self.env.ref(_RESPOND_CUSTOMER_XMLID).id
+        return self.activity_ids.filtered(
+            lambda a: a.activity_type_id.id == type_id)
+
     # ── rule-1 twin: genuine inbound reply → ENGAGED / REPLIED ───────
 
     def prema_process_normal_reply(self):
@@ -81,20 +127,41 @@ class CrmLead(models.Model):
         activity means the reply was already handled (classifier route /
         portal hook) — it is never duplicated; when nothing is open yet
         the funnel creates it and raises the waiting-response flag /
-        attention.  Re-processing the same message is a no-op."""
+        attention.  Terminal / post-sale leads (§2.1, ``_is_post_sale_stage``)
+        NEVER move — they take the flag-and-activity branch only.
+        Re-processing the same message is a no-op."""
         for lead in self.sudo():
             stage_name = lead._normalized_stage_name()
-            if stage_name not in _EARLY_STAGES:
+            if stage_name in _EARLY_STAGES:
+                targets = lead._premafirm_target_stages()
+                engaged = targets.get('engaged / replied')
+                if engaged and lead.stage_id.id != engaged.id:
+                    lead.write({'stage_id': engaged.id})
+                    _logger.info(
+                        'Issue 13: reply moved lead %s %r → ENGAGED / REPLIED',
+                        lead.id, lead.name)
+                if not lead._open_discipline_activities():
+                    lead._on_meaningful_reply()
                 continue
-            targets = lead._premafirm_target_stages()
-            engaged = targets.get('engaged / replied')
-            if engaged and lead.stage_id.id != engaged.id:
-                lead.write({'stage_id': engaged.id})
-                _logger.info(
-                    'Issue 13: reply moved lead %s %r → ENGAGED / REPLIED',
-                    lead.id, lead.name)
-            if not lead._open_discipline_activities():
+            if not lead._is_post_sale_stage():
+                # Mid-pipeline (QUOTE SENT, NEGOTIATION …) and folded
+                # (LOST, PAUSED / ON HOLD) stages: nothing to do here —
+                # the reply was already funneled at route time and these
+                # stages never move backwards.
+                continue
+            # §2.1 / §2.2 — terminal / post-sale guard: NEVER move the
+            # stage (a reply after the sale is service, not
+            # re-qualification).  The reply raises the Needs Attention
+            # flag and guarantees the ONE deduplicated "Respond to
+            # customer" activity.  When the classifier route already
+            # funneled this reply an open Respond to customer exists and
+            # this branch is a no-op.
+            if not lead._open_respond_customer_activity():
                 lead._on_meaningful_reply()
+                _logger.info(
+                    'Issue 13 / §2.1: reply on post-sale lead %s %r — '
+                    'attention flag + Respond to customer (stage %r kept)',
+                    lead.id, lead.name, lead.stage_id.name or '')
 
     # ── rule-2 twin: new Sales-team lead → notify + default assign ───
 

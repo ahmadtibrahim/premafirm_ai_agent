@@ -38,6 +38,10 @@ class QuoteApprovalPortal(http.Controller):
         order = self._get_order(order_id, access_token)
         if not order:
             return request.not_found()
+        if order.x_customer_approved_at:
+            return request.render('premafirm_ai_engine.portal_quote_already_processed', {
+                'order': order,
+            })
         if order.state not in ('draft', 'sent'):
             return request.render('premafirm_ai_engine.portal_quote_already_processed', {
                 'order': order,
@@ -69,8 +73,23 @@ class QuoteApprovalPortal(http.Controller):
                 return request.make_json_response(
                     {'error': 'Quotation has already been processed.'}, status=409)
 
-            sig = order._register_customer_approval(customer_name, ip, ua, 'portal')
-            order.sudo().action_confirm()
+            # Portal approval records acceptance only. Converting the quote to
+            # a Sales Order, booking it, and contacting the customer remain
+            # explicit internal actions.
+            sig, approval_created = order._register_customer_approval(
+                customer_name, ip, ua, 'portal'
+            )
+
+            if not approval_created:
+                return request.make_json_response({
+                    'success': True,
+                    'order_name': order.name,
+                    'approved_at': fields.Datetime.to_string(sig.approved_at),
+                    'signature_hash': sig.document_hash[:16] + '…',
+                    'customer_name': sig.customer_name,
+                    'status': 'pending_internal_confirmation',
+                    'already_approved': True,
+                })
 
             # Update linked WA negotiation status → approved
             neg = request.env['premafirm.wa.negotiation'].sudo().search(
@@ -78,12 +97,8 @@ class QuoteApprovalPortal(http.Controller):
             if neg:
                 neg.write({'status': 'approved'})
                 neg._log_entry('approved_portal',
-                               text=f'Digitally signed by {customer_name} via portal (IP: {ip})')
-                neg._wa_send_text(
-                    f'Your quotation *{order.name}* has been approved and confirmed.\n'
-                    f'Thank you, {customer_name}!\n\n'
-                    f'Our team will be in touch with next steps.'
-                )
+                               text=(f'Digitally signed by {customer_name} via portal '
+                                     f'(IP: {ip}); pending internal confirmation'))
 
             # Chatter note
             order.sudo().message_post(
@@ -91,7 +106,8 @@ class QuoteApprovalPortal(http.Controller):
                      f'Approved by: <b>{customer_name}</b><br/>'
                      f'Method: Portal (digital signature)<br/>'
                      f'IP: {ip}<br/>'
-                     f'Signature hash: <code>{sig.document_hash[:32]}…</code>',
+                     f'Signature hash: <code>{sig.document_hash[:32]}…</code><br/>'
+                     f'<b>Status: Pending internal review and confirmation.</b>',
                 message_type='comment',
                 subtype_xmlid='mail.mt_note',
             )
@@ -99,9 +115,10 @@ class QuoteApprovalPortal(http.Controller):
             return request.make_json_response({
                 'success': True,
                 'order_name': order.name,
-                'approved_at': fields.Datetime.now().strftime('%Y-%m-%d %H:%M UTC'),
+                'approved_at': fields.Datetime.to_string(sig.approved_at) + ' UTC',
                 'signature_hash': sig.document_hash[:16] + '…',
                 'customer_name': customer_name,
+                'status': 'pending_internal_confirmation',
             })
 
         elif action == 'edit':

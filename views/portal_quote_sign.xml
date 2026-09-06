@@ -247,18 +247,18 @@
                             if (r.success) {
                                 showFullPageResult(
                                     true,
-                                    'Booking Confirmed — Thank You!',
-                                    'Quotation <strong>' + (r.order_name || '') + '</strong> has been approved and confirmed.<br/>' +
+                                    'Approval Received — Thank You!',
+                                    'Quotation <strong>' + (r.order_name || '') + '</strong> has been approved.<br/>' +
                                     'Signed by <strong>' + (r.customer_name || name) + '</strong> on ' + (r.approved_at || '') + '.<br/>' +
-                                    'Our team has been notified and will be in touch shortly.',
+                                    'Our team will review the details and confirm the booking separately.',
                                     r.signature_hash ? 'Signature reference: ' + r.signature_hash : ''
                                 );
                             } else if (r.error &amp;&amp; r.error.indexOf('already been processed') !== -1) {
                                 /* Second click after first succeeded */
                                 showFullPageResult(
                                     true,
-                                    'Already Confirmed',
-                                    'This quotation has already been approved. Our team has been notified.',
+                                    'Approval Already Received',
+                                    'This quotation has already been approved and is pending internal confirmation.',
                                     ''
                                 );
                             } else {
@@ -337,7 +337,13 @@
         <t t-call="web.layout">
             <div style="max-width:520px;margin:60px auto;text-align:center;font-family:Arial,sans-serif;">
                 <h2 style="color:#1c3557;">Quotation <t t-out="order.name"/></h2>
-                <p style="color:#6b7280;">This quotation has already been processed (status: <strong><t t-out="order.state"/></strong>).</p>
+                <t t-if="order.x_customer_approved_at">
+                    <p style="color:#16a34a;"><strong>Customer approval has been received.</strong></p>
+                    <p style="color:#6b7280;">The PremaFirm team will review the details and confirm the booking separately.</p>
+                </t>
+                <t t-else="">
+                    <p style="color:#6b7280;">This quotation has already been processed (status: <strong><t t-out="order.state"/></strong>).</p>
+                </t>
                 <p>If you have questions, please contact us at <a href="mailto:info@premafirm.com">info@premafirm.com</a>
                    or call <a href="tel:+19059162468">+1-905-916-2468</a>.</p>
             </div>

@@ -183,6 +183,26 @@ class SaleOrderApprovalMixin(models.Model):
             rec.approval_signature_count = len(rec.approval_signature_ids)
 
     def _register_customer_approval(self, customer_name, ip, user_agent, method):
+        """Return ``(signature, created)`` without confirming the order."""
+        self.ensure_one()
+        # Serialize concurrent submissions (for example a double-click) and
+        # return the existing signature instead of creating duplicates.
+        self.env.cr.execute(
+            "SELECT id FROM sale_order WHERE id = %s FOR UPDATE", [self.id]
+        )
+        self.invalidate_recordset([
+            'approval_signature_ids', 'x_customer_approved_at',
+            'x_customer_approved_by', 'x_customer_approval_method',
+            'x_customer_approval_ip',
+        ])
+        existing = self.env['sale.order.approval'].search(
+            [('sale_order_id', '=', self.id)],
+            order='approved_at desc, id desc',
+            limit=1,
+        )
+        if self.x_customer_approved_at and existing:
+            return existing, False
+
         sig = self.env['sale.order.approval'].create_for_order(
             self, customer_name, ip, user_agent, method)
         self.write({
@@ -193,7 +213,7 @@ class SaleOrderApprovalMixin(models.Model):
             ).get(method, method),
             'x_customer_approval_ip': ip,
         })
-        return sig
+        return sig, True
 
     def action_send_wa_for_approval(self):
         """Send the customer a WhatsApp message with the portal approval link.
@@ -328,6 +348,6 @@ class SaleOrderApprovalMixin(models.Model):
             '',
             portal_link,
             '',
-            'Your approval will confirm the booking. Thank you!',
+            'Your approval records acceptance of this quotation. Our team will review it and confirm the booking separately. Thank you!',
         ]
         return lines

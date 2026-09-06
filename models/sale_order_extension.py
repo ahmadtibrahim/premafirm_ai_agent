@@ -1,7 +1,8 @@
 import json
 import logging
 
-from odoo import api, fields, models
+from odoo import _, api, fields, models
+from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
@@ -166,7 +167,26 @@ class SaleOrder(models.Model):
         return self.action_quotation_send()
 
     def action_confirm(self):
+        if self.env.context.get("premafirm_preview_only"):
+            raise UserError(_(
+                "Preview is read-only. Return to the quotation and use "
+                "Confirm Internally when you are ready."
+            ))
         return super().action_confirm()
+
+    def action_preview(self):
+        """Keep Preview read-only even when synchronous automations exist."""
+        state_before = {order.id: order.state for order in self}
+        preview_self = self.with_context(premafirm_preview_only=True)
+        result = super(SaleOrder, preview_self).action_preview()
+        self.invalidate_recordset(['state'])
+        changed = self.filtered(lambda order: order.state != state_before[order.id])
+        if changed:
+            raise UserError(_(
+                "Preview was blocked because an automation tried to change "
+                "the quotation state. No change was saved."
+            ))
+        return result
 
     def _prepare_invoice(self):
         vals = super()._prepare_invoice()

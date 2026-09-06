@@ -6,6 +6,12 @@
         <field name="inherit_id" ref="sale.view_order_form"/>
         <field name="arch" type="xml">
 
+            <!-- Confirmation is always an explicit internal action. -->
+            <xpath expr="//header/button[@name='action_confirm']" position="attributes">
+                <attribute name="string">Confirm Internally</attribute>
+                <attribute name="confirm">Confirm this quotation internally and convert it to a Sales Order? Preview and customer portal approval never perform this action.</attribute>
+            </xpath>
+
             <!-- PremaFirm load details block -->
             <xpath expr="//sheet/group" position="after">
                 <group string="PremaFirm Load Details">
@@ -84,6 +90,18 @@
             <!-- Hidden field so JS can read x_reneg_status from the DOM -->
             <xpath expr="//sheet" position="inside">
                 <field name="x_reneg_status" invisible="1"/>
+            </xpath>
+
+            <xpath expr="//sheet/notebook" position="before">
+                <field name="x_customer_approved_at" invisible="1"/>
+                <field name="x_customer_approved_by" invisible="1"/>
+                <div class="alert alert-success" role="alert"
+                     invisible="not x_customer_approved_at or state not in ('draft', 'sent')">
+                    <strong>Customer approved this quotation.</strong>
+                    It is still editable and is waiting for your internal confirmation.
+                    Approved by <field name="x_customer_approved_by" readonly="1" class="oe_inline"/>
+                    on <field name="x_customer_approved_at" readonly="1" class="oe_inline"/>.
+                </div>
             </xpath>
 
             <!-- Re-Negotiation tab -->

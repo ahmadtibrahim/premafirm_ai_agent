@@ -14,12 +14,37 @@
                         <field name="premafirm_bol"/>
                         <field name="premafirm_pod"/>
                         <field name="load_reference"/>
+                        <!-- Confirmation-email markers (S00094 guard) — appear only
+                             once the confirmation email has actually been sent -->
+                        <field name="x_confirmation_email_sent_at" readonly="1"
+                               invisible="not x_confirmation_email_sent_at"/>
+                        <field name="x_confirmation_email_template_id" readonly="1"
+                               invisible="not x_confirmation_email_template_id"/>
                     </group>
                     <group>
                         <field name="pickup_city"/>
                         <field name="delivery_city"/>
                     </group>
                 </group>
+            </xpath>
+
+            <!-- S00094: both core Confirm buttons get an explicit dialog stating
+                 that confirming does NOT email the customer anymore. -->
+            <xpath expr="//header/button[@name='action_confirm'][1]" position="attributes">
+                <attribute name="confirm">Confirm this order? No email is sent automatically - after confirming, use "Send Confirmation Email" to email the customer their Rate Confirmation.</attribute>
+            </xpath>
+            <xpath expr="//header/button[@name='action_confirm'][2]" position="attributes">
+                <attribute name="confirm">Confirm this order? No email is sent automatically - after confirming, use "Send Confirmation Email" to email the customer their Rate Confirmation.</attribute>
+            </xpath>
+
+            <!-- Explicit, idempotent Rate Confirmation email (S00094 guard) -->
+            <xpath expr="//header/button[@name='action_confirm'][2]" position="after">
+                <button name="action_send_order_confirmation" type="object"
+                        string="Send Confirmation Email"
+                        class="btn-primary"
+                        icon="fa-envelope-o"
+                        invisible="state != 'sale' or x_confirmation_email_sent_at"
+                        confirm="Email the customer their Rate Confirmation (Load Confirmation) now? This sends exactly once - the button disappears afterwards."/>
             </xpath>
 
             <!-- Send for WhatsApp Approval button -->

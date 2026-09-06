@@ -626,11 +626,14 @@ class CrmLeadWebsiteCallback(models.Model):
         """True when an open 'Callback request' activity already exists
         on the lead (same type + summary) — reprocessing must never
         schedule the callback activity twice."""
+        # Odoo 18: completed activities are unlinked (or archived when the
+        # type has keep_done) — mail.activity has no boolean 'done' field,
+        # only the computed state selection.  ``active`` is the open filter.
         return bool(self.env['mail.activity'].sudo().search([
             ('res_model', '=', 'crm.lead'),
             ('res_id', '=', lead.id),
             ('activity_type_id', '=', self.env.ref(
                 'mail.mail_activity_data_call').id),
             ('summary', 'ilike', 'Callback request'),
-            ('done', '=', False),
+            ('active', '=', True),
         ], limit=1))

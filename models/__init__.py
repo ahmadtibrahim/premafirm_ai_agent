@@ -119,3 +119,9 @@ from . import voipms_call_log
 # PHASES 6-7 — safe Fetch Now + inbound dedupe (imported LAST so its
 # message_route override runs first in the MRO)
 from . import fetchmail_safety
+
+# MP1 §2.7 (E-A3) — recurring-opportunity management (engine side). Adds
+# crm.recurring.opportunity + the crm.lead smart-button side. Imported last:
+# it extends crm.lead and must wrap earlier crm.lead hooks like the other
+# late extensions.
+from . import crm_recurring_opportunity

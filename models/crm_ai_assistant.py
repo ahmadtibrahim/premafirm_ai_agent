@@ -354,7 +354,12 @@ class CrmLeadAIAssistant(models.Model):
         try:
             if result.message_type == 'email':
                 if result.author_id and result.author_id.user_ids:
-                    self._mark_outbound_activity(update_stage=True)
+                    # Issue 13 — rule-4 guard: only a genuine outbound
+                    # customer email (at least one EXTERNAL recipient)
+                    # may advance NEW / UNCONTACTED → OUTREACH SENT;
+                    # internal-only emails never move the stage.
+                    update_stage = self._outreach_has_external_recipient(result)
+                    self._mark_outbound_activity(update_stage=update_stage)
                 elif result.author_id and not result.author_id.user_ids:
                     # Incoming: customer replied
                     self.sudo().write({

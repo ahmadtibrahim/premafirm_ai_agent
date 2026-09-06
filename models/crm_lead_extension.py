@@ -2,7 +2,6 @@ import logging
 import re
 
 from odoo import api, fields, models
-from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
@@ -130,6 +129,14 @@ class CrmLead(models.Model):
 # ══════════════════════════════════════════════════════════════════════════
 
 _CALLBACK_QUOTE_STAGE = "QUOTE REQUESTED"
+
+# Issue 13 — dedupe markers (invisible data attributes inside the note
+# bodies) + banner text for prema_process_website_callback.
+_CALLBACK_NOTE_MARKER = 'prema-callback-requirements'
+_CALLBACK_BANNER_MARKER = 'prema-callback-banner'
+_CALLBACK_BANNER_BODY = (
+    '<p>New callback request submitted via the website - '
+    'please call the customer back.</p>')
 
 # Consumer mail domains identify a private person, not a business. Never
 # used to match an existing company (§6 priority 1).
@@ -431,12 +438,19 @@ class CrmLeadWebsiteCallback(models.Model):
     def prema_process_website_callback(self):
         """Normalize + link a website callback/quote-request lead.
 
-        Runs inside automation 63 ('Callback Request - tag, notify, note')
-        after a /request-a-callback submission creates the lead. Every
-        record is resolved by name or canonical identity — never by a
-        hardcoded database id — and the lead's freight requirements
-        (description), chatter, tags, team notification and attention flag
-        are all preserved.
+        Runs inside automation 63 / its Issue-13 code twin after a
+        /request-a-callback submission creates the lead. Every record is
+        resolved by name or canonical identity — never by a hardcoded
+        database id — and the lead's freight requirements (description),
+        chatter, tags, team notification and attention flag are all
+        preserved.
+
+        Issue 13 hardening: genuine callback treatment (tag, internal
+        notes, team subscribe, callback activity) is limited to leads
+        created with the exact name 'Callback Request', every post is an
+        INTERNAL note (never customer mail), and all side effects are
+        dedupe-idempotent so reprocessing a lead cannot duplicate them.
+        Incomplete payloads are skipped (logged), never raised.
         """
         Partner = self.env["res.partner"]
         Stage = self.env["crm.stage"]
@@ -451,11 +465,26 @@ class CrmLeadWebsiteCallback(models.Model):
             [("name", "=", "Callback Request")], limit=1)
 
         for lead in self:
+            # Issue 13 — only genuine website callback submissions get the
+            # callback treatment.  The /request-a-callback form creates the
+            # lead with the exact name 'Callback Request'; a '… — Quote
+            # Request' look-alike (including THIS lead after normalization,
+            # i.e. on any later reprocessing) is normalized and deduped
+            # only — no tag, no banner, no team notify, no activity — so
+            # repeated processing can never duplicate the callback extras.
+            genuine_callback = (lead.name or '').strip() == 'Callback Request'
             if (not lead.phone or not lead.contact_name
                     or not lead.partner_name or not lead.email_from):
-                raise UserError(
-                    "Callback request is missing a required field "
-                    "(name, phone, email or company name).")
+                # Skip, never raise: an exception raised inside the
+                # automation would roll back the lead's whole creation
+                # (and surface a UserError to unrelated flows).  The
+                # website form validates these fields, so a skip only
+                # ever affects malformed or automated payloads.
+                _logger.warning(
+                    'prema_process_website_callback: skipping lead %s '
+                    '(incomplete payload, genuine_callback=%s)',
+                    lead.id, genuine_callback)
+                continue
 
             # ── normalize the raw form payload (§8/§9/§2) ──────────────
             email = _callback_norm_email(lead.email_from)
@@ -541,19 +570,67 @@ class CrmLeadWebsiteCallback(models.Model):
             lead.write(update_vals)
 
             # ── preserved behaviour: freight notes, tag, notify ─────────
-            if lead.description:
+            # Issue 13 hardening:
+            #  * EVERY post below is subtype mt_note (INTERNAL).  The lead's
+            #    customer partner is a follower, so a default-subtype post
+            #    would EMAIL the customer — forbidden.
+            #  * Notes and the callback activity are marker/summary-deduped
+            #    and the tag/team-subscribe checks are idempotent:
+            #    reprocessing the same lead never creates duplicates.
+            #  * The tag/banner/team/activity extras run only for genuine
+            #    website callback submissions (see loop head).
+            if lead.description and not self._callback_note_exists(
+                    lead, _CALLBACK_NOTE_MARKER):
                 lead.message_post(
-                    body="<p><strong>Customer's stated requirements:</strong></p>"
-                         + lead.description,
+                    body="<p><strong>Customer's stated requirements:</strong>"
+                         "</p>" + lead.description
+                         + '<span data-prema="%s"></span>'
+                         % _CALLBACK_NOTE_MARKER,
                     subtype_xmlid="mail.mt_note",
                 )
-            if callback_tag and callback_tag.id not in lead.tag_ids.ids:
-                lead.write({"tag_ids": [(4, callback_tag.id)]})
-            team = lead.team_id
-            if team:
-                partner_ids = team.crm_team_member_ids.user_id.partner_id.ids
-                if partner_ids:
-                    lead.message_subscribe(partner_ids=partner_ids)
-            lead.message_post(
-                body="New callback request submitted via the website - "
-                     "please call the customer back.")
+            if genuine_callback:
+                if callback_tag and callback_tag.id not in lead.tag_ids.ids:
+                    lead.write({"tag_ids": [(4, callback_tag.id)]})
+                team = lead.team_id
+                if team:
+                    partner_ids = team.crm_team_member_ids.user_id.partner_id.ids
+                    if partner_ids:
+                        lead.message_subscribe(partner_ids=partner_ids)
+                if not self._callback_activity_exists(lead):
+                    lead.activity_schedule(
+                        'mail.mail_activity_data_call',
+                        summary='Callback request - call the customer back',
+                        user_id=lead.user_id.id or self.env.uid,
+                    )
+                if not self._callback_note_exists(
+                        lead, _CALLBACK_BANNER_MARKER):
+                    lead.message_post(
+                        body=_CALLBACK_BANNER_BODY
+                             + '<span data-prema="%s"></span>'
+                             % _CALLBACK_BANNER_MARKER,
+                        subtype_xmlid="mail.mt_note",
+                    )
+
+    # ── Issue 13: dedupe helpers (reprocessing-safe) ──────────────────
+
+    def _callback_note_exists(self, lead, marker):
+        """True when a chatter message carrying ``marker`` already exists
+        on the lead — reprocessing must never post the note twice."""
+        return bool(self.env['mail.message'].sudo().search([
+            ('model', '=', 'crm.lead'),
+            ('res_id', '=', lead.id),
+            ('body', 'ilike', marker),
+        ], limit=1))
+
+    def _callback_activity_exists(self, lead):
+        """True when an open 'Callback request' activity already exists
+        on the lead (same type + summary) — reprocessing must never
+        schedule the callback activity twice."""
+        return bool(self.env['mail.activity'].sudo().search([
+            ('res_model', '=', 'crm.lead'),
+            ('res_id', '=', lead.id),
+            ('activity_type_id', '=', self.env.ref(
+                'mail.mail_activity_data_call').id),
+            ('summary', 'ilike', 'Callback request'),
+            ('done', '=', False),
+        ], limit=1))

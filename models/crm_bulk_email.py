@@ -19,13 +19,20 @@ Batch → queue row → ONE native mail.mail → send → durable queue state.
   before every send (handle_bounce feeds the native counters — PHASE 4-5).
 """
 import base64
-from datetime import timedelta
+import logging
+from datetime import datetime, timedelta
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools import email_normalize
 
+_logger = logging.getLogger(__name__)
+
 SUPPRESSED_MSG = 'Suppressed: recipient blacklisted or permanently bounced'
+
+# B-11 — daily send budget for the bulk-queue cron.  0 = unlimited.
+# Day boundary = UTC calendar day (the cron stamps naive UTC datetimes).
+_PARAM_DAILY_LIMIT = 'crm.bulk_email.daily_limit'
 
 
 class PremafirmCrmBulkEmailBatch(models.Model):
@@ -203,15 +210,50 @@ class PremafirmCrmBulkEmailQueue(models.Model):
         return mail
 
     @api.model
+    def _count_daily_sends(self, day_start):
+        """Bulk sends that count against the daily quota: items this
+        script handed to SMTP today — finalized sends (sent / replied /
+        bounced, stamped ``sent_at``) plus in-flight claims made today
+        (``state=sending`` by ``write_date``; a stale 'sending' row from a
+        previous day never consumes today's budget)."""
+        return self.sudo().search_count([
+            '|',
+            '&', ('state', '=', 'sending'),
+                 ('write_date', '>=', day_start),
+            '&', ('state', 'in', ('sent', 'replied', 'bounced')),
+                 ('sent_at', '>=', day_start),
+        ])
+
+    @api.model
     def run_bulk_email_cron(self):
         """Crash-safe sweep: claim + reserve durably, then one record per
         item, then the final state. Items that left 'queued' are never
-        re-picked, so a handed-off item cannot be resent after restart."""
+        re-picked, so a handed-off item cannot be resent after restart.
+
+        B-11 — daily budget: ir.config_parameter
+        ``crm.bulk_email.daily_limit`` (0 = unlimited) caps how many items
+        this script may hand to SMTP per UTC calendar day.  The guard is
+        evaluated at run start against the day's sends (see
+        ``_count_daily_sends``) and the claim window is trimmed to the
+        remaining budget, so the queue never exceeds the cap across the
+        1-minute runs — it simply waits for the next day."""
         now = fields.Datetime.now()
+        day_start = datetime.combine(now.date(), datetime.min.time())
+        daily_limit = int(self.env['ir.config_parameter'].sudo().get_param(
+            _PARAM_DAILY_LIMIT, '0') or 0)
+        budget = 50
+        if daily_limit > 0:
+            already_sent = self._count_daily_sends(day_start)
+            if already_sent >= daily_limit:
+                _logger.info(
+                    'B-11: bulk queue cron skipped — daily limit %s '
+                    'reached (%s sent today)', daily_limit, already_sent)
+                return 0
+            budget = min(50, daily_limit - already_sent)
         due = self.search(
             [("state", "=", "queued"), ("scheduled_at", "<=", now)],
             order="scheduled_at asc",
-            limit=50,
+            limit=budget,
         )
         for item in due:
             # race guard: a parallel worker may have claimed the item

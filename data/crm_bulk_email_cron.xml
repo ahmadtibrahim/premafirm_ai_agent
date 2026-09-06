@@ -13,6 +13,18 @@
         <field name="priority">10</field>
     </record>
 
+    <!-- B-11 — daily send budget for the cron above (0 = unlimited).
+         noupdate=1: operator-tuned values survive module upgrades.
+         The day boundary is the UTC calendar day (the cron stamps naive
+         UTC datetimes); the guard lives in run_bulk_email_cron and counts
+         items actually handed to SMTP. -->
+    <data noupdate="1">
+        <record id="param_crm_bulk_email_daily_limit" model="ir.config_parameter">
+            <field name="key">crm.bulk_email.daily_limit</field>
+            <field name="value">0</field>
+        </record>
+    </data>
+
     <!-- Server action: launch bulk email wizard from CRM list view -->
     <record id="action_server_crm_bulk_email" model="ir.actions.server">
         <field name="name">Schedule Bulk Email</field>

@@ -1,8 +1,7 @@
 import json
 import logging
 
-from odoo import _, api, fields, models
-from odoo.exceptions import UserError
+from odoo import _, api, exceptions, fields, models
 
 _logger = logging.getLogger(__name__)
 
@@ -37,6 +36,14 @@ class SaleOrder(models.Model):
         help="Type a plain-English description (e.g. 'Reefer delivery Toronto→Montreal, 24 pallets, liftgate') then click AI Generate.",
     )
     x_ai_summary_at = fields.Datetime("Summary Generated At", readonly=True, copy=False)
+
+    # ── Confirmation-email safety (S00094 guard) ──────────────────────
+    # Marker fields for the idempotent "Send Confirmation Email" action.
+    # Once set, the order-confirmation email can never be sent again.
+    x_confirmation_email_sent_at = fields.Datetime(
+        "Confirmation Email Sent", readonly=True, copy=False, tracking=True)
+    x_confirmation_email_template_id = fields.Many2one(
+        "mail.template", "Confirmation Email Template", readonly=True, copy=False)
 
     def action_ai_generate_quote(self):
         """AI Generate for sale.order — reads x_ai_summary_instruction and fills product + description."""
@@ -168,10 +175,12 @@ class SaleOrder(models.Model):
 
     def action_confirm(self):
         if self.env.context.get("premafirm_preview_only"):
-            raise UserError(_(
+            raise exceptions.UserError(_(
                 "Preview is read-only. Return to the quotation and use "
                 "Confirm Internally when you are ready."
             ))
+        # Confirmation itself never emails anyone. The implicit core email is
+        # suppressed below and can only be sent with the dedicated staff action.
         return super().action_confirm()
 
     def action_preview(self):
@@ -182,11 +191,73 @@ class SaleOrder(models.Model):
         self.invalidate_recordset(['state'])
         changed = self.filtered(lambda order: order.state != state_before[order.id])
         if changed:
-            raise UserError(_(
+            raise exceptions.UserError(_(
                 "Preview was blocked because an automation tried to change "
                 "the quotation state. No change was saved."
             ))
         return result
+
+    def _send_order_notification_mail(self, mail_template):
+        """S00094 guard — the confirmation email is only ever sent on an EXPLICIT ask.
+
+        sale_management.action_confirm auto-sends the quotation template's mail on
+        EVERY backend Confirm (even with no ``send_email`` context), and again on
+        every cancel → draft → re-confirm cycle. That silent path produced the
+        duplicated Rate Confirmation emails on S00093/S00094 (Link Street).
+
+        New rule — this method mails ONLY when staff use the explicit
+        "Send Confirmation Email" button, which supplies the private
+        ``premafirm_send_order_mail`` context flag.
+
+        Everything else (backend Confirm button, AI / automation / cron / XML-RPC
+        confirms) is a silent no-op here. A per-order marker makes the send
+        idempotent: the confirmation email can never go out twice for an order.
+        """
+        if not self.env.context.get('premafirm_send_order_mail'):
+            return  # silent no-op — confirming an order never emails anyone
+        self.ensure_one()
+        if not mail_template:
+            return
+        # Row lock + marker BEFORE the send: two near-simultaneous clicks cannot
+        # both pass the check, and a failed send rolls the marker back with the tx.
+        self.env.cr.execute(
+            'SELECT 1 FROM sale_order WHERE id = %s FOR UPDATE', (self.id,))
+        self.invalidate_recordset()
+        if self.x_confirmation_email_sent_at:
+            raise exceptions.UserError(
+                'The confirmation email for %s was already sent to the customer '
+                'on %s%s. No duplicate email was sent. If the customer needs '
+                'another copy, use "Send by Email" — that manual message is '
+                'never blocked by this guard.'
+                % (self.name,
+                   self.x_confirmation_email_sent_at.strftime('%Y-%m-%d %H:%M'),
+                   ' (%s)' % self.x_confirmation_email_template_id.name
+                   if self.x_confirmation_email_template_id else ''))
+        self.write({
+            'x_confirmation_email_sent_at': fields.Datetime.now(),
+            'x_confirmation_email_template_id': mail_template.id,
+        })
+        return super()._send_order_notification_mail(mail_template)
+
+    def action_send_order_confirmation(self):
+        """Explicit staff action: email the customer their Rate Confirmation.
+
+        This is the ONLY backend path that may send the order-confirmation email.
+        Idempotent — refuses to send twice (see x_confirmation_email_sent_at).
+        """
+        self.ensure_one()
+        if self.state != 'sale':
+            raise exceptions.UserError(
+                'Only confirmed orders (state "Sale Order") can send a confirmation '
+                'email. This order is in state "%s".' % self.state)
+        template = self._get_confirmation_template()
+        if not template:
+            raise exceptions.UserError(
+                'No confirmation email template is set for this order or its quotation '
+                'template. Set one, or use "Send by Email" for a manual message.')
+        self.with_context(
+            premafirm_send_order_mail=True)._send_order_notification_mail(template)
+        return {'type': 'ir.actions.client', 'tag': 'reload'}
 
     def _prepare_invoice(self):
         vals = super()._prepare_invoice()

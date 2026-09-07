@@ -48,7 +48,6 @@ access_premafirm_ifta_fuel_log_user,premafirm.ifta.fuel.log user,model_premafirm
 access_premafirm_ifta_fuel_log_manager,premafirm.ifta.fuel.log manager,model_premafirm_ifta_fuel_log,base.group_system,1,1,1,1
 access_sale_order_approval_user,sale.order.approval user,model_sale_order_approval,base.group_user,1,1,1,0
 access_sale_order_approval_manager,sale.order.approval manager,model_sale_order_approval,base.group_system,1,1,1,1
-access_premafirm_crm_ai_reply_wizard,crm ai reply wizard,model_premafirm_crm_ai_reply_wizard,base.group_user,1,1,1,1
 access_crm_bulk_assign_wizard,crm.bulk.assign.wizard,model_crm_bulk_assign_wizard,base.group_user,1,1,1,1
 access_prema_attendance_summary_admin,prema.attendance.summary admin,model_prema_attendance_summary,base.group_system,1,1,1,1
 access_prema_staff_coaching_admin,prema.staff.coaching.config admin,model_prema_staff_coaching_config,base.group_system,1,1,1,1

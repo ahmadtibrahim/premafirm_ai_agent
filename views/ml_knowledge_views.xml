@@ -113,7 +113,7 @@
          (view_crm_lead_ml_buttons / action_ml_rate_quote) was REMOVED with the
          legacy generative-AI pricing workflow — the only CRM preliminary
          estimate path is the dispatch-side 'Prepare Preliminary Estimate
-         Reply' action (prema_logistics_booking crm_lead_estimate_bridge).
+         Reply' action (prema_logistics_booking crm_lead_estimate_bridge). -->
 
     <!-- NOTE: 'AI: Check for Issues' header button is in account_move_ml_views.xml.
          The smart-button duplicate has been removed to avoid confusion. -->

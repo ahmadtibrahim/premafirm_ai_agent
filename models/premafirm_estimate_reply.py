@@ -55,9 +55,11 @@ FIELD_LABELS = {
     "delivery_date": "Delivery date",
     "delivery_deadline": "Delivery deadline",
     "service_minutes": "Service time at delivery (minutes)",
+    "origin_company_name": "Pickup company/facility",
     "origin_address": "Pickup address",
     "origin_city": "Pickup city",
     "origin_postal_code": "Pickup postal code",
+    "destination_company_name": "Delivery company/facility",
     "destination_address": "Delivery address",
     "destination_city": "Delivery city",
     "destination_postal_code": "Delivery postal code",
@@ -192,9 +194,16 @@ class PremafirmLeadEstimateReply(models.Model):
 
         currency = currency or self.env.company.currency_id
         body_paragraphs, note = self._generate_prose(lead, fact_lines)
+        # The customer's own reference (extracted from their latest email /
+        # the opportunity) takes priority over the lead title in the subject;
+        # the greeting names the customer as they presented themselves.
+        reference = (effective.get("reference") or {}).get("value") or ""
+        customer_name = (lead.contact_name or lead.partner_name or "").strip() \
+            or (lead.partner_id.name if lead.partner_id else "") or ""
         body_html = self._compose_body(
-            body_paragraphs, price_amount, currency, price_reference, fact_lines)
-        subject = self._compose_subject(lead)
+            body_paragraphs, price_amount, currency, price_reference, fact_lines,
+            customer_name=customer_name, reference=reference)
+        subject = self._compose_subject(lead, reference=reference)
 
         partner = lead.partner_id if lead.partner_id else False
         draft = self.create({
@@ -232,6 +241,10 @@ class PremafirmLeadEstimateReply(models.Model):
             "- Do NOT mention prices, rates, money or quotations at all: a "
             "price line and a non-binding disclaimer are appended by the "
             "system after you.\n"
+            "- Do NOT open with a salutation/greeting ('Dear', 'Hello', the "
+            "customer's name) and do NOT write any 'reference' line — the "
+            "system adds the greeting, the reference and the price line "
+            "programmatically.\n"
             "- Do NOT promise binding commitments; this is a preliminary "
             "reply and a formal rate confirmation will follow.\n"
             "- Plain text paragraphs only, separated by blank lines, no "
@@ -267,11 +280,13 @@ class PremafirmLeadEstimateReply(models.Model):
         return fallback, note
 
     def _compose_body(self, paragraphs, price_amount, currency, price_reference,
-                      fact_lines):
-        """Programmatic assembly: prose + price line + disclaimer.
+                      fact_lines, customer_name="", reference=""):
+        """Programmatic assembly: greeting + reference + prose + price line +
+        disclaimer.
 
-        The price and the non-binding disclaimer come from parameters/code,
-        never from the LLM, so the AI cannot invent figures.
+        The greeting, the reference line, the price and the non-binding
+        disclaimer all come from parameters/code, never from the LLM, so the
+        AI cannot invent figures or misname the customer/reference.
         """
         price_label = currency.symbol or currency.name or ""
         price_text = ("%s %s" % (price_label, format(price_amount, ",.2f"))).strip()
@@ -279,6 +294,12 @@ class PremafirmLeadEstimateReply(models.Model):
             price_text += " — %s" % price_reference
         price_line = "Estimated price: %s" % price_text
         blocks = []
+        if customer_name:
+            blocks.append("<p>Hello %s,</p>" % html.escape(customer_name.strip()))
+        if reference:
+            blocks.append(
+                "<p><strong>Your reference: %s</strong></p>"
+                % html.escape(reference.strip()))
         for p in paragraphs:
             blocks.append("<p>%s</p>" % html.escape(p))
         blocks.append("<p><strong>%s</strong></p>" % html.escape(price_line))
@@ -292,8 +313,14 @@ class PremafirmLeadEstimateReply(models.Model):
                 "<ul>%s</ul>" % details)
         return "".join(blocks)
 
-    def _compose_subject(self, lead):
-        base = lead.name or "Shipment opportunity"
+    def _compose_subject(self, lead, reference=""):
+        """Subject line.  The customer-supplied reference — extracted from
+        their latest email / the opportunity — takes priority over the lead
+        title (which may be a generic callback label, not the shipment)."""
+        if reference and str(reference).strip():
+            base = "Ref %s" % str(reference).strip()
+        else:
+            base = lead.name or "Shipment opportunity"
         name = base.strip()
         if len(name) > 70:
             name = name[:67] + "..."

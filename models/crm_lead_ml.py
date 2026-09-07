@@ -24,29 +24,6 @@ class CrmLeadML(models.Model):
 
     # ── Existing button actions (unchanged) ──────────────────────────
 
-    def action_ml_draft_reply(self):
-        """Generate an AI draft reply for this lead and open the draft for review."""
-        self.ensure_one()
-        draft, err = self.env['premafirm.ml.engine'].generate_crm_reply(self)
-        if err or not draft:
-            return {
-                'type': 'ir.actions.client',
-                'tag': 'display_notification',
-                'params': {
-                    'title': 'ML Draft Failed',
-                    'message': err or 'Could not generate a draft.',
-                    'type': 'warning',
-                    'sticky': False,
-                },
-            }
-        return {
-            'type': 'ir.actions.act_window',
-            'res_model': 'premafirm.ml.draft',
-            'res_id': draft.id,
-            'view_mode': 'form',
-            'target': 'new',
-        }
-
     def action_ml_rate_quote(self):
         """Generate a rate quote draft from this lead."""
         self.ensure_one()

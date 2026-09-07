@@ -6,7 +6,9 @@
         <field name="name">estimator.scenario.request.tree</field>
         <field name="model">premafirm.estimator.scenario.request</field>
         <field name="arch" type="xml">
-            <list string="Estimator scenario requests" editable="false">
+            <!-- Odoo 18 rejects editable="false" (must be top/bottom); rows
+                 open the read-only form (create/edit/delete false below). -->
+            <list string="Estimator scenario requests">
                 <field name="name"/>
                 <field name="create_date"/>
                 <field name="vehicle_id"/>

@@ -102,7 +102,8 @@ class EstimatorScenarioRequest(models.Model):
 
             payload = self._build_payload(
                 request, vehicle, stops, warnings, avoid_tolls,
-                allow_cross_border, scheduled_at, return_to_home)
+                allow_cross_border, scheduled_at, return_to_home,
+                request_text=text_message)
             request.inputs_json = payload
 
             bridge_ok = "logistics.estimator.bridge" in self.env.registry
@@ -317,7 +318,7 @@ class EstimatorScenarioRequest(models.Model):
 
     def _build_payload(self, request, vehicle, stops, warnings,
                        avoid_tolls, allow_cross_border, scheduled_at,
-                       return_to_home):
+                       return_to_home, request_text=""):
         from ..services.mapbox_service import MapboxService
         from ..services.eld_adapter import EldAdapter
         mbx = MapboxService(self.env)
@@ -444,7 +445,7 @@ class EstimatorScenarioRequest(models.Model):
                 "Weights were not extracted (only %d pallet positions) — "
                 "payload feasibility is unverified." % pallets)
         liftgate = any(bool(s.get("liftgate")) for s in stops)
-        equipment = self._proposed_equipment(request, vehicle, stops)
+        equipment = self._proposed_equipment(vehicle, stops, request_text)
         # Reefers default to the booking flow's 15°C setpoint.
         required_temperature_c = 15.0 if equipment == "reefer" else False
 
@@ -614,7 +615,7 @@ class EstimatorScenarioRequest(models.Model):
                             limit=1)
         return leads[:1] if leads else False
 
-    def _proposed_equipment(self, request, vehicle, stops):
+    def _proposed_equipment(self, vehicle, stops, request_text=""):
         """Honest equipment proposal from the request text.
 
         Dispatch's booking flow defaults temperature-silent requests to
@@ -623,7 +624,7 @@ class EstimatorScenarioRequest(models.Model):
         signal must win over the default, and a truck without a reefer
         unit is always proposed dry (never a blocking reefer ask)."""
         hay = " ".join(filter(None, [
-            str(request.message or ""),
+            request_text,
             *(str(s.get("address") or "") + " " + str(s.get("stop_notes") or "")
               for s in stops)])).lower()
         wants_reefer = any(k in hay for k in (

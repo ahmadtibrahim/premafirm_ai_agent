@@ -24,6 +24,7 @@ class EstimatorChatPanel extends Component {
         this.notification = useService("notification");
         this.action       = useService("action");
         this.fileInputRef = useRef("fileInput");
+        this.customerInputRef = useRef("customerInput");
 
         this.state = useState({
             panelOpen:   false,
@@ -33,8 +34,14 @@ class EstimatorChatPanel extends Component {
             vehicles:    [],
             vehicleId:   null,
             vehicleReefer: false,
-            customers:   [],
+            // Searchable customer combobox (single control): type to
+            // search name/email/phone; arrow keys + Enter or mouse pick;
+            // "No customer selected (new enquiry)" is the cleared state.
+            customerOptions: [],   // [{id, name, email, phone, city}]
+            customerOpen: false,
+            customerActiveIndex: -1,
             customerId:  0,
+            customerLabel:"",
             customerTerm:"",
             customerBusy:false,
             pickupDate:  "",
@@ -87,8 +94,14 @@ class EstimatorChatPanel extends Component {
     async onCustomerInput(ev) {
         const term = ev.target.value;
         this.state.customerTerm = term;
+        // Editing the box after a pick starts a NEW search → the picked
+        // customer is released (the estimate falls back to "new enquiry").
+        if (this.state.customerId && term.trim() !== this.state.customerLabel) {
+            this._releaseCustomer();
+        }
         if (term.trim().length < 2) {
-            this.state.customers = [];
+            this.state.customerOptions = [];
+            this.state.customerOpen = false;
             return;
         }
         if (this._customerTimer) {
@@ -97,26 +110,116 @@ class EstimatorChatPanel extends Component {
         this._customerTimer = setTimeout(() => this._searchCustomers(term), 350);
     }
 
+    onCustomerFocus() {
+        const st = this.state;
+        // A picked customer sits in the box as its label: refocusing just
+        // re-opens nothing — editing it (input) releases the selection and
+        // starts a new search; the × button clears it outright.
+        if (st.customerId && st.customerTerm === st.customerLabel) return;
+        const term = (st.customerTerm || "").trim();
+        if (st.customerOpen) return;
+        if (term.length >= 2 && !this.state.customerOptions.length) {
+            this._searchCustomers(term);
+            return;
+        }
+        this.state.customerActiveIndex = this.state.customerOptions.length ? 0 : -1;
+        this.state.customerOpen = true;
+    }
+
+    onCustomerBlur() {
+        this.state.customerOpen = false;
+        this.state.customerActiveIndex = -1;
+    }
+
+    onCustomerHover(index) {
+        this.state.customerActiveIndex = index;
+    }
+
+    onCustomerKeydown(ev) {
+        const st = this.state;
+        if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+            ev.preventDefault();
+            const n = st.customerOptions.length;
+            if (!n) return;
+            if (!st.customerOpen) {
+                st.customerOpen = true;
+                st.customerActiveIndex = 0;
+                return;
+            }
+            const step = ev.key === "ArrowDown" ? 1 : -1;
+            st.customerActiveIndex = (st.customerActiveIndex + step + n) % n;
+        } else if (ev.key === "Enter") {
+            const opt = st.customerOptions[st.customerActiveIndex];
+            if (st.customerOpen && opt) {
+                // Enter on the highlighted row picks it (kept out of the
+                // search term); Enter without a highlighted row falls
+                // through and submits the estimate as typed.
+                if (st.customerId !== opt.id) this._pickCustomer(opt);
+            }
+        } else if (ev.key === "Escape") {
+            st.customerOpen = false;
+            st.customerActiveIndex = -1;
+        } else if (ev.key === "Tab") {
+            st.customerOpen = false;
+        }
+    }
+
+    onCustomerPick(index) {
+        const opt = this.state.customerOptions[index];
+        if (opt) this._pickCustomer(opt);
+    }
+
+    _pickCustomer(c) {
+        const st = this.state;
+        st.customerId = c.id;
+        st.customerLabel = c.name;
+        st.customerTerm = c.name;
+        st.customerOptions = [];
+        st.customerOpen = false;
+        st.customerActiveIndex = -1;
+        // The label is the new "value" of the box: a full re-search is
+        // offered the moment the user edits it again.
+    }
+
+    _releaseCustomer() {
+        const st = this.state;
+        st.customerId = 0;
+        st.customerLabel = "";
+        st.customerOptions = [];
+        st.customerOpen = false;
+        st.customerActiveIndex = -1;
+    }
+
+    clearCustomer() {
+        this._releaseCustomer();
+        this.state.customerTerm = "";
+        this.customerInputRef.el && this.customerInputRef.el.focus();
+    }
+
     async _searchCustomers(term) {
         this.state.customerBusy = true;
         try {
             const partners = await this.orm.searchRead(
                 "res.partner",
-                [["name", "ilike", term]],
-                ["id", "name", "email"],
+                [
+                    "|", "|",
+                    ["name", "ilike", term],
+                    ["email", "ilike", term],
+                    ["phone", "ilike", term],
+                ],
+                ["id", "name", "email", "phone", "city"],
                 { limit: 12, order: "name asc" }
             );
-            this.state.customers = partners;
+            this.state.customerOptions = partners;
+            this.state.customerActiveIndex = partners.length ? 0 : -1;
+            this.state.customerOpen = true;
         } catch (_) {
-            this.state.customers = [];
+            this.state.customerOptions = [];
+            this.state.customerActiveIndex = -1;
+            this.state.customerOpen = true;
         } finally {
             this.state.customerBusy = false;
         }
-    }
-
-    onCustomerSelect(ev) {
-        const id = parseInt(ev.target.value, 10);
-        this.state.customerId = isNaN(id) ? 0 : id;
     }
 
     onVehicleChange(ev) {
@@ -242,7 +345,15 @@ class EstimatorChatPanel extends Component {
                 [],
                 payload
             );
-            if (result && result.error) {
+            if (result && result.success === false) {
+                // Structured failure — rendered as banners (headline +
+                // per-problem bullets + small-print technical detail), so
+                // the raw exception is never the only thing the user sees.
+                st.result = result;
+                st.resultHtml = this._buildResultHtml(result);
+            } else if (result && result.error) {
+                // Legacy/defensive path (route-dev, rate-confirmation RPCs
+                // or a bridge-shaped error) — top alert, as before.
                 st.error = result.error;
             } else {
                 st.result = result;
@@ -299,16 +410,32 @@ class EstimatorChatPanel extends Component {
         const warnings = res.warnings || [];
 
         h.push(`<div class="o_est_req_head">`);
+        const validationErrors = res.validation_errors || [];
+        if (res.success === false || res.state === "error" || validationErrors.length) {
+            // Structured failure: friendly headline + per-problem bullets
+            // + optional small-print technical detail.  No itinerary /
+            // scenario sections on a failed estimate — that is the audit
+            // record's job.
+            h.push(`<div class="o_est_banner banner-error"><b>${this._esc(res.message || "The estimate could not be completed.")}</b></div>`);
+            for (const ve of validationErrors) {
+                h.push(`<div class="o_est_conflict">✖ ${this._esc(ve)}</div>`);
+            }
+            if (res.error_detail) {
+                h.push(`<div class="o_est_sub">detail: ${this._esc(res.error_detail)}</div>`);
+            }
+            h.push(`</div>`);
+            return h.join("");
+        }
         if (res.dispatch_online === false) {
             h.push(`<div class="o_est_banner banner-offline">Dispatch integration is offline — scenario cards, availability and pricing intel are unavailable on this database.</div>`);
         }
         if (res.message) {
             h.push(`<div class="o_est_banner banner-info">${this._esc(res.message)}</div>`);
         }
-        if (res.state === "error") {
-            h.push(`<div class="o_est_banner banner-error">Computation stopped: the request could not be completed.</div>`);
-        }
-        if (warnings.length) {
+        const opWarnings = res.operational_warnings || [];
+        if (opWarnings.length) {
+            h.push(this._chips(opWarnings, "warn"));
+        } else if (warnings.length) {
             h.push(this._chips(warnings, "warn"));
         }
         h.push(`</div>`);

@@ -44,22 +44,67 @@
                                  t-if="state.vehicleReefer">Reefer truck — temperature-controlled scenario will be offered.</div>
                         </div>
 
-                        <!-- Customer -->
+                        <!-- Customer — single searchable combobox (name /
+                             email / phone).  "No customer selected (new
+                             enquiry)" is the cleared state (hint below); the
+                             matching partner_id rides on the estimate →
+                             pricing intel + draft rate confirmation. -->
                         <div class="o_est_field_row">
-                            <label class="o_est_field_label">Customer <span class="o_est_muted">(optional — start typing)</span></label>
-                            <div class="o_est_customer_wrap">
-                                <select class="form-select" t-on-change="onCustomerSelect">
-                                    <option value="0">No customer selected (new enquiry)</option>
-                                    <t t-foreach="state.customers" t-as="c" t-key="c.id">
-                                        <option t-att-value="c.id"><t t-esc="c.name"/><t t-if="c.email"> · <t t-esc="c.email"/></t></option>
+                            <label class="o_est_field_label">Customer <span class="o_est_muted">(optional — search name, email or phone)</span></label>
+                            <div class="o_est_customer_wrap o_est_combobox">
+                                <div class="o_est_cb_ctrl">
+                                    <input type="text"
+                                           class="form-control o_est_customer_search"
+                                           placeholder="Start typing to search existing customers…"
+                                           autocomplete="off" spellcheck="false"
+                                           role="combobox"
+                                           t-att-aria-expanded="state.customerOpen ? 'true' : 'false'"
+                                           t-att-value="state.customerTerm"
+                                           t-ref="customerInput"
+                                           t-on-input="onCustomerInput"
+                                           t-on-focus="onCustomerFocus"
+                                           t-on-keydown="onCustomerKeydown"
+                                           t-on-blur="onCustomerBlur"/>
+                                    <span class="o_est_cb_affix">
+                                        <i class="fa fa-spinner fa-spin"
+                                           t-if="state.customerBusy"/>
+                                        <button type="button"
+                                                class="o_est_cb_clear"
+                                                title="Clear customer selection (new enquiry)"
+                                                t-if="state.customerId"
+                                                t-on-click="clearCustomer">×</button>
+                                    </span>
+                                </div>
+                                <ul class="o_est_cb_menu" t-if="state.customerOpen"
+                                    role="listbox">
+                                    <li class="o_est_cb_item o_est_cb_hint"
+                                        t-if="!state.customerOptions.length">
+                                        <t t-if="state.customerTerm.trim().length >= 2">No matching customer — the estimate stays a <b>new enquiry</b> (you can still link a customer later).</t>
+                                        <t t-else="">Type at least 2 letters, an email or a phone number…</t>
+                                    </li>
+                                    <t t-foreach="state.customerOptions" t-as="c" t-key="c.id">
+                                        <li t-att-class="'o_est_cb_item' + (state.customerActiveIndex === c_index ? ' active' : '')"
+                                            role="option"
+                                            t-att-aria-selected="state.customerActiveIndex === c_index"
+                                            t-on-mousedown.prevent="onCustomerPick(c_index)"
+                                            t-on-mouseenter="onCustomerHover(c_index)">
+                                            <span class="o_est_cb_name"><t t-esc="c.name"/></span>
+                                            <span class="o_est_cb_sub">
+                                                <t t-if="c.email">✉ <t t-esc="c.email"/></t>
+                                                <t t-if="c.phone"> · ☏ <t t-esc="c.phone"/></t>
+                                                <t t-if="c.city"> · <t t-esc="c.city"/></t>
+                                            </span>
+                                        </li>
                                     </t>
-                                </select>
-                                <input type="text" class="form-control o_est_customer_search"
-                                       placeholder="Search existing customer…"
-                                       t-att-value="state.customerTerm"
-                                       t-on-input="onCustomerInput"/>
-                                <i class="fa fa-spinner fa-spin o_est_spin"
-                                   t-if="state.customerBusy"/>
+                                </ul>
+                            </div>
+                            <div class="o_est_hint o_est_cb_picked"
+                                 t-if="state.customerId">
+                                <i class="fa fa-user-check me-1"/>
+                                <b t-esc="state.customerLabel"/> — pricing intel &amp; the draft rate confirmation will be linked to this customer.
+                            </div>
+                            <div class="o_est_hint o_est_cb_emptyhint" t-else="">
+                                No customer selected (new enquiry)
                             </div>
                         </div>
 
@@ -170,6 +215,7 @@
                         <button type="button"
                                 class="btn btn-secondary btn-sm"
                                 title="Route Development — this week's corridor schedule for the truck and the request's region pair"
+                                t-if="state.result.ok"
                                 t-att-disabled="state.routeDevBusy ? true : false"
                                 t-on-click="onRouteDev">
                             <i class="fa fa-calendar-week"/>

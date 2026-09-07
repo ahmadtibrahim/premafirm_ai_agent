@@ -70,18 +70,37 @@ class EstimatorScenarioRequest(models.Model):
     message = fields.Text(string="Message")
 
     # ── Entry point (called by the reworked estimator panel) ─────────
+    # NOTE: the panel calls these with orm.call(model, name, [], kwargs) —
+    # @api.model is what keeps the framework from mis-reading [] as the
+    # ids positional argument ("list index out of range" in call_kw).
 
+    @api.model
     def estimate_scenarios_rpc(self, vehicle_id, text_message="", files=None,
                                partner_id=0, avoid_tolls=True,
                                allow_cross_border=False, scheduled_at=None,
                                return_to_home=True):
         """One message → one consolidated response (scenarios + itinerary
-        + intel + pairing).  Creates ONLY this audit record."""
+        + intel + pairing).  Creates ONLY this audit record.
+
+        Always returns a STRUCTURED dict (never a bare exception)::
+            success             bool — estimate completed
+            validation_errors   [str] — input problems the user must fix
+            operational_warnings [str] — degradations (unroutable stop,
+                                         city-level geocode, …)
+            stops               [{seq, kind, name, address, fsa, qty}]
+            route               {distance_km, duration_hrs, itinerary, …}
+            scenarios / intel / pairing / lead_id — dispatch answer
+            message             user-facing headline (success or failure)
+            error_detail        technical detail (support only)
+        """
         request = self.env["premafirm.estimator.scenario.request"]
         try:
             vehicle = self.env["fleet.vehicle"].sudo().browse(int(vehicle_id))
             if not vehicle.exists():
-                return {"error": "Truck %s not found." % vehicle_id}
+                return self._rpc_failure(
+                    request,
+                    message="Truck %s was not found — pick a truck from the "
+                            "list." % vehicle_id)
             request = self.sudo().create({
                 "vehicle_id": vehicle.id,
                 "partner_id": int(partner_id or 0) or False,
@@ -92,12 +111,18 @@ class EstimatorScenarioRequest(models.Model):
             stops, warnings = self._collect_stops(
                 request, text_message, files or [], vehicle)
             if not stops:
+                message = ("Could not detect any stops from the provided "
+                           "input. Include where the freight is picked up "
+                           "and where it goes — city or address, postal "
+                           "code or FSA (e.g. \"pick up 12 pallets in "
+                           "Toronto M5V, deliver Montreal H4N\").")
                 request.sudo().write({
-                    "state": "error",
-                    "message": "Could not detect any stops from the provided "
-                               "input. Please check the message or file."})
-                return {"error": request.message, "request_id": request.id,
-                        "state": "error"}
+                    "state": "error", "message": message})
+                return self._rpc_failure(
+                    request, message=message,
+                    errors=[message],
+                    detail="No stops extracted — no pickup or delivery "
+                           "recognized in text/file input.")
             self._validate_stop_mix(stops, request)
 
             payload = self._build_payload(
@@ -112,10 +137,25 @@ class EstimatorScenarioRequest(models.Model):
                 "dispatch_online": bridge_ok, "route": payload["route"],
                 "warnings": warnings, "scenarios": [], "intel": {},
                 "pairing": {}, "lead_id": False,
+                "success": False, "validation_errors": [],
+                "operational_warnings": list(warnings),
+                "message": "", "error_detail": False,
             }
+            response["stops"] = [{
+                "seq": i + 1,
+                "kind": s.get("type"),
+                "name": s.get("company_name") or "",
+                "address": s.get("address") or "",
+                "fsa": s.get("fsa_code") or "",
+                "qty": ("%d pallets" % s.get("pallets") or 0)
+                       if (s.get("pallets") or 0)
+                       else ("%d lb" % s.get("weight_lbs") or 0
+                             if (s.get("weight_lbs") or 0) else ""),
+            } for i, s in enumerate(payload.get("stops") or [])]
             if not bridge_ok:
                 response["ok"] = True
                 response["state"] = "computed"
+                response["success"] = True
                 request.sudo().write({
                     "state": "computed", "dispatch_online": False,
                     "message": "Dispatch integration is offline on this "
@@ -128,16 +168,15 @@ class EstimatorScenarioRequest(models.Model):
 
             bridge = self.env["logistics.estimator.bridge"]
             result = bridge.estimate_request(payload)
+            response["ok"] = True
+            response["state"] = "computed"
+            response["success"] = True
             if result.get("error"):
-                response["state"] = "computed"
-                response["ok"] = True
                 response["message"] = (
                     "Dispatch scenario engine could not answer: %s"
                     % result.get("message", "unknown error"))
                 warnings.append(response["message"])
             else:
-                response["ok"] = True
-                response["state"] = "computed"
                 response.update({
                     "scenarios": result.get("scenarios", []),
                     "intel": result.get("intel", {}),
@@ -152,6 +191,7 @@ class EstimatorScenarioRequest(models.Model):
                              if s.get("feasible")), None)
                 response["suggested_sell"] = \
                     best.get("suggested_sell") if best else False
+            response["operational_warnings"] = list(warnings)
 
             lead = self.sudo()._find_open_lead(request.partner_id)
             if lead:
@@ -169,22 +209,22 @@ class EstimatorScenarioRequest(models.Model):
         except Exception as exc:
             # Any extraction/routing/bridge failure must leave a visible
             # ERROR audit record (never a phantom row stuck in "draft") and
-            # the caller gets the request_id back to find it.
+            # the caller gets the request_id back to find it.  The UI gets a
+            # friendly headline; the technical detail is on the record AND
+            # in error_detail (small print) — never the bare exception as
+            # the only message.
             _logger.exception("estimate_scenarios_rpc failed")
-            if request:
-                try:
-                    request.sudo().write({
-                        "state": "error", "message": str(exc)[:400]})
-                    request.response_json = {
-                        "state": "error", "error": str(exc)[:400]}
-                except Exception:
-                    _logger.exception("could not write error state")
-            return {"error": str(exc)[:400],
-                    "request_id": request.id if request else False,
-                    "state": "error"}
+            return self._rpc_failure(
+                request,
+                message="The estimate could not be completed — adjust the "
+                        "request above and try again%s."
+                        % ((" (request %s)" % request.name) if request
+                           else " without a truck"),
+                detail=str(exc)[:400])
 
     # ── Route Development week view (§13) ───────────────────────────
 
+    @api.model
     def route_development_rpc(self, request_id, week_start=None):
         """Scheduled corridor week + development gaps for one request's
         region pair and truck. Read-only; used by the route-dev button."""
@@ -203,6 +243,7 @@ class EstimatorScenarioRequest(models.Model):
 
     # ── Explicit conversion action (§10.9 — human click only) ───────
 
+    @api.model
     def action_rate_confirmation_rpc(self, request_id):
         """Draft Rate Confirmation for the request's customer. This is the
         explicit conversion click: it reuses the CRM lead bridge
@@ -241,6 +282,31 @@ class EstimatorScenarioRequest(models.Model):
                     "message": str(exc)[:400]}
 
     # ── Pipeline helpers ────────────────────────────────────────────
+
+    def _rpc_failure(self, request, message, errors=None, detail=None):
+        """Structured failure dict for the estimator panel.  `message` is
+        the user-facing headline (shown as the error banner), `errors` are
+        per-problem bullets, `detail` is the technical trace (kept on the
+        audit record and echoed small-print for support)."""
+        audit_message = (detail or message) if request else message
+        if request:
+            try:
+                request.sudo().write({
+                    "state": "error",
+                    "message": audit_message[:1000]})
+            except Exception:
+                _logger.exception("could not write error state")
+        return {
+            "success": False,
+            "ok": False,
+            "request_id": request.id if request else False,
+            "state": "error",
+            "error": message,
+            "message": message,
+            "validation_errors": list(errors) if errors else [message],
+            "operational_warnings": [],
+            "error_detail": detail or False,
+        }
 
     def _collect_stops(self, request, text_message, files, vehicle):
         """Reuse the estimator's canonical text/file parsers."""

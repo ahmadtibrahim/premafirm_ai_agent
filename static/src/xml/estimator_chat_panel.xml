@@ -1,167 +1,207 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
+    <t t-name="premafirm_ai_engine.EstimatorChatPanel"
+       owl="1">
 
-    <t t-name="premafirm_ai_engine.EstimatorChatPanel">
-        <li class="o_nav_entry d-flex align-items-center o_premafirm_est_root">
+        <li class="o_premafirm_est_root">
+            <a href="#" class="o_premafirm_est_launcher"
+               title="Prema Estimator — unified itinerary, 3 scenarios, pricing intel"
+               t-on-click.prevent="togglePanel">
+                <i class="fa fa-truck-moving"/>
+                <span class="o_premafirm_est_launcher_label">Estimator</span>
+            </a>
 
-            <!-- Systray trigger button -->
-            <button class="o_premafirm_est_btn" t-on-click="togglePanel" title="Open Trip Cost Estimator">
-                <i class="fa fa-calculator"/>
-                <span>Estimator</span>
-            </button>
+            <t t-if="state.panelOpen">
+                <div class="o_premafirm_est_backdrop"
+                     t-on-click="togglePanel"/>
+                <div class="o_premafirm_est_panel">
 
-            <!-- Backdrop (fixed, outside panel flow) -->
-            <div t-if="state.panelOpen"
-                 class="o_premafirm_est_backdrop"
-                 t-on-click="togglePanel"/>
-
-            <!-- Sliding panel -->
-            <div t-if="state.panelOpen" class="o_premafirm_est_panel">
-
-                <!-- Header -->
-                <div class="o_premafirm_est_header">
-                    <h5>
-                        <i class="fa fa-calculator text-warning me-2"/>
-                        Trip Cost Estimator
-                    </h5>
-                    <button class="btn-close" aria-label="Close" t-on-click="togglePanel"/>
-                </div>
-
-                <!-- Scrollable body -->
-                <div class="o_premafirm_est_body">
-
-                    <!-- Mode toggle -->
-                    <div class="o_premafirm_est_mode mb-3">
-                        <button t-att-class="state.mode === 'chat' ? 'active' : ''"
-                                t-on-click="() => this.setMode('chat')">
-                            <i class="fa fa-comment me-1"/>Chat / Text
-                        </button>
-                        <button t-att-class="state.mode === 'files' ? 'active' : ''"
-                                t-on-click="() => this.setMode('files')">
-                            <i class="fa fa-files-o me-1"/>Upload Files
+                    <div class="o_premafirm_est_header">
+                        <span class="o_premafirm_est_title">Prema Estimator</span>
+                        <span class="o_premafirm_est_subtitle">unified itinerary · 3 scenarios · pricing intel</span>
+                        <button type="button" class="btn btn-sm btn-light ms-auto"
+                                t-on-click="togglePanel" title="Close">
+                            <i class="fa fa-times"/>
                         </button>
                     </div>
 
-                    <!-- Truck selector -->
-                    <div class="mb-3">
-                        <label><i class="fa fa-truck me-1"/>Truck</label>
-                        <select class="form-select form-select-sm"
-                                t-on-change="onVehicleChange">
-                            <option value="">&#8212; Select Truck &#8212;</option>
-                            <t t-foreach="state.vehicles" t-as="v" t-key="v.id">
-                                <option t-att-value="v.id"
-                                        t-att-selected="state.vehicleId === v.id"
-                                        t-esc="v.name"/>
-                            </t>
-                        </select>
-                    </div>
+                    <div class="o_premafirm_est_body">
 
-                    <!-- CHAT MODE -->
-                    <t t-if="state.mode === 'chat'">
-                        <div class="mb-2">
-                            <label><i class="fa fa-comment me-1"/>Rate Request Message</label>
-                            <textarea class="form-control form-control-sm"
-                                      rows="9"
-                                      placeholder="Paste your WhatsApp message, email, or type the rate request here..."
+                        <!-- Truck -->
+                        <div class="o_est_field_row">
+                            <label class="o_est_field_label">Truck</label>
+                            <select class="form-select" t-on-change="onVehicleChange">
+                                <option value="">Select truck…</option>
+                                <t t-foreach="state.vehicles" t-as="v" t-key="v.id">
+                                    <option t-att-value="v.id">
+                                        <t t-esc="v.name"/>
+                                        <t t-if="v.x_reefer"> (Reefer)</t>
+                                        <t t-if="!v.x_operational_logistics"> (not operational)</t>
+                                    </option>
+                                </t>
+                            </select>
+                            <div class="o_est_hint"
+                                 t-if="state.vehicleReefer">Reefer truck — temperature-controlled scenario will be offered.</div>
+                        </div>
+
+                        <!-- Customer -->
+                        <div class="o_est_field_row">
+                            <label class="o_est_field_label">Customer <span class="o_est_muted">(optional — start typing)</span></label>
+                            <div class="o_est_customer_wrap">
+                                <select class="form-select" t-on-change="onCustomerSelect">
+                                    <option value="0">No customer selected (new enquiry)</option>
+                                    <t t-foreach="state.customers" t-as="c" t-key="c.id">
+                                        <option t-att-value="c.id"><t t-esc="c.name"/><t t-if="c.email"> · <t t-esc="c.email"/></t></option>
+                                    </t>
+                                </select>
+                                <input type="text" class="form-control o_est_customer_search"
+                                       placeholder="Search existing customer…"
+                                       t-att-value="state.customerTerm"
+                                       t-on-input="onCustomerInput"/>
+                                <i class="fa fa-spinner fa-spin o_est_spin"
+                                   t-if="state.customerBusy"/>
+                            </div>
+                        </div>
+
+                        <!-- When -->
+                        <div class="o_est_field_row o_est_fields_inline">
+                            <div>
+                                <label class="o_est_field_label">Pickup date</label>
+                                <input type="date" class="form-control"
+                                       t-att-value="state.pickupDate"
+                                       t-on-change="onPickupDateChange"/>
+                            </div>
+                            <div>
+                                <label class="o_est_field_label">Return home</label>
+                                <div class="form-check o_est_switch">
+                                    <input type="checkbox" class="form-check-input"
+                                           id="est_return_home"
+                                           t-att-checked="state.returnHome"
+                                           t-on-change="onReturnHomeChange"/>
+                                    <label class="form-check-label" for="est_return_home">
+                                        Empty return to truck base after last drop
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Request -->
+                        <div class="o_est_field_row">
+                            <label class="o_est_field_label">Customer request <span class="o_est_muted">(email / chat / call notes)</span></label>
+                            <textarea class="form-control o_est_chat_text" rows="4"
+                                      placeholder="e.g. 12 pallets reefer from Toronto (M5V) to Montreal (H4N), 3 delivery stops — what would it cost and when can it go?"
                                       t-att-value="state.chatText"
                                       t-on-input="onChatInput"/>
                         </div>
-                    </t>
 
-                    <!-- FILES MODE -->
-                    <t t-if="state.mode === 'files'">
-                        <div class="mb-2">
-                            <label><i class="fa fa-file-pdf-o me-1"/>Bill of Lading / Route Sheet</label>
+                        <!-- Attachments -->
+                        <div class="o_est_field_row">
                             <div class="o_premafirm_est_dropzone"
                                  t-att-class="state.dragOver ? 'drag-over' : ''"
-                                 t-on-drop="onFilesDrop"
-                                 t-on-dragover="onDragOver"
+                                 t-on-click="onDropzoneClick"
+                                 t-on-dragover.prevent="onDragOver"
                                  t-on-dragleave="onDragLeave"
-                                 t-on-click="onDropzoneClick">
-                                <i class="fa fa-cloud-upload dz-icon"/>
-                                <p>Drop PDFs or images here</p>
-                                <p class="dz-hint">or click to browse &#160;&#183;&#160; Multiple files supported</p>
+                                 t-on-drop.prevent="onFilesDrop">
+                                <i class="fa fa-cloud-upload-alt"/>
+                                <span>Drop PDF / JPG / PNG / WebP here or click to browse</span>
+                                <input type="file" class="d-none" multiple="multiple"
+                                       accept="application/pdf,image/jpeg,image/png,image/webp"
+                                       t-ref="fileInput"
+                                       t-on-change="onFilesChange"/>
                             </div>
-                            <input t-ref="fileInput"
-                                   type="file"
-                                   class="d-none"
-                                   accept=".pdf,.jpg,.jpeg,.png,.webp"
-                                   multiple="multiple"
-                                   t-on-change="onFilesChange"/>
-
-                            <div t-if="state.files.length > 0" class="o_premafirm_est_file_list">
-                                <t t-foreach="state.files" t-as="file" t-key="file_index">
-                                    <div class="o_premafirm_est_file_chip">
-                                        <i class="fa fa-file-pdf-o text-danger"/>
-                                        <span class="fc-name" t-esc="file.name"/>
-                                        <span class="fc-size" t-esc="formatFileSize(file.size)"/>
-                                        <button class="fc-remove"
-                                                t-att-data-index="file_index"
+                            <div class="o_est_chips" t-if="state.files.length">
+                                <t t-foreach="state.files" t-as="f" t-key="f_index">
+                                    <span class="o_est_chip chip-file">
+                                        <i class="fa fa-paperclip"/>
+                                        <span t-esc="f.name"/>
+                                        <span class="o_est_muted" t-esc="formatFileSize(f.size)"/>
+                                        <button type="button"
+                                                class="btn btn-sm o_est_chip_x"
+                                                t-att-data-index="f_index"
                                                 t-on-click="onRemoveFileClick"
-                                                title="Remove">&#215;</button>
-                                    </div>
+                                                title="Remove file">
+                                            <i class="fa fa-times"/>
+                                        </button>
+                                    </span>
                                 </t>
                             </div>
                         </div>
-                    </t>
 
-                    <!-- Options -->
-                    <div class="o_premafirm_est_options">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="est_avoid_tolls"
-                                   t-att-checked="state.avoidTolls"
-                                   t-on-change="onAvoidTollsChange"/>
-                            <label class="form-check-label" for="est_avoid_tolls">Avoid Tolls</label>
+                        <!-- Options -->
+                        <div class="o_est_options">
+                            <label class="o_est_check">
+                                <input type="checkbox" class="form-check-input"
+                                       t-att-checked="state.avoidTolls"
+                                       t-on-change="onAvoidTollsChange"/>
+                                Avoid tolls
+                            </label>
+                            <label class="o_est_check">
+                                <input type="checkbox" class="form-check-input"
+                                       t-att-checked="state.allowUSA"
+                                       t-on-change="onAllowUSAChange"/>
+                                Allow cross-border (US)
+                            </label>
                         </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="est_allow_usa"
-                                   t-att-checked="state.allowUSA"
-                                   t-on-change="onAllowUSAChange"/>
-                            <label class="form-check-label" for="est_allow_usa">Allow USA Routing</label>
+
+                        <!-- Submit -->
+                        <button type="button"
+                                class="btn btn-primary o_premafirm_est_submit"
+                                t-att-disabled="state.loading ? true : false"
+                                t-on-click="onSubmit">
+                            <i class="fa fa-spinner fa-spin" t-if="state.loading"/>
+                            <i class="fa fa-magnifying-glass-location" t-else=""/>
+                            <t t-if="state.loading">Analyzing with dispatch authority…</t>
+                            <t t-else="">Estimate scenarios</t>
+                        </button>
+
+                        <div class="o_premafirm_est_error alert alert-danger"
+                             t-if="state.error" role="alert">
+                            <i class="fa fa-circle-exclamation me-1"/>
+                            <t t-esc="state.error"/>
                         </div>
+
+                        <div class="o_premafirm_est_result_wrap" t-if="state.resultHtml">
+                            <div class="o_premafirm_est_result_body" t-out="resultMarkup"/>
+                        </div>
+
                     </div>
 
-                    <!-- Submit -->
-                    <button class="o_premafirm_est_submit"
-                            t-att-disabled="state.loading || undefined"
-                            t-on-click="onSubmit">
-                        <t t-if="state.loading">
-                            <span class="spinner-border spinner-border-sm"/>
-                            Calculating&#8230;
-                        </t>
-                        <t t-else="">
-                            <i class="fa fa-calculator"/>
-                            Calculate Estimate
-                        </t>
-                    </button>
-
-                    <!-- Error -->
-                    <div t-if="state.error" class="o_premafirm_est_error">
-                        <i class="fa fa-exclamation-triangle me-2"/>
-                        <t t-esc="state.error"/>
+                    <div class="o_premafirm_est_footer" t-if="state.result">
+                        <button type="button"
+                                class="btn btn-secondary btn-sm"
+                                title="Route Development — this week's corridor schedule for the truck and the request's region pair"
+                                t-att-disabled="state.routeDevBusy ? true : false"
+                                t-on-click="onRouteDev">
+                            <i class="fa fa-calendar-week"/>
+                            <t t-if="state.routeDevBusy">Loading…</t>
+                            <t t-else="">Route development</t>
+                        </button>
+                        <button type="button"
+                                class="btn btn-success btn-sm"
+                                title="Draft an UNPRICED rate confirmation on the customer's lead — nothing is sent or confirmed"
+                                t-if="canDraftRC"
+                                t-on-click="onCreateDraftRC">
+                            <i class="fa fa-file-signature"/>
+                            Draft rate confirmation
+                        </button>
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm"
+                                title="Open the request audit record"
+                                t-on-click="openRecord">
+                            <i class="fa fa-folder-open"/>
+                            Request record
+                        </button>
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm ms-auto"
+                                title="Start a new estimate"
+                                t-on-click="resetPanel">
+                            <i class="fa fa-rotate-left"/>
+                            New estimate
+                        </button>
                     </div>
 
-                    <!-- Results -->
-                    <div t-if="state.result" class="o_premafirm_est_result">
-                        <div class="o_premafirm_est_result_body">
-                            <t t-out="resultMarkup"/>
-                        </div>
-                        <div class="o_premafirm_est_result_footer">
-                            <button class="btn btn-sm btn-outline-primary"
-                                    t-on-click="openRecord">
-                                <i class="fa fa-external-link me-1"/>Open Full Estimate
-                            </button>
-                            <button class="btn btn-sm btn-outline-secondary"
-                                    t-on-click="resetPanel">
-                                <i class="fa fa-refresh me-1"/>New Estimate
-                            </button>
-                        </div>
-                    </div>
-
-                </div><!-- /body -->
-            </div><!-- /panel -->
-
+                </div>
+            </t>
         </li>
     </t>
-
 </templates>

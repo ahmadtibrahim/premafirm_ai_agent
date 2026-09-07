@@ -588,6 +588,13 @@ class EstimatorScenarioRequest(models.Model):
     # ── Leaf helpers ────────────────────────────────────────────────
 
     def _find_open_lead(self, partner):
+        """Most recent OPEN (non-terminal) lead for the partner, or False.
+
+        crm.lead.won_status (won/lost/pending) is the canonical state field
+        in this instance (100% populated); crm.stage has is_won only — there
+        is NO crm.stage.is_lost, so lost-ness must not be expressed through
+        the stage relation.  Archived leads are excluded by the default
+        active test on search()."""
         if not partner:
             return False
         partner = partner.commercial_partner_id or partner
@@ -595,17 +602,15 @@ class EstimatorScenarioRequest(models.Model):
         if "crm.lead" not in self.env.registry:
             return False
         domain = [("partner_id", "=", partner.id)]
-        if "stage_id" in Lead._fields:
-            # Flat prefix domain: partner AND (won-is-False OR no stage) AND
-            # (lost-is-False OR no stage).  Nested lists are not valid Odoo
-            # leaves ("Invalid field crm.lead.| ...") — keep it flat.
+        if "won_status" in Lead._fields:
+            # pending = open; won/lost are terminal states.
+            domain.append(("won_status", "=", "pending"))
+        elif "stage_id" in Lead._fields:
+            # Fallback: no stage, or a stage that is not a won stage.
             domain = domain + [
-                "&", "|",
-                ("stage_id.is_won", "=", False),
-                ("stage_id", "=", False),
                 "|",
-                ("stage_id.is_lost", "=", False),
                 ("stage_id", "=", False),
+                ("stage_id.is_won", "=", False),
             ]
         leads = Lead.search(domain, order="create_date desc, id desc",
                             limit=1)

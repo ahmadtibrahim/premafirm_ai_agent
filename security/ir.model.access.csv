@@ -67,3 +67,5 @@ access_crm_recurring_opportunity_user,crm recurring opportunity user,model_crm_r
 access_crm_recurring_opportunity_sys,crm recurring opportunity sys,model_crm_recurring_opportunity,base.group_system,1,1,1,1
 access_premafirm_estimator_scenario_request_user,estimator scenario request user,model_premafirm_estimator_scenario_request,base.group_user,1,0,0,0
 access_premafirm_estimator_scenario_request_sys,estimator scenario request sys,model_premafirm_estimator_scenario_request,base.group_system,1,1,1,1
+access_premafirm_estimator_structured_stop_user,estimator structured stop user,model_premafirm_estimator_structured_stop,base.group_user,1,1,1,1
+access_premafirm_estimator_structured_stop_sys,estimator structured stop sys,model_premafirm_estimator_structured_stop,base.group_system,1,1,1,1

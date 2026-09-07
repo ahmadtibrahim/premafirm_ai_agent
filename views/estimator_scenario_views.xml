@@ -44,11 +44,43 @@
                             <field name="lead_id"/>
                             <field name="distance_km"/>
                             <field name="suggested_sell"/>
+                            <field name="margin_pct"/>
                             <field name="dispatch_online"/>
                         </group>
                     </group>
                     <group string="Request message">
                         <field name="message" readonly="1" nolabel="1"/>
+                    </group>
+                    <group string="Structured stops (reviewed authority)">
+                        <field name="structured_stop_ids" readonly="1"
+                               nolabel="1">
+                            <list string="Structured stops" create="false"
+                                  edit="false" delete="false">
+                                <field name="sequence"/>
+                                <field name="stop_type"/>
+                                <field name="status"/>
+                                <field name="company_name"/>
+                                <field name="address"/>
+                                <field name="city"/>
+                                <field name="province"/>
+                                <field name="postal_code"/>
+                                <field name="pallets"/>
+                                <field name="cases"/>
+                                <field name="weight_lbs"/>
+                                <field name="stop_date"/>
+                                <field name="time_window_type"/>
+                                <field name="exact_time"/>
+                                <field name="window_start"/>
+                                <field name="window_end"/>
+                            </list>
+                        </field>
+                    </group>
+                    <group string="Extraction totals">
+                        <field name="equipment"/>
+                        <field name="instructions"/>
+                        <field name="total_pallets"/>
+                        <field name="total_cases"/>
+                        <field name="total_weight_lbs"/>
                     </group>
                 </sheet>
             </form>

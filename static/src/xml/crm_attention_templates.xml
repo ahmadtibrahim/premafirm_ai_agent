@@ -44,11 +44,11 @@
                                 <td t-esc="lead.source"/>
                                 <td class="text-end">
                                     <button class="btn btn-sm btn-primary"
-                                            t-on-click="() => openLead(lead.id)">
+                                            t-on-click="() => this.openLead(lead.id)">
                                         Open Lead
                                     </button>
                                     <button class="btn btn-sm btn-secondary"
-                                            t-on-click="() => replyLead(lead.id)">
+                                            t-on-click="() => this.replyLead(lead.id)">
                                         Reply
                                     </button>
                                 </td>
@@ -81,15 +81,15 @@
                                 <td t-esc="item.mailbox"/>
                                 <td class="text-end">
                                     <button class="btn btn-sm btn-primary"
-                                            t-on-click="() => openQueue(item.id)">
+                                            t-on-click="() => this.openQueue(item.id)">
                                         Review Thread
                                     </button>
                                     <button class="btn btn-sm btn-secondary"
-                                            t-on-click="() => queueReviewed(item.id)">
+                                            t-on-click="() => this.queueReviewed(item.id)">
                                         Mark Reviewed
                                     </button>
                                     <button class="btn btn-sm btn-secondary"
-                                            t-on-click="() => queueNoReply(item.id)">
+                                            t-on-click="() => this.queueNoReply(item.id)">
                                         No Reply Needed
                                     </button>
                                 </td>

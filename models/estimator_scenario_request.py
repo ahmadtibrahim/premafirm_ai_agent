@@ -64,10 +64,23 @@ class EstimatorScenarioRequest(models.Model):
         readonly=True)
     engine_version = fields.Char(string="Engine version", readonly=True)
     suggested_sell = fields.Float(string="Suggested sell (card 1)", digits=0)
+    margin_pct = fields.Float(
+        string="Margin — markup on cost (%)",
+        help="Markup-on-cost percentage the scenarios were priced with. "
+             "Empty means the server default applied.")
     distance_km = fields.Float(string="Distance (km)", digits=0)
     dispatch_online = fields.Boolean(string="Dispatch bridge online",
                                      readonly=True)
     message = fields.Text(string="Message")
+
+    structured_stop_ids = fields.One2many(
+        "premafirm.estimator.structured.stop", "request_id",
+        string="Structured stops")
+    equipment = fields.Char(string="Extracted equipment")
+    instructions = fields.Text(string="Shipment instructions")
+    total_pallets = fields.Integer(string="Total pallets")
+    total_cases = fields.Integer(string="Total cases")
+    total_weight_lbs = fields.Float(string="Total weight (lbs)", digits=0)
 
     # ── Entry point (called by the reworked estimator panel) ─────────
     # NOTE: the panel calls these with orm.call(model, name, [], kwargs) —
@@ -78,9 +91,17 @@ class EstimatorScenarioRequest(models.Model):
     def estimate_scenarios_rpc(self, vehicle_id, text_message="", files=None,
                                partner_id=0, avoid_tolls=True,
                                allow_cross_border=False, scheduled_at=None,
-                               return_to_home=True):
+                               return_to_home=True, margin_pct=None,
+                               stops_input=None, request_id=None,
+                               apply_changes=False):
         """One message → one consolidated response (scenarios + itinerary
-        + intel + pairing).  Creates ONLY this audit record.
+        + intel + pairing + structured stops).  Creates ONLY audit/
+        review records — never a quote, booking, invoice or communication.
+
+        MP2: `stops_input` carries the panel's structured stop rows (the
+        reviewed authority); extraction populates them and never silently
+        overwrites a reviewed row — the response's `stop_conflicts` asks
+        the user to accept or reject detected text changes.
 
         Always returns a STRUCTURED dict (never a bare exception)::
             success             bool — estimate completed
@@ -88,6 +109,12 @@ class EstimatorScenarioRequest(models.Model):
             operational_warnings [str] — degradations (unroutable stop,
                                          city-level geocode, …)
             stops               [{seq, kind, name, address, fsa, qty}]
+            structured_stops    [panel-ready stop dicts]
+            stop_conflicts      [{sequence, current, proposed}]
+            extraction          {equipment, requested_pickup_date,
+                                 requested_pickup_time, instructions,
+                                 total_pallets, total_cases,
+                                 total_weight_lbs}
             route               {distance_km, duration_hrs, itinerary, …}
             scenarios / intel / pairing / lead_id — dispatch answer
             message             user-facing headline (success or failure)
@@ -101,16 +128,75 @@ class EstimatorScenarioRequest(models.Model):
                     request,
                     message="Truck %s was not found — pick a truck from the "
                             "list." % vehicle_id)
-            request = self.sudo().create({
-                "vehicle_id": vehicle.id,
-                "partner_id": int(partner_id or 0) or False,
-                "engine_version": self._engine_version(),
-                "state": "draft",
-            })
+            try:
+                margin_val = float(margin_pct)
+            except (TypeError, ValueError):
+                margin_val = False
 
-            stops, warnings = self._collect_stops(
-                request, text_message, files or [], vehicle)
-            if not stops:
+            # Reuse the request when the panel re-estimates the same
+            # session (stop edits, margin apply) so the structured stops
+            # stay ONE reviewed record instead of fragmenting per click.
+            if request_id:
+                request = self.sudo().browse(int(request_id))
+            if not (request and request.exists()):
+                request = self.sudo().create({
+                    "vehicle_id": vehicle.id,
+                    "partner_id": int(partner_id or 0) or False,
+                    "engine_version": self._engine_version(),
+                    "state": "draft",
+                    "margin_pct": margin_val,
+                })
+            elif margin_val is not False:
+                request.margin_pct = margin_val
+            elif not request.margin_pct:
+                request.margin_pct = False
+
+            # ── Extraction (text facts + file stops) ─────────────────
+            warnings = []
+            facts = {}
+            all_stops = []
+            estimator = self.env["premafirm.rate.estimator"].sudo().browse()
+            if text_message and text_message.strip():
+                try:
+                    facts = estimator._extract_work_order_text(
+                        text_message) if hasattr(
+                        estimator, "_extract_work_order_text") else {}
+                    # Sanitizer: a pickup that mirrors the first
+                    # delivery's quantity while the deliveries carry the
+                    # split total is an extractor copy artifact — the
+                    # pickup's own quantity stays 0.
+                    fst = list(facts.get("stops") or [])
+                    picks = [s for s in fst
+                             if str(s.get("type") or "").lower()
+                             in ("pickup", "origin")]
+                    drops = [s for s in fst
+                             if str(s.get("type") or "").lower()
+                             in ("delivery", "dropoff")]
+                    drop_sum = sum(int(s.get("pallets") or 0)
+                                   for s in drops)
+                    if picks and drops and drop_sum:
+                        first_drop = int(drops[0].get("pallets") or 0)
+                        for s in picks:
+                            if int(s.get("pallets") or 0) == first_drop \
+                                    and drop_sum > first_drop:
+                                s["pallets"] = 0
+                                s["cases"] = 0
+                                s["weight_lbs"] = 0
+                    for s in fst:
+                        s = dict(s)
+                        s["_source"] = "text"
+                        all_stops.append(s)
+                except Exception as exc:
+                    warnings.append("Text extraction failed (%s) — falling "
+                                    "back to the classic parser."
+                                    % str(exc)[:120])
+                    facts = {}
+            if files:
+                f_stops, f_warnings = self._collect_stops(
+                    request, "", files or [], vehicle)
+                all_stops.extend(f_stops or [])
+                warnings.extend(f_warnings or [])
+            if not all_stops and not (stops_input or []):
                 message = ("Could not detect any stops from the provided "
                            "input. Include where the freight is picked up "
                            "and where it goes — city or address, postal "
@@ -123,12 +209,49 @@ class EstimatorScenarioRequest(models.Model):
                     errors=[message],
                     detail="No stops extracted — no pickup or delivery "
                            "recognized in text/file input.")
-            self._validate_stop_mix(stops, request)
+
+            # ── Structured stops: merge panel rows + extraction ───────
+            rows, conflicts = self._merge_structured_stops(
+                request, stops_input or [], all_stops,
+                apply_changes=bool(apply_changes))
+            # Geocode rows without coordinates so routing stays possible
+            # for manual/legacy-shaped addresses.
+            from ..services.mapbox_service import MapboxService
+            mbx = MapboxService(self.env)
+            for rec in rows:
+                if rec.lat and rec.lng:
+                    continue
+                if not (rec.address or "").strip():
+                    continue
+                try:
+                    hits = mbx.geocode_address(" ".join(filter(None, (
+                        rec.address, rec.city or "", rec.province or "",
+                        rec.postal_code or ""))))
+                    if hits:
+                        rec.sudo().write({
+                            "lat": float(hits[0]["lat"]),
+                            "lng": float(hits[0]["lng"])})
+                except Exception:
+                    pass
+            rows = request.structured_stop_ids.sorted("sequence")
+            stop_dicts = [r._stop_dict() for r in rows]
+            payload_stops = self._payload_stop_dicts(rows, warnings)
+
+            if not payload_stops:
+                message = ("The stops could not be resolved — check the "
+                           "addresses above and try again.")
+                request.sudo().write({
+                    "state": "error", "message": message})
+                return self._rpc_failure(
+                    request, message=message, errors=[message],
+                    detail="No structured stops after merge.")
+            self._validate_stop_mix(payload_stops, request)
 
             payload = self._build_payload(
-                request, vehicle, stops, warnings, avoid_tolls,
+                request, vehicle, payload_stops, warnings, avoid_tolls,
                 allow_cross_border, scheduled_at, return_to_home,
-                request_text=text_message)
+                request_text=text_message, margin_pct=margin_val)
+            self._enrich_payload(request, payload, rows, facts, warnings)
             request.inputs_json = payload
 
             bridge_ok = "logistics.estimator.bridge" in self.env.registry
@@ -140,6 +263,19 @@ class EstimatorScenarioRequest(models.Model):
                 "success": False, "validation_errors": [],
                 "operational_warnings": list(warnings),
                 "message": "", "error_detail": False,
+                "structured_stops": stop_dicts,
+                "stop_conflicts": conflicts,
+                "extraction": {
+                    "equipment": payload.get("equipment") or "",
+                    "requested_pickup_date": payload.get("pickup_date")
+                    or False,
+                    "requested_pickup_time": facts.get(
+                        "requested_pickup_time") or False,
+                    "instructions": facts.get("instructions") or "",
+                    "total_pallets": payload.get("pallets") or 0,
+                    "total_cases": payload.get("total_cases") or 0,
+                    "total_weight_lbs": payload.get("weight_lbs") or 0.0,
+                },
             }
             response["stops"] = [{
                 "seq": i + 1,
@@ -221,6 +357,382 @@ class EstimatorScenarioRequest(models.Model):
                         % ((" (request %s)" % request.name) if request
                            else " without a truck"),
                 detail=str(exc)[:400])
+
+    # ── Structured stops (MP2) ───────────────────────────────────────
+
+    _ADDR_TAIL_RE = re.compile(
+        r",\s*([^,]+),\s*([A-Z]{2}|Ontario|Quebec|Québec|"
+        r"British Columbia|Alberta|Manitoba|Saskatchewan|Nova Scotia|"
+        r"New Brunswick|Newfoundland|Prince Edward Island)"
+        r"\s*(?:,?\s*([A-Z]\d[A-Z]\s?\d[A-Z]\d))?\s*(?:,?\s*Canada)?\s*$",
+        re.IGNORECASE)
+
+    def _fill_address_parts(self, s):
+        """Split a full 'street, City, ON K1A 0B1, Canada' address into
+        the structured parts when the extractor gave none separately."""
+        s = dict(s)
+        addr = str(s.get("address") or "").strip()
+        if not addr or (s.get("city") and s.get("province")):
+            return s
+        m = self._ADDR_TAIL_RE.search(addr)
+        if not m:
+            return s
+        s["city"] = s.get("city") or (m.group(1) or "").strip()
+        s["province"] = s.get("province") or (m.group(2) or "").strip()
+        s["postal_code"] = s.get("postal_code") or \
+            (m.group(3) or "").strip()
+        s["address"] = addr[:m.start()].strip().rstrip(",")
+        return s
+
+    def _merge_structured_stops(self, request, stops_input, extracted,
+                                apply_changes=False):
+        """Merge panel rows (reviewed authority) with fresh extraction.
+
+        Returns (recordset, conflicts). Conflicts list {sequence,
+        stop_type, current:{...}, proposed:{...}} for reviewed rows the
+        text changed — the panel asks the user to accept or reject.
+        """
+        Stop = self.env["premafirm.estimator.structured.stop"].sudo()
+        conflicts = []
+        panel_stops = [self._fill_address_parts(s) for s in (stops_input or [])
+                       if isinstance(s, dict)]
+        extracted = [self._fill_address_parts(s) for s in (extracted or [])
+                     if isinstance(s, dict)]
+
+        def _type(v):
+            v = str(v or "").lower()
+            if v in ("pickup", "origin"):
+                return "pickup"
+            return "delivery"
+
+        def _hhmm(v):
+            """'08:00' / '8:00' / 8.0 → hours as float."""
+            if v in (None, False, ""):
+                return 0.0
+            try:
+                if isinstance(v, (int, float)):
+                    return float(v)
+                v = str(v).strip()
+                if ":" in v:
+                    h, m = v.split(":")[:2]
+                    return float(int(h)) + float(int(m)) / 60.0
+                return float(v)
+            except (TypeError, ValueError):
+                return 0.0
+
+        def _norm_addr(s):
+            return " ".join(filter(None, (
+                str(s.get("address") or "").lower().strip(),
+                str(s.get("city") or "").lower().strip(),
+                str(s.get("postal_code") or str(s.get("postal") or ""))
+                .lower().replace(" ", ""),
+            )))
+
+        def _materially_differs(current, proposed):
+            if _type(proposed.get("type")) != current["stop_type"]:
+                return True
+            if _norm_addr(proposed) and \
+                    _norm_addr(proposed) != _norm_addr(current):
+                return True
+            if int(proposed.get("pallets") or 0) != int(
+                    current.get("pallets") or 0):
+                return True
+            if int(proposed.get("cases") or 0) != int(
+                    current.get("cases") or 0):
+                return True
+            if float(proposed.get("weight_lbs") or 0.0) != float(
+                    current.get("weight_lbs") or 0.0):
+                return True
+            if str(proposed.get("company_name") or "").strip() and \
+                    str(proposed.get("company_name") or "").strip() != \
+                    str(current.get("company_name") or "").strip():
+                return True
+            return False
+
+        def _row_vals(s, source, reviewed):
+            raw_date = s.get("stop_date") or s.get("date") or False
+            stop_date = False
+            if raw_date:
+                # The extractor may echo "tomorrow" / weekday names in the
+                # per-stop date — resolve before the Date field sees it.
+                stop_date = self._resolve_relative_date(raw_date) or False
+            return {
+                "sequence": int(s.get("sequence") or 0),
+                "stop_type": _type(s.get("type") or s.get("stop_type")),
+                "source": source,
+                "reviewed": reviewed,
+                "saved_location_id": int(s.get("saved_location_id") or 0)
+                or False,
+                "company_name": s.get("company_name") or False,
+                "address": s.get("address") or False,
+                "city": s.get("city") or False,
+                "province": s.get("province") or False,
+                "postal_code": s.get("postal_code")
+                or s.get("postal") or False,
+                "pallets": int(s.get("pallets") or 0),
+                "cases": int(s.get("cases") or 0),
+                "weight_lbs": float(s.get("weight_lbs") or 0.0),
+                "stop_date": stop_date,
+                "time_window_type": s.get("time_window_type") or "any",
+                "exact_time": _hhmm(s.get("exact_time")),
+                "window_start": _hhmm(s.get("window_start")),
+                "window_end": _hhmm(s.get("window_end")),
+                "instructions": s.get("instructions")
+                or s.get("stop_notes") or False,
+                "place_id": s.get("place_id") or False,
+                "lat": float(s.get("lat") or 0) or 0.0,
+                "lng": float(s.get("lng") or 0) or 0.0,
+            }
+
+        # 1. Panel rows first (their sequence order is the review order).
+        seq = [10]
+        kept_ids = []
+        for s in panel_stops:
+            vals = _row_vals(s, "manual"
+                            if not s.get("id") and not s.get("source")
+                            else s.get("source") or "extracted", True)
+            vals["sequence"] = seq[0]
+            seq[0] += 10
+            if s.get("id"):
+                rec = Stop.browse(int(s["id"]))
+                if rec.exists():
+                    rec.sudo().write(vals)
+                    kept_ids.append(rec.id)
+                    continue
+            rec = Stop.create(dict(vals, request_id=request.id))
+            kept_ids.append(rec.id)
+
+        # 2. Extracted stops: update unreviewed rows in position, append
+        #    new ones, flag (never silently replace) reviewed rows.
+        existing = Stop.search([
+            ("request_id", "=", request.id),
+        ] + ([("id", "in", kept_ids)] if kept_ids else []),
+            order="sequence").sorted("sequence")
+        for i, s in enumerate(extracted):
+            target = existing[i] if i < len(existing) else Stop
+            proposed = _row_vals(s, "extracted", False)
+            if target and target.reviewed:
+                if _materially_differs(
+                        {"stop_type": target.stop_type,
+                         "address": target.address,
+                         "city": target.city,
+                         "postal_code": target.postal_code,
+                         "company_name": target.company_name,
+                         "pallets": target.pallets,
+                         "cases": target.cases,
+                         "weight_lbs": target.weight_lbs}, s):
+                    if apply_changes:
+                        target.sudo().write(dict(
+                            proposed, reviewed=False, source="extracted",
+                            sequence=target.sequence,
+                            saved_location_id=False))
+                    else:
+                        conflicts.append({
+                            "sequence": target.sequence,
+                            "stop_type": target.stop_type,
+                            "current": target._stop_dict(),
+                            "proposed": {
+                                "stop_type": proposed["stop_type"],
+                                "company_name": proposed["company_name"],
+                                "address": proposed["address"],
+                                "city": proposed["city"],
+                                "postal_code": proposed["postal_code"],
+                                "pallets": proposed["pallets"],
+                                "cases": proposed["cases"],
+                                "weight_lbs": proposed["weight_lbs"],
+                            },
+                        })
+                continue
+            if target:
+                # Re-extraction may have changed the address — the old
+                # auto-matched location must not ride along; step 3
+                # re-resolves it.
+                target.sudo().write(dict(proposed,
+                                         sequence=target.sequence,
+                                         saved_location_id=False))
+                continue
+            Stop.create(dict(proposed, request_id=request.id,
+                             sequence=seq[0]))
+            seq[0] += 10
+
+        rows = Stop.search([("request_id", "=", request.id)],
+                           order="sequence")
+        # 3. Saved-location resolution per row (only when the address
+        #    changed or no location is linked yet).
+        if "logistics.estimator.bridge" in self.env.registry:
+            bridge = self.env["logistics.estimator.bridge"]
+            for rec in rows:
+                if rec.saved_location_id and rec.reviewed:
+                    # User-picked or user-confirmed — never re-match.
+                    continue
+                if rec.saved_location_id and not rec.reviewed:
+                    # Auto-matched earlier; re-extraction may have changed
+                    # the address — re-resolve to stay truthful.
+                    rec.sudo().write({"saved_location_id": False})
+                if not (rec.address or "").strip():
+                    continue
+                result = bridge.location_match_or_create(
+                    rec.company_name or "", rec.address or "",
+                    rec.city or "", rec.province or "",
+                    rec.postal_code or "", rec.lat or 0.0,
+                    rec.lng or 0.0, rec.place_id or "")
+                if result.get("saved_location_id"):
+                    fill = {"saved_location_id":
+                            int(result["saved_location_id"])}
+                    # Inherit the matched location's missing parts — the
+                    # street-only pickup gains city/province/postal, so
+                    # the FSA/corridor card and the completeness status
+                    # both resolve.
+                    if result.get("city") and not rec.city:
+                        fill["city"] = result["city"]
+                    if result.get("province_code") and not rec.province:
+                        fill["province"] = result["province_code"]
+                    if result.get("postal_code") and not rec.postal_code:
+                        fill["postal_code"] = result["postal_code"]
+                    rec.sudo().write(fill)
+        return rows, conflicts
+
+    def _payload_stop_dicts(self, rows, warnings):
+        """Convert structured rows into the payload stop dict shape the
+        payload builder routes/prices with."""
+        stop_dicts = []
+        for rec in rows.sorted("sequence"):
+            postal = (rec.postal_code or "").strip()
+            address = " ".join(filter(None, (
+                rec.address or "", rec.city or "",
+                rec.province or "", postal)))
+            fsa = re.sub(r"\s", "", postal).upper()[:3] if postal else ""
+            stop_dicts.append({
+                "type": rec.stop_type,
+                "company_name": rec.company_name or "",
+                "address": address,
+                "lat": rec.lat or 0.0,
+                "lng": rec.lng or 0.0,
+                "pallets": rec.pallets or 0,
+                "cases": rec.cases or 0,
+                "weight_lbs": rec.weight_lbs or 0.0,
+                "liftgate": False,
+                "stop_notes": rec.instructions or "",
+                "fsa_code": fsa,
+                "stop_date": rec.stop_date or False,
+                "time_window_type": rec.time_window_type or "any",
+                "exact_time": rec.exact_time or 0.0,
+                "window_start": rec.window_start or 0.0,
+                "window_end": rec.window_end or 0.0,
+                "status": rec.status or "incomplete",
+            })
+        return stop_dicts
+
+    def _enrich_payload(self, request, payload, rows, facts, warnings):
+        """Post-merge payload enrichment: extraction equipment/temp, the
+        resolved requested date, totals, per-segment onboard peak, cases,
+        and per-stop timing."""
+        stops = payload.get("stops") or []
+
+        # Equipment + temperature from the enriched extraction.
+        equipment = str(facts.get("equipment") or "").strip().lower()
+        if equipment in ("reefer", "dry"):
+            payload["equipment"] = equipment
+            temp = facts.get("temperature_c")
+            if equipment == "reefer":
+                try:
+                    payload["required_temperature_c"] = \
+                        float(temp) if temp is not None else 15.0
+                except (TypeError, ValueError):
+                    payload["required_temperature_c"] = 15.0
+            else:
+                payload["required_temperature_c"] = False
+        payload["instructions"] = facts.get("instructions") or ""
+
+        # Requested pickup date/time from the text (panel date still wins
+        # when the user picked one — scheduled_at already fed the payload).
+        requested = facts.get("requested_pickup_date")
+        if requested and not payload.get("pickup_date"):
+            resolved = self._resolve_relative_date(requested)
+            if resolved:
+                payload["pickup_date"] = resolved
+        payload["requested_pickup_time"] = \
+            facts.get("requested_pickup_time") or False
+
+        # Totals: the larger of the pickup side and the delivery side
+        # (split quantities may live on the delivery stops; a wrong
+        # pickup-side guess must not shrink the shipment).
+        def _sum(field):
+            pick = sum(int(s.get(field) or 0) for s in stops
+                       if str(s.get("type") or "").lower()
+                       in ("pickup", "origin"))
+            drop = sum(int(s.get(field) or 0) for s in stops
+                       if str(s.get("type") or "").lower()
+                       in ("delivery", "dropoff"))
+            return max(pick, drop)
+        pallets = _sum("pallets")
+        cases = _sum("cases")
+        weight = _sum("weight_lbs")
+        payload["pallets"] = pallets
+        payload["weight_lbs"] = weight
+        payload["total_cases"] = cases
+
+        # Per-segment onboard peak — capacity validation uses the peak
+        # load aboard each route segment, not merely the grand total.
+        onboard = peak = 0
+        for s in stops:
+            q = int(s.get("pallets") or 0)
+            kind = str(s.get("type") or "").lower()
+            if kind in ("pickup", "origin"):
+                onboard += q
+            else:
+                onboard = max(0, onboard - q)
+            peak = max(peak, onboard)
+        payload["peak_onboard_pallets"] = max(peak, pallets)
+        request_totals = {
+            "equipment": payload.get("equipment") or False,
+            "instructions": payload.get("instructions") or False,
+            "total_pallets": pallets,
+            "total_cases": cases,
+            "total_weight_lbs": weight,
+        }
+        if request:
+            try:
+                request.sudo().write(request_totals)
+            except Exception:
+                pass
+
+    def _resolve_relative_date(self, value):
+        """'tomorrow' / weekday names / ISO dates → ISO date (company tz)."""
+        import datetime as _dt
+        value = str(value or "").strip()
+        if not value:
+            return False
+        try:
+            return _dt.date.fromisoformat(value).isoformat()
+        except ValueError:
+            pass
+        import pytz
+        tz_name = "America/Toronto"
+        try:
+            tz_name = self.env.user.tz or \
+                self.env.company.partner_id.tz or tz_name
+        except Exception:
+            pass
+        today = _dt.datetime.now(pytz.timezone(tz_name)).date()
+        low = value.lower()
+        if low == "tomorrow":
+            return (today + _dt.timedelta(days=1)).isoformat()
+        weekdays = ("monday", "tuesday", "wednesday", "thursday",
+                    "friday", "saturday", "sunday")
+        if low in weekdays:
+            target = weekdays.index(low)
+            delta = (target - today.weekday()) % 7 or 7
+            return (today + _dt.timedelta(days=delta)).isoformat()
+        return False
+
+    @api.model
+    def location_search_rpc(self, term):
+        """Saved Location combobox search for the panel stop editor."""
+        if "logistics.estimator.bridge" not in self.env.registry:
+            return []
+        return self.env["logistics.estimator.bridge"].location_search_rpc(
+            term or "")
 
     # ── Route Development week view (§13) ───────────────────────────
 
@@ -384,7 +896,7 @@ class EstimatorScenarioRequest(models.Model):
 
     def _build_payload(self, request, vehicle, stops, warnings,
                        avoid_tolls, allow_cross_border, scheduled_at,
-                       return_to_home, request_text=""):
+                       return_to_home, request_text="", margin_pct=None):
         from ..services.mapbox_service import MapboxService
         from ..services.eld_adapter import EldAdapter
         mbx = MapboxService(self.env)
@@ -496,12 +1008,20 @@ class EstimatorScenarioRequest(models.Model):
         duration = sum(float(l.get("duration_hrs") or 0.0)
                        for l in customer_legs)
 
-        pallets = sum(int(s.get("pallets") or 0) for s in stops
-                      if str(s.get("type") or "").lower() in
-                      ("pickup", "origin"))
-        weight_lbs = sum(float(s.get("weight_lbs") or 0.0) for s in stops
-                         if str(s.get("type") or "").lower() in
-                         ("pickup", "origin"))
+        def _side_sum(field, kinds):
+            return sum(int(s.get(field) or 0) for s in stops
+                       if str(s.get("type") or "").lower() in kinds)
+        # Shipment-size authority: the larger of the pickup side and the
+        # delivery side. Split quantities often live on the delivery
+        # stops ("3 to A, 2 to B, 1 to C" with a bare pickup) and an
+        # extractor may wrongly copy the first delivery's quantity onto
+        # the pickup — max() is right for both, and equals the plain sum
+        # for a single pickup delivering everything.
+        pallets = max(_side_sum("pallets", ("pickup", "origin")),
+                      _side_sum("pallets", ("delivery", "dropoff")))
+        weight_lbs = max(
+            _side_sum("weight_lbs", ("pickup", "origin")),
+            _side_sum("weight_lbs", ("delivery", "dropoff")))
         if not pallets and not weight_lbs:
             warnings.append(
                 "No pallet/weight quantities were extracted — capacity "
@@ -605,7 +1125,8 @@ class EstimatorScenarioRequest(models.Model):
             "pallets": pallets,
             "weight_lbs": weight_lbs,
             "service_minutes": service_minutes,
-            "margin_pct": float(overrides.get("margin_pct") or 20.0),
+            "margin_pct": (float(margin_pct) if margin_pct
+                           else float(overrides.get("margin_pct") or 20.0)),
             "overrides": {k: v for k, v in overrides.items()
                           if k != "margin_pct"},
             "truck_home": home,

@@ -1719,6 +1719,96 @@ class PremafirmRateEstimator(models.Model):
 
         return stops, notes
 
+    def _extract_work_order_text(self, text):
+        """MP2 text-first extraction — one DeepSeek call returning the FULL
+        work-order facts (not just stops):
+
+        {equipment, temperature_c, requested_pickup_date, requested_pickup_time,
+         instructions, stops: [{type, company_name, address, city, province,
+         postal_code, pallets, cases, weight_lbs, liftgate, stop_notes,
+         date, time_window_type, exact_time, window_start, window_end}]}
+
+        Dates may be relative ("tomorrow", weekday names) — resolution to a
+        calendar date happens server-side in the caller using the company
+        timezone. Stops stay in the text's order.
+        """
+        import json as _json
+        system_prompt = (
+            "You are a Canadian freight dispatch assistant. Extract the "
+            "complete work order from the text. Return ONLY a JSON object:\n"
+            '{"equipment": "reefer|dry", "temperature_c": null, '
+            '"requested_pickup_date": "YYYY-MM-DD|tomorrow|Monday|...|null", '
+            '"requested_pickup_time": "08:00|null", '
+            '"instructions": "...", "stops": [{"type": "pickup|delivery", '
+            '"company_name": "...", "address": "street address", '
+            '"city": "...", "province": "ON|QC|...", "postal_code": "...", '
+            '"pallets": 0, "cases": 0, "weight_lbs": 0, "liftgate": false, '
+            '"stop_notes": "...", "date": "YYYY-MM-DD|null", '
+            '"time_window_type": "any|exact|window", "exact_time": "08:00", '
+            '"window_start": "09:00", "window_end": "11:00"}]}\n'
+            "Rules:\n"
+            "- Keep stops in the exact order they appear in the text\n"
+            "- Every stop keeps its own pallet/case/weight quantity — a "
+            "pickup without quantities gets 0 (the deliveries' split "
+            "quantities stay on their delivery stops)\n"
+            "- Never copy or infer a delivery's quantity onto the pickup "
+            "stop — the pickup's pallets/cases/weight stay 0 unless the "
+            "text explicitly gives the pickup itself a quantity\n"
+            "- Address components stay separate (address street, city, "
+            "province, postal) when the text gives them; leave unknown "
+            "parts null\n"
+            "- 'tomorrow' stays the literal word in requested_pickup_date; "
+            "weekday names stay as names\n"
+            "- Times as 24h HH:MM strings\n"
+            "- Return ONLY the JSON, no explanation"
+        )
+        result_text = self._call_openai(
+            system=system_prompt, user=f"Work order:\n\n{text[:3000]}",
+            max_tokens=1400)
+        clean = result_text.strip()
+        parsed = None
+        for attempt in [clean,
+                        re.sub(r'^```(?:json)?\s*', '', clean,
+                               flags=re.IGNORECASE).rstrip('`').strip()]:
+            try:
+                parsed = _json.loads(attempt)
+                break
+            except Exception:
+                pass
+        if parsed is None:
+            start = clean.find('{')
+            if start != -1:
+                depth = in_str = esc = 0
+                for ci, ch in enumerate(clean[start:], start):
+                    if esc:
+                        esc = False
+                        continue
+                    if ch == '\\' and in_str:
+                        esc = True
+                        continue
+                    if ch == '"':
+                        in_str = not in_str
+                        continue
+                    if in_str:
+                        continue
+                    if ch == '{':
+                        depth += 1
+                    elif ch == '}':
+                        depth -= 1
+                        if depth == 0:
+                            try:
+                                parsed = _json.loads(clean[start:ci + 1])
+                            except Exception:
+                                pass
+                            break
+        if not parsed:
+            raise ValueError("AI returned unparseable response: %s"
+                             % result_text[:200])
+        if not isinstance(parsed, dict) or "stops" not in parsed:
+            raise ValueError("AI response missing stops: %s"
+                             % result_text[:200])
+        return parsed
+
     def _call_openai(self, system, user, max_tokens=600):
         """AI call via OpenAI."""
         from ..services.deepseek_utils import deepseek_chat, get_api_key as _get_deepseek_key, get_model as _get_deepseek_model

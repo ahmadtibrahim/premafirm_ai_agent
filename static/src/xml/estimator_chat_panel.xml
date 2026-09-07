@@ -30,7 +30,9 @@
                         <!-- Truck -->
                         <div class="o_est_field_row">
                             <label class="o_est_field_label">Truck</label>
-                            <select class="form-select" t-on-change="onVehicleChange">
+                            <select class="form-select"
+                                    t-att-value="state.vehicleId"
+                                    t-on-change="onVehicleChange">
                                 <option value="">Select truck…</option>
                                 <t t-foreach="state.vehicles" t-as="v" t-key="v.id">
                                     <option t-att-value="v.id">
@@ -86,8 +88,8 @@
                                         <li t-att-class="'o_est_cb_item' + (state.customerActiveIndex === c_index ? ' active' : '')"
                                             role="option"
                                             t-att-aria-selected="state.customerActiveIndex === c_index"
-                                            t-on-mousedown.prevent="onCustomerPick(c_index)"
-                                            t-on-mouseenter="onCustomerHover(c_index)">
+                                            t-on-mousedown.prevent="() => this.onCustomerPick(c_index)"
+                                            t-on-mouseenter="() => this.onCustomerHover(c_index)">
                                             <span class="o_est_cb_name"><t t-esc="c.name"/></span>
                                             <span class="o_est_cb_sub">
                                                 <t t-if="c.email">✉ <t t-esc="c.email"/></t>
@@ -127,6 +129,193 @@
                                         Empty return to truck base after last drop
                                     </label>
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- Structured stops (MP2) — review controls
+                             populated by extraction, editable, the
+                             authoritative source for routing/pricing -->
+                        <div class="o_est_field_row o_est_stops">
+                            <div class="o_est_stops_head">
+                                <label class="o_est_field_label">Stops
+                                    <span class="o_est_muted">(auto-filled from the request — review before booking)</span>
+                                </label>
+                                <div class="o_est_stops_actions">
+                                    <button type="button" class="btn btn-sm btn-outline-primary"
+                                            t-on-click="() => this.addStop('pickup')">
+                                        <i class="fa fa-plus"/> Add Pickup
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-primary"
+                                            t-on-click="() => this.addStop('delivery')">
+                                        <i class="fa fa-plus"/> Add Delivery
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="o_est_stops_empty" t-if="!state.stops.length">
+                                No structured stops yet — they appear here after you click
+                                <b>Estimate scenarios</b>, or add them manually.
+                            </div>
+                            <t t-foreach="state.stops" t-as="stop" t-key="stop_index">
+                                <div class="o_est_stop_card"
+                                     t-att-class="'o_est_stop_card ' + (stop.status || 'incomplete')">
+                                    <div class="o_est_stop_head">
+                                        <span class="o_est_stop_type"
+                                              t-att-class="'o_est_stop_type ' + stop.stop_type">
+                                            <t t-if="stop.stop_type === 'pickup'">📦 Pickup</t>
+                                            <t t-else="">📍 Delivery</t>
+                                        </span>
+                                        <span class="o_est_stop_status"
+                                              t-att-class="'o_est_stop_status st-' + (stop.status || 'incomplete')">
+                                            <t t-if="stop.status === 'saved_reused'">Reused Saved Location</t>
+                                            <t t-elif="stop.status === 'manual'">Manual Address</t>
+                                            <t t-elif="stop.status === 'new_pending'">New Location — Pending Review</t>
+                                            <t t-elif="stop.status === 'incomplete'">Incomplete Address — Not Saved</t>
+                                            <t t-else=""><t t-esc="stop.status"/></t>
+                                        </span>
+                                        <div class="o_est_stop_tools ms-auto">
+                                            <button type="button" class="btn btn-sm btn-light"
+                                                    title="Move up"
+                                                    t-on-click="() => this.moveStop(stop_index, -1)">▲</button>
+                                            <button type="button" class="btn btn-sm btn-light"
+                                                    title="Move down"
+                                                    t-on-click="() => this.moveStop(stop_index, 1)">▼</button>
+                                            <button type="button" class="btn btn-sm btn-light"
+                                                    title="Remove stop"
+                                                    t-on-click="() => this.removeStop(stop_index)">✕</button>
+                                        </div>
+                                    </div>
+
+                                    <div class="o_est_stop_body">
+                                        <!-- Saved Location combobox -->
+                                        <div class="o_est_cb_ctrl">
+                                            <input type="text" class="form-control form-control-sm"
+                                                   placeholder="Search Saved Locations…"
+                                                   autocomplete="off"
+                                                   t-att-value="stop.locTerm"
+                                                   t-on-input="(ev) => this.onStopLocInput(stop_index, ev)"/>
+                                            <span class="o_est_cb_affix">
+                                                <button type="button" class="o_est_cb_clear"
+                                                        title="Clear location link"
+                                                        t-if="stop.saved_location_id"
+                                                        t-on-click="() => this.clearStopLocation(stop_index)">×</button>
+                                            </span>
+                                        </div>
+                                        <ul class="o_est_cb_menu o_est_stop_loc_menu"
+                                            t-if="stop.locOpen" role="listbox">
+                                            <li class="o_est_cb_item o_est_cb_hint"
+                                                t-if="!stop.locOptions.length">No matching Saved Locations — enter the address manually.</li>
+                                            <t t-foreach="stop.locOptions" t-as="loc" t-key="loc.id">
+                                                <li class="o_est_cb_item" role="option"
+                                                    t-on-mousedown.prevent="() => this.pickStopLocation(stop_index, loc)">
+                                                    <span class="o_est_cb_name"><t t-esc="loc.name"/></span>
+                                                    <span class="o_est_cb_sub"><t t-esc="loc.address"/></span>
+                                                </li>
+                                            </t>
+                                        </ul>
+
+                                        <!-- Manual address -->
+                                        <div class="o_est_stop_grid">
+                                            <input type="text" class="form-control form-control-sm"
+                                                   placeholder="Company"
+                                                   t-att-value="stop.company_name"
+                                                   t-on-input="(ev) => this.updateStop(stop_index, 'company_name', ev.target.value)"/>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   placeholder="Address (street)"
+                                                   t-att-value="stop.address"
+                                                   t-on-input="(ev) => this.updateStop(stop_index, 'address', ev.target.value)"/>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   placeholder="City"
+                                                   t-att-value="stop.city"
+                                                   t-on-input="(ev) => this.updateStop(stop_index, 'city', ev.target.value)"/>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   placeholder="Province"
+                                                   t-att-value="stop.province"
+                                                   t-on-input="(ev) => this.updateStop(stop_index, 'province', ev.target.value)"/>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   placeholder="Postal"
+                                                   t-att-value="stop.postal_code"
+                                                   t-on-input="(ev) => this.updateStop(stop_index, 'postal_code', ev.target.value)"/>
+                                        </div>
+
+                                        <!-- Quantity / timing / instructions -->
+                                        <div class="o_est_stop_grid o_est_stop_grid_qty">
+                                            <input type="number" min="0" class="form-control form-control-sm"
+                                                   placeholder="Pallets"
+                                                   t-att-value="stop.pallets"
+                                                   t-on-input="(ev) => this.updateStop(stop_index, 'pallets', ev.target.value)"/>
+                                            <input type="number" min="0" class="form-control form-control-sm"
+                                                   placeholder="Cases"
+                                                   t-att-value="stop.cases"
+                                                   t-on-input="(ev) => this.updateStop(stop_index, 'cases', ev.target.value)"/>
+                                            <input type="number" min="0" step="1" class="form-control form-control-sm"
+                                                   placeholder="Weight (lbs)"
+                                                   t-att-value="stop.weight_lbs"
+                                                   t-on-input="(ev) => this.updateStop(stop_index, 'weight_lbs', ev.target.value)"/>
+                                            <input type="date" class="form-control form-control-sm"
+                                                   t-att-value="stop.stop_date"
+                                                   t-on-change="(ev) => this.updateStop(stop_index, 'stop_date', ev.target.value)"/>
+                                            <select class="form-select form-select-sm"
+                                                    t-att-value="stop.time_window_type"
+                                                    t-on-change="(ev) => this.updateStop(stop_index, 'time_window_type', ev.target.value)">
+                                                <option value="any">Anytime</option>
+                                                <option value="exact">Exact time</option>
+                                                <option value="window">Time window</option>
+                                            </select>
+                                            <input type="time" class="form-control form-control-sm"
+                                                   t-if="stop.time_window_type === 'exact'"
+                                                   t-att-value="fmtHour(stop.exact_time)"
+                                                   t-on-change="(ev) => this.updateStop(stop_index, 'exact_time', this.parseHour(ev.target.value))"/>
+                                            <input type="time" class="form-control form-control-sm"
+                                                   t-if="stop.time_window_type === 'window'"
+                                                   t-att-value="fmtHour(stop.window_start)"
+                                                   t-on-change="(ev) => this.updateStop(stop_index, 'window_start', this.parseHour(ev.target.value))"/>
+                                            <input type="time" class="form-control form-control-sm"
+                                                   t-if="stop.time_window_type === 'window'"
+                                                   t-att-value="fmtHour(stop.window_end)"
+                                                   t-on-change="(ev) => this.updateStop(stop_index, 'window_end', this.parseHour(ev.target.value))"/>
+                                        </div>
+                                        <input type="text" class="form-control form-control-sm"
+                                               placeholder="Special instructions"
+                                               t-att-value="stop.instructions"
+                                               t-on-input="(ev) => this.updateStop(stop_index, 'instructions', ev.target.value)"/>
+                                    </div>
+                                </div>
+                            </t>
+                        </div>
+
+                        <!-- Extracted-change conflicts (reviewed stops are
+                             never silently replaced) -->
+                        <div class="o_est_conflict_banner" t-if="state.conflicts.length">
+                            <div class="o_est_banner banner-error">
+                                <b>The customer text changed for reviewed stops.</b>
+                                Apply the detected changes or keep your reviewed stops.
+                            </div>
+                            <div class="o_est_stop_conflict"
+                                 t-foreach="state.conflicts" t-as="cf" t-key="cf_index">
+                                <span class="o_est_stop_type"
+                                      t-att-class="'o_est_stop_type ' + cf.stop_type">
+                                    <t t-if="cf.stop_type === 'pickup'">📦 Pickup</t>
+                                    <t t-else="">📍 Delivery</t>
+                                </span>
+                                <span class="o_est_conflict_cur">
+                                    reviewed: <t t-esc="cf.current.company_name || cf.current.address"/> ·
+                                    <t t-esc="cf.current.pallets"/> plt
+                                </span>
+                                <span> → </span>
+                                <span class="o_est_conflict_new">
+                                    text: <t t-esc="cf.proposed.company_name || cf.proposed.address"/> ·
+                                    <t t-esc="cf.proposed.pallets"/> plt
+                                </span>
+                            </div>
+                            <div class="o_est_stops_actions">
+                                <button type="button" class="btn btn-sm btn-primary"
+                                        t-on-click="acceptStopChanges">
+                                    <i class="fa fa-check"/> Apply detected changes
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                        t-on-click="keepReviewedStops">
+                                    Keep reviewed stops
+                                </button>
                             </div>
                         </div>
 
@@ -207,6 +396,31 @@
 
                         <div class="o_premafirm_est_result_wrap" t-if="state.resultHtml">
                             <div class="o_premafirm_est_result_body" t-out="resultMarkup"/>
+                        </div>
+
+                        <!-- Margin control — adjust before choosing a
+                             selling price.  Re-prices the scenarios with
+                             the entered markup-on-cost (the server is the
+                             pricing authority; this re-runs the estimate
+                             with the override). -->
+                        <div class="o_est_field_row o_est_fields_inline"
+                             t-if="state.result and state.result.ok">
+                            <div>
+                                <label class="o_est_field_label">Margin — markup on cost</label>
+                                <input type="number" class="form-control"
+                                       min="0" max="500" step="1"
+                                       placeholder="Server default"
+                                       t-att-value="state.marginPct"
+                                       t-on-change="onMarginChange"/>
+                            </div>
+                            <button type="button"
+                                    class="btn btn-secondary btn-sm o_est_margin_apply"
+                                    t-att-disabled="state.loading ? true : false"
+                                    t-on-click="applyMargin">
+                                <i class="fa fa-spinner fa-spin" t-if="state.loading"/>
+                                <t t-if="state.loading">Re-pricing…</t>
+                                <t t-else="">Apply margin</t>
+                            </button>
                         </div>
 
                     </div>

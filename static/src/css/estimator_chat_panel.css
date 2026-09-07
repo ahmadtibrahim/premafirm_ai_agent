@@ -566,3 +566,39 @@
     flex-wrap: wrap;
 }
 .o_premafirm_est_footer .btn { font-size: 12px; }
+
+/* ── MP2 structured stops ──────────────────────────────────────────── */
+.o_est_stops { flex-direction: column; align-items: stretch; gap: 8px; }
+.o_est_stops_head { display: flex; align-items: center; gap: 8px; }
+.o_est_stops_actions { display: flex; gap: 6px; margin-left: auto; }
+.o_est_stops_empty { color: #8a8f98; font-size: 12px; padding: 6px 0; }
+.o_est_stop_card {
+    border: 1px solid #e3e6ea; border-left: 4px solid #8a8f98;
+    border-radius: 8px; background: #fff; padding: 8px 10px;
+}
+.o_est_stop_card.pickup { border-left-color: #4f81bd; }
+.o_est_stop_card.delivery { border-left-color: #2e9e6b; }
+.o_est_stop_card.new_pending { border-left-color: #e67e22; }
+.o_est_stop_card.incomplete { border-left-color: #d9534f; }
+.o_est_stop_head { display: flex; align-items: center; gap: 8px; }
+.o_est_stop_type { font-weight: 600; font-size: 12px; padding: 2px 8px;
+    border-radius: 10px; background: #eef2f7; color: #41505f; }
+.o_est_stop_type.pickup { background: #e3edf8; color: #2a5d97; }
+.o_est_stop_type.delivery { background: #e2f4ea; color: #1f7a4d; }
+.o_est_stop_status { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+.o_est_stop_status.st-saved_reused { background: #e2f4ea; color: #1f7a4d; }
+.o_est_stop_status.st-manual { background: #e3edf8; color: #2a5d97; }
+.o_est_stop_status.st-new_pending { background: #fff3e0; color: #b26a00; }
+.o_est_stop_status.st-incomplete { background: #fdecea; color: #b02a2a; }
+.o_est_stop_tools { display: flex; gap: 2px; }
+.o_est_stop_body { display: flex; flex-direction: column; gap: 6px;
+    margin-top: 8px; position: relative; }
+.o_est_stop_loc_menu { position: static; margin-top: 2px; }
+.o_est_stop_grid { display: grid; grid-template-columns: repeat(5, 1fr);
+    gap: 6px; }
+.o_est_stop_grid_qty { grid-template-columns: repeat(6, 1fr); }
+.o_est_conflict_banner { display: flex; flex-direction: column; gap: 6px; }
+.o_est_stop_conflict { font-size: 12px; color: #41505f;
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.o_est_conflict_cur { color: #1f7a4d; }
+.o_est_conflict_new { color: #b26a00; }

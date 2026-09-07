@@ -54,6 +54,21 @@ class EstimatorChatPanel extends Component {
             dragOver:    false,
             routeDev:    null,     // API response JSON
             routeDevBusy:false,
+            marginPct:   null,     // markup-on-cost override (null =
+                                   // server default; synced from the best
+                                   // card once a result arrives)
+            // MP2 structured stops — the reviewed authority for routing/
+            // pricing. Populated by extraction; editable before/after.
+            stops:       [],       // [{id, stop_type, status, company_name,
+                                   //   address, city, province, postal_code,
+                                   //   pallets, cases, weight_lbs, stop_date,
+                                   //   time_window_type, exact_time,
+                                   //   window_start, window_end,
+                                   //   instructions, saved_location_id,
+                                   //   saved_location_name, locTerm,
+                                   //   locOptions, locOpen}]
+            conflicts:   [],       // [{sequence, current, proposed}]
+            applyChanges:false,
         });
 
         onWillStart(async () => {
@@ -65,14 +80,45 @@ class EstimatorChatPanel extends Component {
 
     togglePanel() {
         this.state.panelOpen = !this.state.panelOpen;
+        if (this.state.panelOpen && !this.state.customerId) {
+            this._preselectLeadCustomer();
+        }
     }
 
     resetPanel() {
         Object.assign(this.state, {
             chatText: "", files: [], result: null, resultHtml: "",
             error: null, routeDev: null, pickupDate: "",
-            returnHome: true,
+            returnHome: true, marginPct: null,
+            stops: [], conflicts: [], applyChanges: false,
         });
+        // A fresh estimate is a new enquiry — a stale customer pick from
+        // an earlier estimate must never silently ride along.
+        this._releaseCustomer();
+        this.state.customerTerm = "";
+    }
+
+    // ── Lead-context customer preselect ─────────────────────────────
+
+    async _preselectLeadCustomer() {
+        // The estimator opened from a CRM lead form should start on that
+        // lead's customer (or stay empty — never an unrelated customer).
+        try {
+            const ctrl = this.action.currentController;
+            const props = ctrl && ctrl.props;
+            if (!props || props.resModel !== "crm.lead" || !props.resId) {
+                return;
+            }
+            const [lead] = await this.orm.read(
+                "crm.lead", [props.resId], ["partner_id"]);
+            const pid = lead && lead.partner_id;
+            if (!pid) return;
+            const [partner] = await this.orm.read(
+                "res.partner", [pid], ["name", "email", "phone", "city"]);
+            if (partner) this._pickCustomer(partner);
+        } catch (_) {
+            // no lead context (or read failed) — the box stays empty
+        }
     }
 
     // ── Data loading ───────────────────────────────────────────────
@@ -249,6 +295,169 @@ class EstimatorChatPanel extends Component {
         this.state.allowUSA = ev.target.checked;
     }
 
+    // ── MP2 structured stops ─────────────────────────────────────────
+
+    _newStop(kind) {
+        return {
+            id: 0, stop_type: kind, source: "manual", status: "incomplete",
+            saved_location_id: 0, saved_location_name: "",
+            company_name: "", address: "", city: "", province: "",
+            postal_code: "", pallets: 0, cases: 0, weight_lbs: 0,
+            stop_date: "", time_window_type: "any", exact_time: 0,
+            window_start: 0, window_end: 0, instructions: "",
+            locTerm: "", locOptions: [], locOpen: false,
+        };
+    }
+
+    addStop(kind) {
+        this.state.stops = [...this.state.stops, this._newStop(kind)];
+    }
+
+    removeStop(index) {
+        this.state.stops = this.state.stops.filter((_, i) => i !== index);
+    }
+
+    moveStop(index, dir) {
+        const stops = this.state.stops;
+        const to = index + dir;
+        if (to < 0 || to >= stops.length) return;
+        const copy = [...stops];
+        [copy[index], copy[to]] = [copy[to], copy[index]];
+        // The stop's type rides along with the row — reordering never
+        // changes pickup/delivery.
+        this.state.stops = copy;
+    }
+
+    updateStop(index, field, value) {
+        const stops = [...this.state.stops];
+        stops[index] = { ...stops[index], [field]: value };
+        this.state.stops = stops;
+    }
+
+    fmtHour(v) {
+        // 8.5 -> "08:30" for time inputs
+        const n = Number(v);
+        if (isNaN(n) || n === 0) return "";
+        const h = Math.floor(n), m = Math.round((n - h) * 60);
+        return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    }
+
+    parseHour(str) {
+        if (!str) return 0;
+        const [h, m] = str.split(":").map(Number);
+        return (h || 0) + (m || 0) / 60;
+    }
+
+    async onStopLocInput(index, ev) {
+        const term = ev.target.value;
+        this.updateStop(index, "locTerm", term);
+        const stop = this.state.stops[index];
+        if (stop.saved_location_id && term.trim() !== stop.saved_location_name) {
+            this.clearStopLocation(index);
+        }
+        if (term.trim().length < 2) {
+            this.updateStop(index, "locOptions", []);
+            this.updateStop(index, "locOpen", false);
+            return;
+        }
+        if (this._locTimer) clearTimeout(this._locTimer);
+        this._locTimer = setTimeout(() => this._searchStopLocations(index, term), 350);
+    }
+
+    async _searchStopLocations(index, term) {
+        try {
+            const options = await this.orm.call(
+                "premafirm.estimator.scenario.request",
+                "location_search_rpc",
+                [],
+                { term }
+            );
+            this.updateStop(index, "locOptions", options || []);
+            this.updateStop(index, "locOpen", true);
+        } catch (_) {
+            this.updateStop(index, "locOptions", []);
+        }
+    }
+
+    pickStopLocation(index, opt) {
+        const stops = [...this.state.stops];
+        stops[index] = {
+            ...stops[index],
+            saved_location_id: opt.id,
+            saved_location_name: opt.name,
+            locTerm: opt.name,
+            locOptions: [],
+            locOpen: false,
+            company_name: stops[index].company_name || opt.name,
+            address: opt.address || stops[index].address,
+            city: opt.city || stops[index].city,
+            province: opt.province_code || stops[index].province,
+            postal_code: opt.postal_code || stops[index].postal_code,
+        };
+        this.state.stops = stops;
+    }
+
+    clearStopLocation(index) {
+        const stops = [...this.state.stops];
+        stops[index] = {
+            ...stops[index],
+            saved_location_id: 0, saved_location_name: "",
+            locTerm: "", locOptions: [], locOpen: false,
+        };
+        this.state.stops = stops;
+    }
+
+    _stopsPayload() {
+        return this.state.stops.map((s, i) => ({
+            id: s.id || 0,
+            sequence: (i + 1) * 10,
+            stop_type: s.stop_type,
+            source: s.source || "manual",
+            saved_location_id: s.saved_location_id || 0,
+            company_name: s.company_name || "",
+            address: s.address || "",
+            city: s.city || "",
+            province: s.province || "",
+            postal_code: s.postal_code || "",
+            pallets: Number(s.pallets) || 0,
+            cases: Number(s.cases) || 0,
+            weight_lbs: Number(s.weight_lbs) || 0,
+            stop_date: s.stop_date || false,
+            time_window_type: s.time_window_type || "any",
+            exact_time: Number(s.exact_time) || 0,
+            window_start: Number(s.window_start) || 0,
+            window_end: Number(s.window_end) || 0,
+            instructions: s.instructions || "",
+        }));
+    }
+
+    _applyStopsResult(res) {
+        // The server's structured stops are the truth after every run.
+        if (Array.isArray(res.structured_stops) && res.structured_stops.length) {
+            this.state.stops = res.structured_stops.map(s => ({
+                ...this._newStop(s.stop_type),
+                ...s,
+                locTerm: s.saved_location_name || "",
+                locOptions: [], locOpen: false,
+                exact_time: s.exact_time || 0,
+                window_start: s.window_start || 0,
+                window_end: s.window_end || 0,
+            }));
+        }
+        this.state.conflicts = res.stop_conflicts || [];
+    }
+
+    acceptStopChanges() {
+        this.state.applyChanges = true;
+        this.state.conflicts = [];
+        this._runEstimate();
+    }
+
+    keepReviewedStops() {
+        // The reviewed rows already stand — just dismiss the banner.
+        this.state.conflicts = [];
+    }
+
     // ── File handling ──────────────────────────────────────────────
 
     onDropzoneClick() {
@@ -321,7 +530,29 @@ class EstimatorChatPanel extends Component {
             this.notification.add("Add the customer message or an attachment (PDF/image)", { type: "warning" });
             return;
         }
+        await this._runEstimate();
+    }
 
+    onMarginChange(ev) {
+        const val = parseFloat(ev.target.value);
+        this.state.marginPct = isNaN(val) ? null : Math.max(0, Math.min(500, val));
+    }
+
+    async applyMargin() {
+        // Re-prices the scenarios with the entered markup-on-cost.
+        // Reuses the same request text/files; the server recomputes the
+        // cards as the pricing authority.
+        if (this.state.loading) return;
+        const val = this.state.marginPct;
+        if (val === null || val === undefined) {
+            this.notification.add("Enter a margin percentage first", { type: "warning" });
+            return;
+        }
+        await this._runEstimate();
+    }
+
+    async _runEstimate() {
+        const st = this.state;
         st.loading = true;
         st.result = null;
         st.resultHtml = "";
@@ -338,7 +569,12 @@ class EstimatorChatPanel extends Component {
                 allow_cross_border: st.allowUSA,
                 scheduled_at:       st.pickupDate || null,
                 return_to_home:     st.returnHome,
+                margin_pct:         st.marginPct,
+                stops_input:        this._stopsPayload(),
+                request_id:         st.result?.request_id || 0,
+                apply_changes:      st.applyChanges,
             };
+            st.applyChanges = false;
             const result = await this.orm.call(
                 "premafirm.estimator.scenario.request",
                 "estimate_scenarios_rpc",
@@ -351,6 +587,7 @@ class EstimatorChatPanel extends Component {
                 // the raw exception is never the only thing the user sees.
                 st.result = result;
                 st.resultHtml = this._buildResultHtml(result);
+                this._applyStopsResult(result);
             } else if (result && result.error) {
                 // Legacy/defensive path (route-dev, rate-confirmation RPCs
                 // or a bridge-shaped error) — top alert, as before.
@@ -358,6 +595,18 @@ class EstimatorChatPanel extends Component {
             } else {
                 st.result = result;
                 st.resultHtml = this._buildResultHtml(result);
+                this._applyStopsResult(result);
+                // Mirror the applied markup into the control so it always
+                // shows the number the server actually priced with.
+                if (st.marginPct === null) {
+                    const cards = result.scenarios || [];
+                    const priced = cards.find(c => c.markup_pct_on_cost !== false)
+                        || cards[0];
+                    if (priced && priced.markup_pct_on_cost !== false
+                        && priced.markup_pct_on_cost !== undefined) {
+                        st.marginPct = Math.round(priced.markup_pct_on_cost);
+                    }
+                }
             }
         } catch (err) {
             st.error = err.data?.message || err.message || "An unexpected error occurred";
@@ -483,6 +732,13 @@ class EstimatorChatPanel extends Component {
                     <div class="o_est_card_body">`);
                 if (card.truck) h.push(this._kv("Truck", this._esc(card.truck)));
                 h.push(this._kv("Pickup", card.pickup_date || "—", "kvm"));
+                if (card.key === "scheduled_ltl" && card.date_requested
+                        && card.pickup_date
+                        && card.date_requested !== card.pickup_date) {
+                    // The requested day isn't served — the card shows the
+                    // next corridor date instead of a bare "not available".
+                    h.push(this._kv("Next available", `📅 <b>${this._esc(card.pickup_date)}</b> — requested ${this._esc(card.date_requested)}`, "kvm"));
+                }
                 if (card.delivery_date || card.return_date) {
                     h.push(this._kv("Delivery", card.delivery_date || "—", "kvm"));
                 }

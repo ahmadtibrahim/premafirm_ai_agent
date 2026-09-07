@@ -596,10 +596,17 @@ class EstimatorScenarioRequest(models.Model):
             return False
         domain = [("partner_id", "=", partner.id)]
         if "stage_id" in Lead._fields:
-            domain.append(["|", ("stage_id.is_won", "=", False),
-                           ("stage_id", "=", False)])
-            domain.append(["|", ("stage_id.is_lost", "=", False),
-                           ("stage_id", "=", False)])
+            # Flat prefix domain: partner AND (won-is-False OR no stage) AND
+            # (lost-is-False OR no stage).  Nested lists are not valid Odoo
+            # leaves ("Invalid field crm.lead.| ...") — keep it flat.
+            domain = domain + [
+                "&", "|",
+                ("stage_id.is_won", "=", False),
+                ("stage_id", "=", False),
+                "|",
+                ("stage_id.is_lost", "=", False),
+                ("stage_id", "=", False),
+            ]
         leads = Lead.search(domain, order="create_date desc, id desc",
                             limit=1)
         return leads[:1] if leads else False

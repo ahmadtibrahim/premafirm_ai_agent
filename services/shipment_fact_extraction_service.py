@@ -202,8 +202,11 @@ class ShipmentFactExtractionService:
             "customer statements. When the customer CORRECTS an earlier "
             "statement, output the corrected value (the message text you "
             "receive is the newest source).\n"
-            "Today is %s.\n"
-            "Shared vocabulary (field: what to capture):\n%s\n"
+            "%s\n"
+            "Shared vocabulary — output the JSON \"field\" name EXACTLY as "
+            "listed below (never a synonym or a paraphrase such as "
+            "'pickup_address' for origin_address or 'delivery time' for "
+            "delivery_deadline):\n%s\n"
             "Rules:\n"
             "- Dates: ISO YYYY-MM-DD. Times: 24-hour HH:MM exactly as stated "
             "('10:30 AM' -> '10:30', '4:00 p.m.' -> '16:00'). 'before 4:00pm' "
@@ -215,8 +218,9 @@ class ShipmentFactExtractionService:
             "- confidence: 'high' when quoted verbatim, 'medium' when clearly "
             "restated, 'low' when you had to interpret.\n"
             "- Return ONLY a JSON array of {\"field\", \"value\", "
-            "\"confidence\", \"note\"} objects. No markdown, no prose."
-        )
+            "\"confidence\", \"note\"} objects whose field names all come "
+            "from the vocabulary above. No markdown, no prose."
+        ) % (today_context_line(), fields)
         try:
             payload = deepseek_chat(
                 [{"role": "user", "content": text}],

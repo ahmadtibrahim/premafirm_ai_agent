@@ -444,9 +444,7 @@ class EstimatorScenarioRequest(models.Model):
                 "Weights were not extracted (only %d pallet positions) — "
                 "payload feasibility is unverified." % pallets)
         liftgate = any(bool(s.get("liftgate")) for s in stops)
-        equipment = "reefer" if (
-            vehicle.x_reefer and not self._reefer_explicitly_off(stops)
-        ) else "dry"
+        equipment = self._proposed_equipment(request, vehicle, stops)
         # Reefers default to the booking flow's 15°C setpoint.
         required_temperature_c = 15.0 if equipment == "reefer" else False
 
@@ -616,10 +614,29 @@ class EstimatorScenarioRequest(models.Model):
                             limit=1)
         return leads[:1] if leads else False
 
-    def _reefer_explicitly_off(self, stops):
-        return any("reefer" in str(s.get("stop_notes") or "").lower()
-                   and "no reefer" in str(s.get("stop_notes") or "").lower()
-                   for s in stops)
+    def _proposed_equipment(self, request, vehicle, stops):
+        """Honest equipment proposal from the request text.
+
+        Dispatch's booking flow defaults temperature-silent requests to
+        reefer/15 °C when the truck can run reefer — mirror that ONLY
+        when the text gives no signal.  An explicit dry/ambient/no-reefer
+        signal must win over the default, and a truck without a reefer
+        unit is always proposed dry (never a blocking reefer ask)."""
+        hay = " ".join(filter(None, [
+            str(request.message or ""),
+            *(str(s.get("address") or "") + " " + str(s.get("stop_notes") or "")
+              for s in stops)])).lower()
+        wants_reefer = any(k in hay for k in (
+            "reefer", "refrigerat", "chilled", "frozen", "cold chain"))
+        dry = bool(re.search(r"\b(dry|ambient)\b|dry van|dry freight|"
+                             r"no reefer|heated", hay))
+        if not vehicle.x_reefer:
+            return "dry"
+        if dry:
+            return "dry"
+        if wants_reefer:
+            return "reefer"
+        return "reefer"  # booking-flow default for temperature-silent asks
 
     @staticmethod
     def _postal_fsa(text):

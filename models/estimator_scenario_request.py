@@ -33,6 +33,9 @@ _logger = logging.getLogger(__name__)
 
 _MODULE_NAME = "premafirm_ai_engine"
 _FSA_RE = re.compile(r"\b([A-Za-z]\d[A-Za-z])\s*(\d[A-Za-z]\d)\b")
+# Bare forward-sortation-area fallback (e.g. "M5V" when the message's
+# postal was truncated to its first three characters by the extractor).
+_FSA_BARE_RE = re.compile(r"\b([A-Za-z]\d[A-Za-z])\b")
 _US_ZIP_RE = re.compile(r"\b(\d{5})(?:-\d{4})?\b")
 
 
@@ -365,11 +368,37 @@ class EstimatorScenarioRequest(models.Model):
                 legs = geometry.get("legs") or []
             except Exception as exc:
                 route_error = str(exc)[:200]
-                warnings.append(
-                    "Routing could not complete (%s) — dedicated drive "
-                    "times/costs are unavailable; scheduled corridor "
-                    "pricing may still resolve from postal codes."
-                    % route_error)
+                # One retry: when the extractor truncated a postal to its
+                # FSA, its geocode can be an FSA centroid that is not on
+                # the drivable grid (waterfront districts) and Mapbox then
+                # refuses the whole stop set.  Re-geocode those stops at
+                # city level and say so — approximate beats unavailable.
+                fallback_pts = self._city_level_fallback_pts(
+                    stops, home, return_to_home)
+                if fallback_pts:
+                    try:
+                        geometry = mbx.get_route_multi(
+                            fallback_pts,
+                            max_height_ft=vehicle.x_vehicle_height_ft or 0.0,
+                            gvwr_lbs=vehicle.x_gvwr_lbs or 0.0,
+                            allow_cross_border=allow_cross_border,
+                            avoid_tolls=avoid_tolls)
+                        legs = geometry.get("legs") or []
+                        if legs:
+                            warnings.append(
+                                "A stop postal was truncated in the message "
+                                "and geocoded at city level — drive times "
+                                "are approximate; verify the exact address "
+                                "before dispatch.")
+                    except Exception:
+                        geometry = False
+                        legs = []
+                if not legs:
+                    warnings.append(
+                        "Routing could not complete (%s) — dedicated drive "
+                        "times/costs are unavailable; scheduled corridor "
+                        "pricing may still resolve from postal codes."
+                        % route_error)
         if not legs and len(ordered_pts) >= 2 and not route_error:
             warnings.append(
                 "Mapbox could not route the stop set — scenario cards "
@@ -586,7 +615,53 @@ class EstimatorScenarioRequest(models.Model):
         if m:
             return (m.group(1) + m.group(2)).upper()[:3]
         m = _US_ZIP_RE.search(text or "")
-        return (m.group(1)[:3] if m else "")
+        if m:
+            return m.group(1)[:3]
+        # Bare-FSA fallback: extractors sometimes truncate a postal to its
+        # first three characters ("M5V 1W1" -> "M5V"); the corridor card and
+        # pairing still resolve from the FSA alone.  "ON"/"QC" style tokens
+        # never match the X1X shape, so false positives are unlikely.
+        m = _FSA_BARE_RE.search(text or "")
+        return (m.group(1) if m else "").upper()
+
+    def _city_level_fallback_pts(self, stops, home, return_to_home):
+        """Ordered point list with city-level coordinates for every stop
+        whose address lost its full postal — only when the primary route
+        probe was refused.  Returns [] unless at least one stop changed, so
+        the normal case never pays an extra geocode."""
+        from ..services.mapbox_service import MapboxService
+        mbx = MapboxService(self.env)
+        pts = []
+        changed = 0
+        for s in stops:
+            s_lat, s_lng = float(s.get("lat") or 0) or 0.0, \
+                float(s.get("lng") or 0) or 0.0
+            address = str(s.get("address") or "").strip()
+            if (s_lat and s_lng) and address and \
+                    not _FSA_RE.search(address + " "
+                                       + str(s.get("stop_notes") or "")):
+                try:
+                    hits = mbx.geocode_address(address)
+                except Exception:
+                    hits = []
+                hit = next((h for h in hits
+                            if "Canada" in h.get("place_name", "")), None)
+                if not hit and hits:
+                    hit = hits[0]
+                if hit:
+                    s_lat, s_lng = float(hit["lat"]), float(hit["lng"])
+                    changed += 1
+            if s_lat and s_lng:
+                pts.append({"lat": s_lat, "lng": s_lng})
+        if not changed or len(pts) < 2:
+            return []
+        ordered = []
+        if home:
+            ordered.append(home)
+        ordered.extend(pts)
+        if home and return_to_home:
+            ordered.append(home)
+        return ordered if len(ordered) >= 2 else []
 
     @staticmethod
     def _pickup_date(value):

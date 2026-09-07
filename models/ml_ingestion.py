@@ -851,7 +851,7 @@ class MLIngestion(models.Model):
         for att in atts:
             if att.datas:
                 try:
-                    from odoo.addons.premafirm_ml.services import document_extractor
+                    from odoo.addons.premafirm_ai_engine.services import document_extractor
                     text, _m = document_extractor.extract_from_b64(
                         att.datas, att.mimetype or '', att.name or '')
                 except Exception:

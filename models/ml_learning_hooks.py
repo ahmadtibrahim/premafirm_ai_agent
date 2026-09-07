@@ -15,7 +15,6 @@ from odoo import api, models
 _logger = logging.getLogger(__name__)
 
 # Knowledge types used across the system
-KT_DISPATCH   = "rate_quote"       # confirmed dispatch jobs / routes
 KT_BILL       = "bill_autofill"    # vendor bill patterns
 KT_INVOICE    = "invoice_flag"     # customer invoice anomalies
 KT_STOP_EDIT  = "load_tender"      # stop corrections / address fixes

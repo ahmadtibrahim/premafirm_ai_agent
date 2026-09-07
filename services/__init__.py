@@ -8,3 +8,6 @@ from .dispatch_document_service import DispatchDocumentService
 # E-A2 — shipment-fact supersession + structured extraction services
 from . import lead_fact_service
 from . import shipment_fact_extraction_service
+# MP1 §9-13 — ELD/truck-status normalization boundary + scenario request
+# orchestration (estimator unified UI).
+from . import eld_adapter

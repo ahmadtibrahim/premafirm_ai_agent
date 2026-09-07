@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- MP1 §12.3 — estimator scenario requests (audit trail). Read-only
+         operational list; conversions happen in the panel / CRM actions. -->
+    <record id="estimator_scenario_request_tree" model="ir.ui.view">
+        <field name="name">estimator.scenario.request.tree</field>
+        <field name="model">premafirm.estimator.scenario.request</field>
+        <field name="arch" type="xml">
+            <!-- Odoo 18 rejects editable="false" (must be top/bottom); rows
+                 open the read-only form (create/edit/delete false below). -->
+            <list string="Estimator scenario requests">
+                <field name="name"/>
+                <field name="create_date"/>
+                <field name="vehicle_id"/>
+                <field name="partner_id"/>
+                <field name="lead_id"/>
+                <field name="state"/>
+                <field name="suggested_sell" sum="1"/>
+                <field name="dispatch_online"/>
+                <field name="user_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="estimator_scenario_request_form" model="ir.ui.view">
+        <field name="name">estimator.scenario.request.form</field>
+        <field name="model">premafirm.estimator.scenario.request</field>
+        <field name="arch" type="xml">
+            <form string="Estimator scenario request" create="false"
+                  edit="false" delete="false">
+                <header/>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="create_date"/>
+                            <field name="user_id"/>
+                            <field name="engine_version"/>
+                            <field name="state"/>
+                        </group>
+                        <group>
+                            <field name="vehicle_id"/>
+                            <field name="partner_id"/>
+                            <field name="lead_id"/>
+                            <field name="distance_km"/>
+                            <field name="suggested_sell"/>
+                            <field name="dispatch_online"/>
+                        </group>
+                    </group>
+                    <group string="Request message">
+                        <field name="message" readonly="1" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="estimator_scenario_request_action" model="ir.actions.act_window">
+        <field name="name">Estimator scenario requests</field>
+        <field name="res_model">premafirm.estimator.scenario.request</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+</odoo>

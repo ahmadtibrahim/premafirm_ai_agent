@@ -128,3 +128,6 @@ from . import premafirm_estimate_reply
 # it extends crm.lead and must wrap earlier crm.lead hooks like the other
 # late extensions.
 from . import crm_recurring_opportunity
+# MP1 §9-13 — estimator scenario request (audit + dispatch-bridge caller).
+# Imported last: model extends nothing, but keeps the module tail stable.
+from . import estimator_scenario_request

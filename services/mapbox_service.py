@@ -132,7 +132,9 @@ class MapboxService:
 
         waypoints: list of {lng, lat} dicts, minimum 2 entries.
         Truck dimensions steer MapBox away from restricted bridges/tunnels.
-        allow_cross_border=False adds exclude=country_borders.
+        allow_cross_border=False adds exclude=country_border (MapBox
+        rejects the plural form with HTTP 422 — the value must be exactly
+        ``country_border``).
         avoid_tolls=True adds exclude=toll to avoid toll roads.
 
         Returns: {distance_km, duration_hrs, geometry}
@@ -158,7 +160,10 @@ class MapboxService:
 
         excludes = []
         if not allow_cross_border:
-            excludes.append("country_borders")
+            # Singular is the MapBox Directions contract; the plural form
+            # 422s ("Exclude value must be one of: ... country_border ...")
+            # and forces the whole fallback ladder on every Canada-only call.
+            excludes.append("country_border")
         if avoid_tolls:
             excludes.append("toll")
         if excludes:

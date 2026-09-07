@@ -1,22 +1,5 @@
 /* ── Prema AI Estimator Chat Panel ───────────────────────────────── */
 
-.o_premafirm_est_btn {
-    background: #f39c12;
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    padding: 4px 12px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-    transition: background 0.15s;
-}
-.o_premafirm_est_btn:hover { background: #e67e22; color: #fff; }
-
 /* Backdrop */
 .o_premafirm_est_backdrop {
     position: fixed;
@@ -227,19 +210,39 @@
 
 /* ── §9-13 unified panel: launcher, fields, results ─────────────── */
 
-/* Launcher in systray */
+/* Launcher in systray — a real ORANGE BUTTON (audit A: it used to be a
+   plain text link).  White text, adequate padding, rounded, visible
+   hover + keyboard focus states. */
 .o_premafirm_est_launcher {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    color: #495057;
+    gap: 6px;
+    background: #f39c12;
+    color: #fff;
     text-decoration: none;
-    padding: 2px 8px;
-    border-radius: 6px;
+    border: 1px solid #e08e0b;
+    border-radius: 999px;
+    padding: 6px 14px;
     font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
     white-space: nowrap;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    transition: background 0.15s, box-shadow 0.15s, transform 0.05s;
 }
-.o_premafirm_est_launcher:hover { color: #f39c12; background: #fff8e1; }
+.o_premafirm_est_launcher:hover {
+    background: #e67e22;
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(230, 126, 34, 0.35);
+}
+.o_premafirm_est_launcher:active {
+    background: #d9701a;
+    transform: translateY(1px);
+}
+.o_premafirm_est_launcher:focus-visible {
+    outline: 2px solid #d9701a;
+    outline-offset: 2px;
+}
 .o_premafirm_est_launcher .fa { font-size: 14px; }
 
 /* Header */
@@ -278,11 +281,68 @@
 
 .o_premafirm_est_body .o_est_chat_text { min-height: 90px; }
 
-/* Customer search */
-.o_est_customer_wrap { position: relative; display: flex; gap: 6px; }
-.o_est_customer_wrap select { flex: 0 0 55%; }
-.o_est_customer_wrap .o_est_customer_search { flex: 1; font-size: 13px; }
-.o_est_spin { position: absolute; right: 8px; top: 9px; color: #868e96; }
+/* Customer search — ONE combobox replacing the audit's select+search pair:
+   input + inline clear/spinner, dropdown of matches, picked-customer
+   state with hint line (cleared state = "No customer selected (new
+   enquiry)" — retained from the original select's first option). */
+.o_est_customer_wrap { position: relative; }
+.o_est_combobox .o_est_cb_ctrl { position: relative; display: flex; align-items: center; }
+.o_est_combobox .o_est_customer_search {
+    width: 100%;
+    font-size: 13px;
+    padding-right: 64px;   /* room for spinner + clear inside the control */
+}
+.o_est_combobox .o_est_cb_affix {
+    position: absolute;
+    right: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #868e96;
+}
+.o_est_combobox .o_est_cb_clear {
+    border: none;
+    background: transparent;
+    color: #868e96;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+}
+.o_est_combobox .o_est_cb_clear:hover { color: #c92a2a; }
+.o_est_cb_menu {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    z-index: 30;
+    list-style: none;
+    margin: 0;
+    padding: 4px;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
+    max-height: 264px;
+    overflow-y: auto;
+}
+.o_est_cb_item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    cursor: pointer;
+}
+.o_est_cb_item.active { background: #fff8e1; }
+.o_est_cb_item.active .o_est_cb_name { color: #e67e22; }
+.o_est_cb_name { font-weight: 600; color: #212529; flex-shrink: 0; }
+.o_est_cb_sub { color: #868e96; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.o_est_cb_hint { cursor: default; color: #868e96; font-size: 12px; }
+.o_est_cb_picked { color: #2b8a3e; }
+.o_est_cb_emptyhint { color: #adb5bd; }
+.o_est_cb_picked b { color: #212529; }
 
 /* Options */
 .o_est_options { display: flex; gap: 16px; margin: 10px 0; flex-wrap: wrap; }

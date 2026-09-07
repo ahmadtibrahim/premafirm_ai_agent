@@ -209,10 +209,10 @@ class LeadFactService:
         """Run the per-document extractor over every customer document and
         reduce the candidates with the supersession ordering.
 
-        ``extractor`` — callable(text, source=..., kind=..., at=...) returning
-        a dict ``{"rows": [...], "warnings": [...]}`` (same contract as
-        ShipmentFactExtractionService.extract_from_text).  Defaults to that
-        service.
+        ``extractor`` — callable(text, source_label=..., kind=..., at=...)
+        returning a dict ``{"rows": [...], "warnings": [...]}`` (same
+        contract as ShipmentFactExtractionService.extract_from_text).
+        Defaults to that service.
 
         Returns ``{"effective": {field: fact}, "rows": [...], "docs": [...],
         "warnings": [...]}`` — effective facts keep full provenance
@@ -231,7 +231,7 @@ class LeadFactService:
         for doc in docs:
             result = extractor(
                 doc["text"],
-                source=doc["source"],
+                source_label=doc["source"],
                 kind=doc["kind"],
                 at=doc["at"],
             )

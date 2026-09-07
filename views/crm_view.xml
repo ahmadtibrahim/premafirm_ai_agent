@@ -31,8 +31,24 @@
         </field>
     </record>
 
-    <!-- Fetch Emails button on CRM pipeline kanban view -->
+    <!-- Fetch Emails button on the CRM PIPELINE kanban (the view the
+         CRM app opens day-to-day) and on the separate Leads kanban -->
     <record id="view_crm_pipeline_kanban_fetch_email" model="ir.ui.view">
+        <field name="name">crm.lead.pipeline.kanban.fetch.email</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_case_kanban_view_leads"/>
+        <field name="arch" type="xml">
+            <xpath expr="//kanban" position="inside">
+                <header>
+                    <button name="action_fetch_emails" type="object"
+                            string="Fetch Emails" icon="fa-refresh"
+                            display="always" class="btn-secondary"/>
+                </header>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_crm_leads_kanban_fetch_email" model="ir.ui.view">
         <field name="name">crm.lead.kanban.fetch.email</field>
         <field name="model">crm.lead</field>
         <field name="inherit_id" ref="crm.view_crm_lead_kanban"/>

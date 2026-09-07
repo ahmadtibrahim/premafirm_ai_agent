@@ -100,12 +100,21 @@ class CrmLead(models.Model):
         # unknown field never reaches the DB).
         attach = [vals.pop('premafirm_attach_contact', False)
                   for vals in vals_list]
+        # The website form posts the person's name in contact_name; an
+        # email→partner match then OVERWRITES it with the matched
+        # partner's name (core _compute_contact_name). The posted name is
+        # the person's — restore it.
+        posted_names = [vals.get('contact_name') or False
+                        for vals in vals_list]
         leads = super().create(vals_list)
-        for lead, author in zip(leads, attach):
+        for lead, author, posted in zip(leads, attach, posted_names):
             # company → contacts: the opportunity's partner is the COMPANY;
             # a contact-child sender is tracked as a contact row instead.
             if lead.partner_id and lead.partner_id.parent_id:
                 lead.write({'partner_id': lead.partner_id.parent_id.id})
+            if posted and lead.partner_id and \
+                    lead.contact_name != posted:
+                lead.write({'contact_name': posted})
             if author:
                 self.env['crm.lead.contact']._attach_sender(lead.id, author)
         leads.filtered('partner_id')._sync_tags_from_partner()

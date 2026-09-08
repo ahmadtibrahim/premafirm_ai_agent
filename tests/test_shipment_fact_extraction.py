@@ -111,6 +111,40 @@ class TestShipmentFactExtractionService(TransactionCase):
                           if r["field"] == "pallets"], ["22"])
         self.assertTrue(any("not in shared vocabulary" in w for w in result["warnings"]))
 
+    def test_company_name_fields_are_accepted_facts(self):
+        """origin/destination company names ride the shared vocabulary and
+        survive sanitization as ordinary sourced facts (used to name new
+        Saved Locations — never to match/dedupe on)."""
+        rows = json.dumps([
+            {"field": "origin_company_name", "value": "Acme Distribution",
+             "confidence": "high", "note": "pickup at their Mississauga DC"},
+            {"field": "destination_company_name", "value": "Bell Retail",
+             "confidence": "medium", "note": "delivery to store"},
+            {"field": "pallets", "value": "3", "confidence": "high", "note": ""},
+        ])
+        with _patch_ai(deepseek_chat=lambda *a, **k: rows):
+            result = self.svc.extract_from_text(
+                "Pickup from Acme Distribution Mississauga, deliver to Bell "
+                "Retail, 3 pallets.",
+                source_label="Customer email 2026-09-07", kind="inbound_email",
+                at="2026-09-07 10:00:00")
+        by_field = {r["field"]: r for r in result["rows"]}
+        self.assertEqual(by_field["origin_company_name"]["value"],
+                         "Acme Distribution")
+        self.assertEqual(by_field["destination_company_name"]["value"],
+                         "Bell Retail")
+        self.assertEqual(by_field["origin_company_name"]["kind"], "inbound_email")
+        # Unknown extra fields are still dropped with a warning.
+        with _patch_ai(deepseek_chat=lambda *a, **k: json.dumps([
+                {"field": "origin_company_phone", "value": "416-555-0100",
+                 "confidence": "high"}])):
+            result = self.svc.extract_from_text(
+                "Pickup 994 Westport Crescent.", source_label="d",
+                kind="attachment", at=None)
+        self.assertEqual(result["rows"], [])
+        self.assertTrue(any("not in shared vocabulary" in w
+                            for w in result["warnings"]))
+
     def test_extraction_never_creates_mail_booking_or_quote(self):
         before_mail = self.env["mail.mail"].search_count([])
         logistics = None

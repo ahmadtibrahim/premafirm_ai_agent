@@ -22,32 +22,10 @@ _logger = logging.getLogger(__name__)
 class CrmLeadML(models.Model):
     _inherit = 'crm.lead'
 
-    # ── Existing button actions (unchanged) ──────────────────────────
-
-    def action_ml_rate_quote(self):
-        """Generate a rate quote draft from this lead."""
-        self.ensure_one()
-        msg = f'Rate request for lead: {self.name}. Customer: {self.partner_name or (self.partner_id.name if self.partner_id else "")}'
-        draft, err = self.env['premafirm.ml.engine'].generate_rate_quote(
-            message_text=msg,
-            partner=self.partner_id,
-            source_model='crm.lead',
-            source_id=self.id,
-        )
-        if err or not draft:
-            return {
-                'type': 'ir.actions.client',
-                'tag': 'display_notification',
-                'params': {'title': 'ML Draft Failed', 'message': err or 'Could not generate.',
-                           'type': 'warning', 'sticky': False},
-            }
-        return {
-            'type': 'ir.actions.act_window',
-            'res_model': 'premafirm.ml.draft',
-            'res_id': draft.id,
-            'view_mode': 'form',
-            'target': 'new',
-        }
+    # NOTE: the legacy 'AI Rate Quote' button handler (action_ml_rate_quote)
+    # was REMOVED with the generative-AI pricing workflow.  The only CRM
+    # preliminary-estimate path is the dispatch-side
+    # action_prepare_preliminary_estimate (prema_logistics_booking).
 
     # ── Won / Lost hooks ─────────────────────────────────────────────
 

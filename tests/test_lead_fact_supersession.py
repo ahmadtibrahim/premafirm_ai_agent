@@ -164,21 +164,29 @@ class TestLeadFactServicePipeline(TransactionCase):
     def _fake_extractor(self):
         """Deterministic stand-in for the AI extractor: returns rows only for
         tokens actually present in the document text (never invents)."""
-        def extractor(text, source="", kind="lead_description", at=None):
+        def extractor(text, source_label=None, kind="lead_description",
+                      at=None):
             rows = []
             if "09:00 and 10:00" in text:
-                rows.append(_fact("pickup_earliest", "09:00", source, kind, at))
-                rows.append(_fact("pickup_latest", "10:00", source, kind, at))
-                rows.append(_fact("pallets", "20", source, kind, at))
+                rows.append(_fact("pickup_earliest", "09:00", source_label,
+                                  kind, at))
+                rows.append(_fact("pickup_latest", "10:00", source_label,
+                                  kind, at))
+                rows.append(_fact("pallets", "20", source_label, kind, at))
             if "13:00" in text and "09:00 and 10:00" in text:
-                rows.append(_fact("delivery_deadline", "13:00", source, kind, at))
+                rows.append(_fact("delivery_deadline", "13:00", source_label,
+                                  kind, at))
             if "10:30 to 11:30" in text:
-                rows.append(_fact("pickup_earliest", "10:30", source, kind, at))
-                rows.append(_fact("pickup_latest", "11:30", source, kind, at))
+                rows.append(_fact("pickup_earliest", "10:30", source_label,
+                                  kind, at))
+                rows.append(_fact("pickup_latest", "11:30", source_label,
+                                  kind, at))
             if "before 4:00 p.m." in text:
-                rows.append(_fact("delivery_deadline", "16:00", source, kind, at))
+                rows.append(_fact("delivery_deadline", "16:00", source_label,
+                                  kind, at))
             if "retail store supplies" in text:
-                rows.append(_fact("commodity", "Retail store supplies", source, kind, at))
+                rows.append(_fact("commodity", "Retail store supplies",
+                                  source_label, kind, at))
             return {"rows": rows, "warnings": []}
         return extractor
 
@@ -194,6 +202,48 @@ class TestLeadFactServicePipeline(TransactionCase):
         self.assertEqual(docs[0]["source"], "Lead description")
         for doc in docs[1:]:
             self.assertIn("Customer email", doc["source"])
+
+    def test_email_quoted_history_and_signature_never_reach_documents(self):
+        """A customer email that replies over the quoted earlier thread + a
+        '--' signature must contribute ONLY its live text to the documents
+        — stale quoted statements (another shipment's pallet count, an old
+        reference) must not become candidate facts."""
+        _email = lambda body: self.env["mail.message"].sudo().create({  # noqa: E731
+            "model": "crm.lead",
+            "res_id": self.lead.id,
+            "message_type": "email",
+            "subject": "Re: Shipment details",
+            "body": body,
+            "author_id": self.customer.id,
+            "date": datetime.utcnow() + timedelta(hours=98),
+        })
+        _email(
+            "<p>Now 6 pallets instead of 3, delivery still before 4:00 p.m. "
+            "on Tuesday.</p>"
+            "<blockquote>"
+            "<p>On Fri, Sep 4, 2026 at 10:32 AM Acme wrote: please quote 55 "
+            "pallets dry van to Mascouche ref 2026-OLD-88.</p>"
+            "</blockquote>"
+            "<p>-- <br>Jane Smith<br>Acme Distribution</p>"
+            "<p>This email is confidential and privileged. If you are not "
+            "the intended recipient please delete it.</p>"
+        )
+        svc = __import__(
+            "odoo.addons.premafirm_ai_engine.services.lead_fact_service",
+            fromlist=["LeadFactService"]).LeadFactService(self.env)
+        docs = svc.collect_documents(self.lead)
+        newest = docs[-1]  # kind inbound_email, the email just created
+        self.assertEqual(newest["kind"], "inbound_email")
+        self.assertIn("6 pallets", newest["text"])
+        self.assertNotIn("55 pallets", newest["text"])    # quoted history
+        self.assertNotIn("Mascouche", newest["text"])
+        self.assertNotIn("2026-OLD-88", newest["text"])   # stale reference
+        self.assertNotIn("Jane Smith", newest["text"])    # '--' signature cut
+        self.assertNotIn("confidential", newest["text"])  # footer cut
+        self.assertNotIn("intended recipient", newest["text"])
+        # And no OTHER document picked the quoted junk up either.
+        all_text = "\n".join(d["text"] for d in docs)
+        self.assertNotIn("55 pallets", all_text)
 
     def test_lead_1041_pipeline_effective_facts(self):
         """End-to-end: newest customer correction wins and stays sourced."""

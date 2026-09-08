@@ -38,7 +38,7 @@ def _fact(field, value):
 def _fake_extractor():
     """Deterministic stand-in for the AI extractor: rows only for tokens
     actually present, each row carrying that document's own provenance."""
-    def extractor(text, source="", kind="lead_description", at=None):
+    def extractor(text, source_label=None, kind="lead_description", at=None):
         rows = []
         matches = [
             ("22 pallets", "pallets", "22"),
@@ -49,7 +49,7 @@ def _fake_extractor():
         ]
         for token, field, value in matches:
             if token in text:
-                rows.append(dict(_fact(field, value), source=source,
+                rows.append(dict(_fact(field, value), source=source_label,
                                  kind=kind, at=at))
         return {"rows": rows, "warnings": []}
     return extractor
@@ -186,3 +186,63 @@ class TestEstimateReplyDraft(TransactionCase):
         methods = {m for m in dir(model) if m.startswith("action_")
                    or m.startswith("send")}
         self.assertFalse(methods & {"action_send", "send", "action_send_rc"})
+
+    def test_customer_reference_takes_priority_over_lead_title(self):
+        """The subject must echo the CUSTOMER-supplied reference — never a
+        generic lead title ('CRM Callback Test' style) — and the body must
+        open with the customer's own name and a prominent reference line."""
+        from datetime import datetime, timedelta
+        from odoo.tools import html2plaintext
+
+        lead = self.env["crm.lead"].create({
+            "name": "CRM Callback Test",   # generic title — must NOT win
+            "partner_name": "Acme Customer Co",
+            "contact_name": "Jane Doe",
+            "description": ("<p>Call-back request.</p>"),
+        })
+        customer = self.env["res.partner"].create({
+            "name": "Jane Doe", "email": "jane@acme.example"})
+        self.env["mail.message"].sudo().create({
+            "model": "crm.lead",
+            "res_id": lead.id,
+            "message_type": "email",
+            "subject": "Quote request",
+            "body": ("<p>Please quote: pickup 994 Westport Crescent "
+                     "Mississauga ON on Sep 15 2026 8-9 AM, delivery 211 Bell "
+                     "Boulevard Belleville ON before 2 PM. 3 pallets 2500 lb, "
+                     "reefer 2C, liftgate. Ref TEST-CRM-001.</p>"),
+            "author_id": customer.id,
+            "date": datetime.utcnow() + timedelta(hours=1),
+        })
+
+        def extractor(text, source_label=None, kind="lead_description",
+                      at=None):
+            rows = []
+            if "TEST-CRM-001" in text:
+                rows.append(dict(_fact("reference", "TEST-CRM-001"),
+                                 source=source_label, kind=kind, at=at))
+            if "994 Westport Crescent" in text:
+                rows.append(dict(_fact("origin_address", "994 Westport Crescent"),
+                                 source=source_label, kind=kind, at=at))
+                rows.append(dict(_fact("origin_city", "Mississauga"),
+                                 source=source_label, kind=kind, at=at))
+            if "211 Bell Boulevard" in text:
+                rows.append(dict(_fact("destination_address",
+                                       "211 Bell Boulevard"),
+                                 source=source_label, kind=kind, at=at))
+            return {"rows": rows, "warnings": []}
+
+        with patch.object(self.mail_mail, "send", autospec=True), _patches():
+            draft = self.env["premafirm.lead.estimate.reply"].prepare_from_lead(
+                lead, price_amount=850.0, price_reference="dispatch quote",
+                extractor=extractor)
+        # Reference beats the generic lead title in the subject.
+        self.assertIn("TEST-CRM-001", draft.subject)
+        self.assertNotIn("CRM Callback Test", draft.subject)
+        body = html2plaintext(draft.body_html or "")
+        # Programmatic greeting names the customer contact; reference callout
+        # is prominent; price + non-binding note are programmatic as before.
+        self.assertIn("Hello Jane Doe", body)
+        self.assertIn("Your reference: TEST-CRM-001", body)
+        self.assertIn("Estimated price", body)
+        self.assertIn("NON-BINDING", body)

@@ -178,12 +178,22 @@ class LeadFactService:
         ``[{kind, source, at, text}]`` — the lead description first, then the
         inbound customer emails oldest -> newest, so later corrections come
         last and naturally supersede older statements.
+
+        Every text is passed through the customer-text sanitizer
+        (services/email_text_sanitizer.py) first: quoted earlier-thread
+        history, signatures and confidentiality footers are not shipment
+        data and must not become facts — stale quoted statements would
+        otherwise fight the supersession ordering.
         """
+        from odoo.addons.premafirm_ai_engine.services.email_text_sanitizer import (  # noqa: E501
+            sanitize_email_body_html, sanitize_email_text,
+        )
         from odoo.tools import html2plaintext
 
         self.ensure_lead(lead)
         docs = []
-        description = html2plaintext(lead.description or "").strip()
+        description = sanitize_email_text(
+            html2plaintext(lead.description or "")).strip()
         if description:
             docs.append({
                 "kind": "lead_description",
@@ -192,9 +202,9 @@ class LeadFactService:
                 "text": description[:20000],
             })
         for msg in self._inbound_customer_messages(lead, limit_emails):
-            body = html2plaintext(msg.body or "").strip()
+            body = sanitize_email_body_html(msg.body).strip()
             if not body:
-                continue
+                continue  # a pure quote / auto-reply — no live request content
             docs.append({
                 "kind": "inbound_email",
                 "source": "Customer email %s" % (msg.date or "?"),

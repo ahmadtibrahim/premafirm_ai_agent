@@ -85,12 +85,17 @@ class EstimatorStructuredStop(models.Model):
         ("incomplete", "Incomplete Address — Not Saved"),
     ], compute="_compute_status", store=True)
 
-    # NOTE: never depend on "saved_location_id.verification_state" here —
-    # the path crosses into prema.dispatch.location, which loads AFTER this
-    # module in the graph, and the engine upgrade would crash resolving
-    # the trigger chain against the unknown-model placeholder. The
-    # dispatch side pokes the recompute in prema.dispatch.location.write()
-    # when verification_state changes.
+    # NOTE: this @depends deliberately does NOT chain through
+    # saved_location_id.verification_state.  verification_state lives on
+    # prema.dispatch.location — a model in prema_dispatch, which depends on
+    # this module and therefore loads one depth AFTER the engine in every
+    # module graph.  A path-depends across that boundary would make every
+    # engine schema upgrade crash: init_models runs the first
+    # mark_modified of the run, which resolves the full registry trigger
+    # map while prema.dispatch.location is still unregistered ("dependency
+    # field ... not found in model _unknown").  The dispatch side pokes
+    # these rows (modified(['saved_location_id'])) when a linked location's
+    # verification_state changes, which recomputes status then.
     @api.depends("saved_location_id", "address", "city", "province",
                  "postal_code")
     def _compute_status(self):

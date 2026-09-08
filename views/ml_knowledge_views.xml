@@ -109,21 +109,11 @@
         <field name="view_mode">list,form</field>
     </record>
 
-    <!-- AI Rate Quote button on the CRM lead form header -->
-    <record id="view_crm_lead_ml_buttons" model="ir.ui.view">
-        <field name="name">crm.lead.ml.buttons</field>
-        <field name="model">crm.lead</field>
-        <field name="inherit_id" ref="crm.crm_lead_view_form"/>
-        <field name="arch" type="xml">
-            <xpath expr="//header" position="inside">
-                <button name="action_ml_rate_quote" type="object"
-                        string="AI Rate Quote" class="btn-secondary"
-                        icon="fa-usd"
-                        groups="base.group_system"
-                        help="Generate an AI rate quote for this lead based on past deals and route data"/>
-            </xpath>
-        </field>
-    </record>
+    <!-- NOTE: the legacy 'AI Rate Quote' CRM header button
+         (view_crm_lead_ml_buttons / action_ml_rate_quote) was REMOVED with the
+         legacy generative-AI pricing workflow — the only CRM preliminary
+         estimate path is the dispatch-side 'Prepare Preliminary Estimate
+         Reply' action (prema_logistics_booking crm_lead_estimate_bridge). -->
 
     <!-- NOTE: 'AI: Check for Issues' header button is in account_move_ml_views.xml.
          The smart-button duplicate has been removed to avoid confusion. -->

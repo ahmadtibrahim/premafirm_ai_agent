@@ -142,7 +142,7 @@ class DocumentsML(models.Model):
             # Step 9: auto-create IFTA fuel log (non-fatal)
             try:
                 # Re-extract OCR text for province detection fallback
-                from odoo.addons.premafirm_ml.services import document_extractor as _de
+                from odoo.addons.premafirm_ai_engine.services import document_extractor as _de
                 ocr_text, _ = _de.extract_from_b64(
                     attachment.datas, attachment.mimetype or '', attachment.name or '')
                 self.env['premafirm.ifta.fuel.log'].sudo().create_from_bill_data(

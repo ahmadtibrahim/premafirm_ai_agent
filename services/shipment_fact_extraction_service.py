@@ -54,9 +54,11 @@ VOCAB = {
     "delivery_date": "delivery DATE as stated, ISO YYYY-MM-DD",
     "delivery_deadline": "delivery deadline TIME as stated, 24-hour HH:MM (customer-required arrival time)",
     "service_minutes": "unload/service time at delivery if stated, in minutes (e.g. 60)",
+    "origin_company_name": "name of the company/facility AT the pickup location as stated (only when the customer names one)",
     "origin_address": "full pickup street address as stated",
     "origin_city": "pickup city as stated",
     "origin_postal_code": "pickup postal code / ZIP as stated",
+    "destination_company_name": "name of the company/facility AT the delivery location as stated (only when the customer names one)",
     "destination_address": "full delivery street address as stated",
     "destination_city": "delivery city as stated",
     "destination_postal_code": "delivery postal code / ZIP as stated",
@@ -217,6 +219,16 @@ class ShipmentFactExtractionService:
             "stated value so the reviewer sees the conflict.\n"
             "- confidence: 'high' when quoted verbatim, 'medium' when clearly "
             "restated, 'low' when you had to interpret.\n"
+            "- IGNORE boilerplate: email signatures, confidentiality "
+            "disclaimers, address-block footers and QUOTED/HISTORY text from "
+            "earlier messages in the thread. Extract only the live request.\n"
+            "- reference: the customer's own PO/reference for THIS shipment. "
+            "Never invent one, never lift one from a subject line or from "
+            "quoted history of other shipments.\n"
+            "- origin_company_name/destination_company_name: the company or "
+            "facility name at that end of the move, ONLY when the customer "
+            "states it (e.g. 'pickup from Acme Distribution'). Do not put a "
+            "street address in these fields.\n"
             "- Return ONLY a JSON array of {\"field\", \"value\", "
             "\"confidence\", \"note\"} objects whose field names all come "
             "from the vocabulary above. No markdown, no prose."

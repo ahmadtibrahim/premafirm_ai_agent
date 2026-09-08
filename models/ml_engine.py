@@ -318,79 +318,13 @@ class PremafirmMLEngine(models.AbstractModel):
         return {'type': 'none', 'amount': None}
 
     # ====================================================================
-    # Feature: Rate Quote
+    # REMOVED legacy feature: Rate Quote
     # ====================================================================
-
-    def _cost_params_text(self):
-        """Read the estimator system parameters and return a formatted string for GPT context."""
-        p = self.env['ir.config_parameter'].sudo()
-        fuel        = float(p.get_param('estimator.fuel_price_per_l',         '1.55'))
-        driver      = float(p.get_param('estimator.driver_rate_per_hr',        '28.00'))
-        margin      = float(p.get_param('estimator.margin_pct',                '20.0'))
-        wt_thresh   = float(p.get_param('estimator.weight_threshold_lbs',      '3000'))
-        wt_cwt      = float(p.get_param('estimator.weight_surcharge_per_cwt',  '5.00'))
-        return (
-            f"PremaFirm current cost parameters:\n"
-            f"  • Fuel: ${fuel:.3f}/L\n"
-            f"  • Driver: ${driver:.2f}/hr\n"
-            f"  • Margin target: {margin:.1f}%\n"
-            f"  • Weight surcharge: ${wt_cwt:.2f} per CWT on load over {wt_thresh:,.0f} lbs\n"
-            f"Use these as the basis for any cost estimates. "
-            f"The suggested rate = total cost × (1 + {margin:.0f}%)."
-        )
-
-    def generate_rate_quote(self, message_text, partner=None, source_model=None, source_id=None):
-        """
-        Generate a freight rate estimate draft from a text request.
-        Learns from past approved rate quotes in the knowledge base.
-        Uses live cost parameters (fuel, driver rate, margin) from system settings.
-        """
-        att_texts = []
-        if source_model and source_id:
-            att_texts = self._attachment_texts(source_model, source_id)
-
-        partner_info = ''
-        if partner:
-            partner_info = (
-                f'Customer: {partner.name}'
-                + (f' | Company: {partner.parent_id.name}' if partner.parent_id else '')
-                + (f' | Country: {partner.country_id.name}' if partner.country_id else '')
-            )
-
-        context = message_text
-        if att_texts:
-            context += '\n\n' + '\n\n'.join(att_texts)
-
-        examples_text, n_examples = self._build_examples('rate_quote', context)
-        cost_params = self._cost_params_text()
-
-        system = (
-            'You are a freight pricing specialist for PremaFirm Logistics. '
-            'Generate a professional rate quote draft based on the request and any attachments.\n\n'
-            + cost_params + '\n\n'
-            'Include: estimated rate (CAD), transit time, service type (LTL/FTL), '
-            'any assumptions made, and a polite note that the final rate is subject to confirmation. '
-            'Be concise and professional. Base your rate on the cost parameters above plus '
-            'the past examples provided. Do not invent rates with no basis.'
-        )
-        user = f'{examples_text}\n\n{partner_info}\n\nRate Request:\n{context}'
-
-        text, err = self._gpt(system, user, max_tokens=600)
-        if err:
-            return None, err
-
-        draft = self._create_draft(
-            draft_type='rate_quote',
-            source_model=source_model or '',
-            source_id=source_id or 0,
-            suggestion=text,
-            reasoning=f'Generated from {n_examples} similar past quotes.',
-            context_snapshot=json.dumps({'message': message_text[:500],
-                                         'partner': partner_info,
-                                         'attachments': len(att_texts)}),
-            examples_used=n_examples,
-        )
-        return draft, None
+    # generate_rate_quote / _cost_params_text (and the CRM 'AI Rate Quote'
+    # button handler action_ml_rate_quote) were REMOVED: generative-AI
+    # pricing is not a sanctioned source of rates.  All pricing now flows
+    # exclusively through the dispatch pricing engine ('Prepare Preliminary
+    # Estimate Reply' / estimator / phone wizard).
 
     # ====================================================================
     # Feature: WhatsApp Reply
@@ -584,75 +518,9 @@ class PremafirmMLEngine(models.AbstractModel):
         except Exception:
             return None
 
-    def generate_wa_reply(self, channel, incoming_message, attachment_texts=None):
-        """Draft a reply to an incoming WhatsApp message."""
-        att_texts = attachment_texts or []
-        if channel.source_model if hasattr(channel, 'source_model') else False:
-            att_texts += self._attachment_texts(channel.source_model, channel.source_id)
-
-        partner = channel.whatsapp_partner_id
-        partner_info = f'Contact: {partner.name}' if partner else ''
-        if partner and partner.parent_id:
-            partner_info += f' | Company: {partner.parent_id.name}'
-
-        # Last 6 messages for context
-        recent = self.env['mail.message'].search([
-            ('res_id', '=', channel.id),
-            ('model', '=', 'discuss.channel'),
-            ('message_type', 'in', ['comment', 'whatsapp_message']),
-        ], order='date desc', limit=6)
-        history = '\n'.join(
-            f"  [{m.author_id.name or 'Unknown'}]: {(m.body or '').replace('<p>', '').replace('</p>', '')[:200]}"
-            for m in reversed(recent)
-        )
-
-        context = f'{partner_info}\n\nConversation history:\n{history}\n\nLatest message:\n{incoming_message}'
-        if att_texts:
-            context += '\n\nAttachments:\n' + '\n\n'.join(att_texts)
-
-        examples_text, n_examples = self._build_examples('wa_reply', incoming_message)
-
-        is_rate_request = any(kw in incoming_message.lower() for kw in [
-            'rate', 'quote', 'price', 'cost', 'how much', 'shipping',
-            'freight', 'truck', 'ltl', 'ftl', 'delivery', 'pickup',
-        ])
-
-        if is_rate_request:
-            rate_draft, err = self.generate_rate_quote(
-                incoming_message, partner=partner,
-                source_model='discuss.channel', source_id=channel.id)
-            system = (
-                'You are a logistics coordinator at PremaFirm. '
-                'Draft a professional WhatsApp reply to a rate inquiry. '
-                'Keep it concise and mobile-friendly (no long paragraphs). '
-                'Include the rate estimate from context. End with an offer to confirm details.'
-            )
-            rate_text = rate_draft.ai_suggestion if rate_draft else 'Rate to be confirmed.'
-            user = f'{examples_text}\n\n{context}\n\nRate estimate to include:\n{rate_text}'
-        else:
-            system = (
-                'You are a logistics coordinator at PremaFirm. '
-                'Draft a helpful, professional WhatsApp reply. '
-                'Keep it concise and mobile-friendly. Match the tone of the conversation.'
-            )
-            user = f'{examples_text}\n\n{context}'
-
-        text, err = self._gpt(system, user, max_tokens=400)
-        if err:
-            return None, err
-
-        draft = self._create_draft(
-            draft_type='wa_reply',
-            source_model='discuss.channel',
-            source_id=channel.id,
-            suggestion=text,
-            reasoning=f'{"Rate request detected. " if is_rate_request else ""}Used {n_examples} similar WA examples.',
-            context_snapshot=json.dumps({'message': incoming_message[:500],
-                                         'partner': partner_info,
-                                         'is_rate_request': is_rate_request}),
-            examples_used=n_examples,
-        )
-        return draft, None
+    # NOTE: generate_wa_reply (which called the removed generate_rate_quote
+    # for rate-keyword chats) was REMOVED — it had no callers.  WhatsApp
+    # negotiation replies use generate_negotiation_reply / agent_wa.
 
     # ====================================================================
     # Feature: CRM Reply

@@ -1,4 +1,4 @@
-"""18.0.7.13.0 pre-migrate — drop the legacy 'AI Rate Quote' CRM header view.
+"""18.0.7.14.0 pre-migrate — drop the legacy 'AI Rate Quote' CRM header view.
 
 The legacy generative-AI pricing flow was removed in this version (the
 action_ml_rate_quote handler on crm.lead, generate_rate_quote, the wa_reply
@@ -48,7 +48,7 @@ def migrate(cr, version):
             (module, xmlid))
         row = cr.fetchone()
         if not row:
-            _logger.info("18.0.7.13.0: legacy button view %s.%s already gone",
+            _logger.info("18.0.7.14.0: legacy button view %s.%s already gone",
                          module, xmlid)
             continue
         cr.execute("SELECT id FROM ir_ui_view WHERE id=%s", (row[0],))
@@ -57,12 +57,12 @@ def migrate(cr, version):
                 "DELETE FROM ir_model_data "
                 "WHERE module=%s AND name=%s AND model='ir.ui.view'",
                 (module, xmlid))
-            _logger.info("18.0.7.13.0: orphan ir_model_data for %s.%s cleaned",
+            _logger.info("18.0.7.14.0: orphan ir_model_data for %s.%s cleaned",
                          module, xmlid)
             continue
         cr.execute("DELETE FROM ir_model_data "
                    "WHERE module=%s AND name=%s AND model='ir.ui.view'",
                    (module, xmlid))
         cr.execute("DELETE FROM ir_ui_view WHERE id=%s", (row[0],))
-        _logger.info("18.0.7.13.0: dropped legacy CRM button view %s.%s (id %s)",
+        _logger.info("18.0.7.14.0: dropped legacy CRM button view %s.%s (id %s)",
                      module, xmlid, row[0])

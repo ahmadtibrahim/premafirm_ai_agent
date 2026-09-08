@@ -152,6 +152,19 @@
         <field name="inherit_id" ref="crm.crm_lead_view_form"/>
         <field name="arch" type="xml">
 
+            <!-- Reply to the last incoming email — compose threaded so the
+                 customer's mail client keeps the conversation. Removed as
+                 collateral by 8dc2c4c (18.0.7.14.0, AI Reply wizard removal);
+                 restored 2026-09-08 — DB hotfix on view 4714, promoted into
+                 this file after 18.0.7.15.0 so no future -u drops it again.
+                 Method: models/crm_ai_assistant.py action_reply_last_email. -->
+            <xpath expr="//header" position="inside">
+                <button name="action_reply_last_email" type="object"
+                        string="Reply" class="btn-secondary"
+                        icon="fa-reply"
+                        title="Open the compose window threaded to the last incoming email"/>
+            </xpath>
+
             <!-- Company name autocomplete on the Lead contact group (type == lead) -->
             <xpath expr="//group[@name='lead_partner']//field[@name='partner_name']" position="attributes">
                 <attribute name="widget">google_company</attribute>

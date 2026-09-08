@@ -102,7 +102,13 @@ class EstimatorScenarioRequest(models.Model):
                                allow_cross_border=False, scheduled_at=None,
                                return_to_home=True, margin_pct=None,
                                stops_input=None, request_id=None,
-                               apply_changes=False):
+                               apply_changes=False,
+                               manual_distance_km=None,
+                               manual_duration_hrs=None):
+        """§1 optional manual override — when geocoding leaves fewer than
+        two routable stops the user can supply the lane's road distance
+        (km) and optionally the drive time (h) instead. Only honored for
+        a plain two-stop lane; the card is labeled as a manual override."""
         """One message → one consolidated response (scenarios + itinerary
         + intel + pairing + structured stops).  Creates ONLY audit/
         review records — never a quote, booking, invoice or communication.
@@ -129,6 +135,24 @@ class EstimatorScenarioRequest(models.Model):
             message             user-facing headline (success or failure)
             error_detail        technical detail (support only)
         """
+        if manual_distance_km:
+            try:
+                manual_distance_km = float(manual_distance_km)
+                if manual_distance_km <= 0:
+                    manual_distance_km = False
+            except (TypeError, ValueError):
+                manual_distance_km = False
+        else:
+            manual_distance_km = False
+        if manual_duration_hrs:
+            try:
+                manual_duration_hrs = float(manual_duration_hrs)
+                if manual_duration_hrs <= 0:
+                    manual_duration_hrs = False
+            except (TypeError, ValueError):
+                manual_duration_hrs = False
+        else:
+            manual_duration_hrs = False
         request = self.env["premafirm.estimator.scenario.request"]
         try:
             vehicle = self.env["fleet.vehicle"].sudo().browse(int(vehicle_id))
@@ -167,6 +191,11 @@ class EstimatorScenarioRequest(models.Model):
             estimator = self.env["premafirm.rate.estimator"].sudo().browse()
             if text_message and text_message.strip():
                 try:
+                    # §7 loadboard hygiene: paste clutter (lone "svg"
+                    # tokens, symbol-only lines, repeated fragments) is
+                    # dropped BEFORE extraction so facts are never parsed
+                    # twice or mangled by formatting noise.
+                    text_message = self._sanitize_posting_text(text_message)
                     facts = estimator._extract_work_order_text(
                         text_message) if hasattr(
                         estimator, "_extract_work_order_text") else {}
@@ -224,37 +253,91 @@ class EstimatorScenarioRequest(models.Model):
                 request, stops_input or [], all_stops,
                 apply_changes=bool(apply_changes))
             # Geocode rows without coordinates so routing stays possible
-            # for manual/legacy-shaped addresses. A complete address with
-            # a missing postal gets its postal from the geocode result —
-            # corridor availability then resolves BEFORE the cards run.
+            # for manual/legacy-shaped addresses — INCLUDING loadboard
+            # postings whose stop carries no street (postal-code or
+            # city-only). Ordered fallback per row (§1): full address →
+            # postal code w/ city/province → city/province centre. Street
+            # text is never invented; approximate resolutions are labeled
+            # and reported as warnings, and rows are never saved as
+            # verified addresses by _match_stop_locations (street-less
+            # rows are only ever coords + labels, no location record).
             from ..services.mapbox_service import MapboxService
             mbx = MapboxService(self.env)
             postal_filled = []
+            unresolved = []
             for rec in rows:
-                if not (rec.address or "").strip():
+                if (rec.lat and rec.lng) and rec.postal_code:
                     continue
-                if not (rec.lat and rec.lng) or not rec.postal_code:
+                address = (rec.address or "").strip()
+                city = (rec.city or "").strip()
+                province = (rec.province or "").strip()
+                postal = (rec.postal_code or "").strip()
+                label = " ".join(filter(None, (city, province)))
+                if not (address or city or province or postal):
+                    unresolved.append(label or rec.company_name or
+                                      "a stop")
+                    continue
+                # Ordered resolution attempts — first hit wins.
+                attempts = []
+                if address:
+                    attempts.append(("street", " ".join(filter(None, (
+                        address, city, province, postal)))))
+                if postal:
+                    attempts.append(("postal", " ".join(filter(None, (
+                        city, province, postal)))))
+                if city and province:
+                    attempts.append(("city", "%s, %s, Canada"
+                                     % (city, province)))
+                tier_hit = False
+                for tier, query in attempts:
                     try:
-                        hits = mbx.geocode_address(" ".join(filter(None, (
-                            rec.address, rec.city or "", rec.province or "",
-                            rec.postal_code or ""))))
-                        if hits:
-                            vals = {}
-                            if not (rec.lat and rec.lng):
-                                vals.update({
-                                    "lat": float(hits[0]["lat"]),
-                                    "lng": float(hits[0]["lng"])})
-                            if not rec.postal_code:
-                                postal = (hits[0].get("postal_code")
-                                          or hits[0].get("postcode")
-                                          or "")
-                                if postal:
-                                    vals["postal_code"] = str(postal)
-                                    postal_filled.append(rec.id)
-                            if vals:
-                                rec.sudo().write(vals)
+                        hits = mbx.geocode_address(query)
                     except Exception:
-                        pass
+                        hits = []
+                    if not hits:
+                        continue
+                    hit = next((h for h in hits
+                                if "Canada" in h.get("place_name", "")),
+                               None) or hits[0]
+                    vals = {}
+                    if not (rec.lat and rec.lng):
+                        vals.update({
+                            "lat": float(hit["lat"]),
+                            "lng": float(hit["lng"])})
+                    if not postal:
+                        hit_postal = (hit.get("postal_code")
+                                      or hit.get("postcode") or "")
+                        if hit_postal:
+                            vals["postal_code"] = str(hit_postal)
+                            postal_filled.append(rec.id)
+                    if vals:
+                        rec.sudo().write(vals)
+                    tier_hit = tier
+                    break
+                if not tier_hit:
+                    unresolved.append(label or rec.company_name or
+                                      "a stop")
+                    continue
+                if tier_hit == "postal":
+                    warnings.append(
+                        "%s — no street address was published on the "
+                        "posting; routed to the %s postal area "
+                        "(approximate — road distance may differ from the "
+                        "actual dock)." % (label, postal.upper() or
+                                           str(rec.postal_code or "").upper()))
+                elif tier_hit == "city":
+                    warnings.append(
+                        "%s — only the city was published on the posting; "
+                        "routed from the city centre (approximate)."
+                        % label)
+            if unresolved:
+                warnings.append(
+                    "Could not locate: %s. Routing for that stop is "
+                    "unavailable until its address is corrected in the "
+                    "stops editor (re-run to resolve) — estimates that "
+                    "need it show \"Estimate unavailable\", never a "
+                    "fabricated distance." % "; ".join(
+                        str(u) for u in dict.fromkeys(unresolved)))
             if postal_filled:
                 # The postal changed the match identity — re-resolve
                 # those rows (dedupe-safe, never creates duplicates).
@@ -297,7 +380,9 @@ class EstimatorScenarioRequest(models.Model):
             payload = self._build_payload(
                 request, vehicle, payload_stops, warnings, avoid_tolls,
                 allow_cross_border, scheduled_at, return_to_home,
-                request_text=text_message, margin_pct=margin_val)
+                request_text=text_message, margin_pct=margin_val,
+                manual_distance_km=manual_distance_km,
+                manual_duration_hrs=manual_duration_hrs)
             self._enrich_payload(request, payload, rows, facts, warnings)
             request.inputs_json = payload
 
@@ -316,8 +401,16 @@ class EstimatorScenarioRequest(models.Model):
                     "equipment": payload.get("equipment") or "",
                     "requested_pickup_date": payload.get("pickup_date")
                     or False,
+                    "requested_delivery_date": payload.get(
+                        "requested_delivery_date") or False,
                     "requested_pickup_time": facts.get(
                         "requested_pickup_time") or False,
+                    "reference": payload.get("reference") or False,
+                    "posted_equipment": payload.get("posted_equipment")
+                    or False,
+                    "dimensions": payload.get("dimensions") or False,
+                    "appointments_required": payload.get(
+                        "appointments_required") or False,
                     "instructions": facts.get("instructions") or "",
                     "total_pallets": payload.get("pallets") or 0,
                     "total_cases": payload.get("total_cases") or 0,
@@ -680,6 +773,17 @@ class EstimatorScenarioRequest(models.Model):
                 rec.address or "", rec.city or "",
                 rec.province or "", postal)))
             fsa = re.sub(r"\s", "", postal).upper()[:3] if postal else ""
+            # §1 resolution level — how precisely the stop could be
+            # placed. Derived from what the request itself carries (no
+            # schema change): a street addresses at the dock, a bare
+            # postal maps to the postal area, city-only to the city
+            # centre. Dispatch labels the approximation; nothing here is
+            # ever persisted as a verified customer address.
+            has_street = bool((rec.address or "").strip())
+            approx_level = ("street" if has_street else
+                            ("postal" if postal else
+                             ("city" if (rec.city or "").strip() and
+                              (rec.province or "").strip() else "none")))
             stop_dicts.append({
                 "type": rec.stop_type,
                 "company_name": rec.company_name or "",
@@ -698,6 +802,7 @@ class EstimatorScenarioRequest(models.Model):
                 "window_start": rec.window_start or 0.0,
                 "window_end": rec.window_end or 0.0,
                 "status": rec.status or "incomplete",
+                "approx_level": approx_level,
                 "operating_hours_snapshot":
                     rec.operating_hours_snapshot or {},
                 "tz_name": rec.tz_name or "America/Toronto",
@@ -751,6 +856,28 @@ class EstimatorScenarioRequest(models.Model):
             else:
                 payload["required_temperature_c"] = False
         payload["instructions"] = facts.get("instructions") or ""
+
+        # §2 — the posting's requested delivery date rides alongside the
+        # pickup date so the scenario cards preserve BOTH dates (a same-
+        # day drive with a next-day delivery needs an overnight hold,
+        # never a silently pulled-forward delivery date).
+        req_delivery = facts.get("requested_delivery_date")
+        resolved_delivery = self._resolve_relative_date(req_delivery) \
+            if req_delivery else False
+        payload["requested_delivery_date"] = resolved_delivery or False
+        # §6/§7 — posting facts that must survive verbatim: the posting's
+        # own equipment/trailer requirement, the reference, pallet
+        # dimensions and appointment requirements (a posting appointment
+        # WITHOUT a time is never given an invented time — it surfaces as
+        # "Appointment required — time to confirm" in the stop notes).
+        payload["reference"] = str(facts.get("reference") or "").strip() \
+            or False
+        payload["posted_equipment"] = str(
+            facts.get("posted_equipment") or "").strip() or False
+        payload["dimensions"] = str(facts.get("dimensions") or "").strip() \
+            or False
+        payload["appointments_required"] = bool(
+            facts.get("appointments_required"))
 
         # Requested pickup date/time from the text (panel date still wins
         # when the user picked one — scheduled_at already fed the payload).
@@ -847,6 +974,19 @@ class EstimatorScenarioRequest(models.Model):
             target = weekdays.index(low)
             delta = (target - today.weekday()) % 7 or 7
             return (today + _dt.timedelta(days=delta)).isoformat()
+        # Spelled-out dates from loadboard postings ("September 10, 2026",
+        # "Sep 10 2026", "10 September 2026", "10th September 2026") parse
+        # to the company-tz calendar date.
+        cleaned = re.sub(r"(\d{1,2})(st|nd|rd|th)\b", r"\1", value,
+                         flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        for fmt in ("%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y",
+                    "%d %B %Y", "%d %b %Y", "%d %B, %Y", "%d %b, %Y"):
+            try:
+                return _dt.datetime.strptime(cleaned, fmt).date() \
+                    .isoformat()
+            except ValueError:
+                continue
         return False
 
     @api.model
@@ -1072,7 +1212,8 @@ class EstimatorScenarioRequest(models.Model):
 
     def _build_payload(self, request, vehicle, stops, warnings,
                        avoid_tolls, allow_cross_border, scheduled_at,
-                       return_to_home, request_text="", margin_pct=None):
+                       return_to_home, request_text="", margin_pct=None,
+                       manual_distance_km=None, manual_duration_hrs=None):
         from ..services.mapbox_service import MapboxService
         from ..services.eld_adapter import EldAdapter
         mbx = MapboxService(self.env)
@@ -1085,17 +1226,25 @@ class EstimatorScenarioRequest(models.Model):
 
         # Customer stop geometry, in message order.
         waypoints = []
+        unroutable = []
         for s in stops:
             s_lat, s_lng = float(s.get("lat") or 0) or 0.0, \
                 float(s.get("lng") or 0) or 0.0
             if not (s_lat and s_lng):
+                unroutable.append(
+                    " ".join(filter(None, (
+                        s.get("company_name") or "",
+                        s.get("address") or ""))) or "a stop")
                 continue
             waypoints.append({"lat": s_lat, "lng": s_lng})
         if len(waypoints) < 2:
             warnings.append(
-                "Fewer than two routable stops (coordinates missing) — "
-                "drive times/costs are unavailable until the addresses "
-                "geocode.")
+                "Routing unavailable — %s could not be located (postal/"
+                "city geocoding found no match). Correct the stop in the "
+                "stops editor and re-run, or use the manual road-distance "
+                "override. Cards that need drive time then read "
+                "\"Estimate unavailable\" — never a 0-km figure or an "
+                "infeasibility." % "; ".join(unroutable or ["some stops"]))
 
         # Full route: optional home → first stop, customer legs, optional
         # last stop → home — ONE routing call, legs sliced per section.
@@ -1148,13 +1297,14 @@ class EstimatorScenarioRequest(models.Model):
                     except Exception:
                         geometry = False
                         legs = []
-                if not legs:
+                if not legs and not manual_distance_km:
                     warnings.append(
                         "Routing could not complete (%s) — dedicated drive "
                         "times/costs are unavailable; scheduled corridor "
                         "pricing may still resolve from postal codes."
                         % route_error)
-        if not legs and len(ordered_pts) >= 2 and not route_error:
+        if not legs and len(ordered_pts) >= 2 and not route_error \
+                and not manual_distance_km:
             warnings.append(
                 "Mapbox could not route the stop set — scenario cards "
                 "cannot compute drive times/costs (scheduled corridor "
@@ -1183,6 +1333,33 @@ class EstimatorScenarioRequest(models.Model):
                        for l in customer_legs)
         duration = sum(float(l.get("duration_hrs") or 0.0)
                        for l in customer_legs)
+        # §1 manual road-distance override — the user supplies the lane
+        # distance when geocoding/routing cannot resolve the stops. Only
+        # meaningful for a plain two-stop lane (no reposition/return
+        # geometry is known), and every consumer sees the override flag.
+        manual_route = False
+        if not customer_legs and manual_distance_km:
+            if len(waypoints) == 2:
+                distance = max(0.0, float(manual_distance_km))
+                duration = max(0.0, float(manual_duration_hrs or 0.0)) \
+                    or round(distance / 70.0, 2)
+                customer_legs = [{
+                    "distance_km": distance, "duration_hrs": duration}]
+                manual_route = {
+                    "distance_km": round(distance, 1),
+                    "duration_hrs": round(duration, 1)}
+                warnings.append(
+                    "Manual road-distance override applied: %.0f km "
+                    "(drive time estimated at ~70 km/h average — no "
+                    "route geometry was available). Verify the actual "
+                    "distance with the driver before dispatch."
+                    % distance)
+            else:
+                warnings.append(
+                    "Manual distance override applies to a plain "
+                    "two-stop lane only — %d resolvable stops were "
+                    "given; correct the stop addresses instead."
+                    % len(waypoints))
 
         def _side_sum(field, kinds):
             return sum(int(s.get(field) or 0) for s in stops
@@ -1244,6 +1421,7 @@ class EstimatorScenarioRequest(models.Model):
                 "segment_hrs": _num(reposition.get("hrs")), "seq": 0,
             })
         stop_seq = 0
+        approx_stops = []
         for s in stops:
             s_lat = float(s.get("lat") or 0) or 0.0
             seg_km = seg_hrs = False
@@ -1260,6 +1438,14 @@ class EstimatorScenarioRequest(models.Model):
                 routable_index += 1
             stop_seq += 1  # strictly increasing even for unroutable stops
             kind = str(s.get("type") or "delivery").lower()
+            approx_level = str(s.get("approx_level") or "street").lower()
+            if approx_level in ("postal", "city"):
+                approx_stops.append({
+                    "name": s.get("company_name") or "",
+                    "address": s.get("address") or "",
+                    "fsa": str(s.get("fsa_code") or "").upper(),
+                    "approx_level": approx_level,
+                })
             itinerary.append({
                 "row": kind, "seq": stop_seq,
                 "label": "Pickup %d" % (len([i for i in itinerary
@@ -1271,6 +1457,7 @@ class EstimatorScenarioRequest(models.Model):
                 "name": s.get("company_name") or "",
                 "address": s.get("address") or "",
                 "fsa": str(s.get("fsa_code") or "").upper(),
+                "approx_level": approx_level,
                 "qty": ("%s pallet(s)" % int(s.get("pallets") or 0))
                 if s.get("pallets") else
                 ("%.0f lb" % float(s.get("weight_lbs") or 0.0))
@@ -1321,6 +1508,8 @@ class EstimatorScenarioRequest(models.Model):
                 "pallets": int(s.get("pallets") or 0),
                 "weight_lbs": float(s.get("weight_lbs") or 0.0),
                 "fsa_code": str(s.get("fsa_code") or "").upper() or "",
+                "approx_level": str(s.get("approx_level")
+                                     or "street").lower(),
                 "liftgate": bool(s.get("liftgate")),
                 "stop_notes": s.get("stop_notes") or "",
             } for s in stops],
@@ -1330,6 +1519,8 @@ class EstimatorScenarioRequest(models.Model):
             } for l in customer_legs],
             "driver": eld,
             "data_warnings": warnings,
+            "approx_stops": approx_stops,
+            "manual_route": manual_route,
             "route": {
                 "distance_km": round(distance, 1),
                 "duration_hrs": round(duration, 1),
@@ -1342,6 +1533,11 @@ class EstimatorScenarioRequest(models.Model):
                     "distance_km": float(l.get("distance_km") or 0.0),
                     "duration_hrs": float(l.get("duration_hrs") or 0.0),
                 } for l in customer_legs],
+                # §1 — approximate stop resolutions / manual override are
+                # flagged so no consumer can read a precise figure.
+                "approximate": bool(approx_stops) or bool(manual_route),
+                "approx_stops": approx_stops,
+                "manual_distance_override": bool(manual_route),
                 "itinerary": itinerary,
             },
         }
@@ -1401,6 +1597,32 @@ class EstimatorScenarioRequest(models.Model):
         if wants_reefer:
             return "reefer"
         return "reefer"  # booking-flow default for temperature-silent asks
+
+    @staticmethod
+    def _sanitize_posting_text(text):
+        """§7 loadboard paste hygiene — formatting clutter that carries no
+        freight fact is removed BEFORE extraction so the AI never parses
+        noise twice or mangles real facts with formatting symbols: lone
+        'svg' tokens (vector/HTML residue), leading/trailing bullet and
+        symbol glyphs, symbol-only lines, and exact duplicate lines
+        (repeated date fragments) are dropped. Factual lines are never
+        altered."""
+        symbols = (r"—–‒⁃•·●"
+                   r"▪▫◦❥›»‣✦"
+                   r"✱✿★☆✧\*#>")
+        lines = []
+        for raw in re.split(r"\r?\n", str(text or "")):
+            line = re.sub(r"(?i)\bsvg\b", " ", raw)
+            line = re.sub(r"^[\s%s]+|[\s%s]+$" % (symbols, symbols),
+                          "", line)
+            line = re.sub(r"\s+", " ", line).strip()
+            if not line or re.match(r"^[\s%s]+$" % symbols, line):
+                continue
+            if line in lines:
+                continue  # repeated fragment — keep each fact once
+            lines.append(line)
+        cleaned = "\n".join(lines)
+        return cleaned if cleaned.strip() else str(text or "")
 
     @staticmethod
     def _postal_fsa(text):

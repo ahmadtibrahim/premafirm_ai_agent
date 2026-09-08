@@ -81,6 +81,15 @@ class EstimatorScenarioRequest(models.Model):
     total_pallets = fields.Integer(string="Total pallets")
     total_cases = fields.Integer(string="Total cases")
     total_weight_lbs = fields.Float(string="Total weight (lbs)", digits=0)
+    selected_scenario = fields.Char(
+        string="Selected scenario",
+        help="Scenario key the user selected before creating the draft "
+             "Rate Confirmation.")
+    quote_id = fields.Many2one(
+        "logistics.custom.quote", string="Draft Rate Confirmation",
+        ondelete="set null",
+        help="The ONE draft quotation created from this estimate "
+             "(canonical quote → approval → booking workflow).")
 
     # ── Entry point (called by the reworked estimator panel) ─────────
     # NOTE: the panel calls these with orm.call(model, name, [], kwargs) —
@@ -215,22 +224,60 @@ class EstimatorScenarioRequest(models.Model):
                 request, stops_input or [], all_stops,
                 apply_changes=bool(apply_changes))
             # Geocode rows without coordinates so routing stays possible
-            # for manual/legacy-shaped addresses.
+            # for manual/legacy-shaped addresses. A complete address with
+            # a missing postal gets its postal from the geocode result —
+            # corridor availability then resolves BEFORE the cards run.
             from ..services.mapbox_service import MapboxService
             mbx = MapboxService(self.env)
+            postal_filled = []
             for rec in rows:
-                if rec.lat and rec.lng:
-                    continue
                 if not (rec.address or "").strip():
                     continue
+                if not (rec.lat and rec.lng) or not rec.postal_code:
+                    try:
+                        hits = mbx.geocode_address(" ".join(filter(None, (
+                            rec.address, rec.city or "", rec.province or "",
+                            rec.postal_code or ""))))
+                        if hits:
+                            vals = {}
+                            if not (rec.lat and rec.lng):
+                                vals.update({
+                                    "lat": float(hits[0]["lat"]),
+                                    "lng": float(hits[0]["lng"])})
+                            if not rec.postal_code:
+                                postal = (hits[0].get("postal_code")
+                                          or hits[0].get("postcode")
+                                          or "")
+                                if postal:
+                                    vals["postal_code"] = str(postal)
+                                    postal_filled.append(rec.id)
+                            if vals:
+                                rec.sudo().write(vals)
+                    except Exception:
+                        pass
+            if postal_filled:
+                # The postal changed the match identity — re-resolve
+                # those rows (dedupe-safe, never creates duplicates).
+                self._match_stop_locations(
+                    request.structured_stop_ids.filtered(
+                        lambda r: r.id in postal_filled))
+            # The customer's requested pickup time ("@8am") binds the
+            # first pickup's exact appointment — only when the user has
+            # not already set a time on that stop.
+            req_time = facts.get("requested_pickup_time")
+            if req_time and str(req_time).strip():
                 try:
-                    hits = mbx.geocode_address(" ".join(filter(None, (
-                        rec.address, rec.city or "", rec.province or "",
-                        rec.postal_code or ""))))
-                    if hits:
-                        rec.sudo().write({
-                            "lat": float(hits[0]["lat"]),
-                            "lng": float(hits[0]["lng"])})
+                    hh, mm = str(req_time).strip().split(":")[:2]
+                    t_float = float(int(hh)) + float(int(mm)) / 60.0
+                    first_pickup = next(
+                        (r for r in rows.sorted("sequence")
+                         if r.stop_type == "pickup"), None)
+                    if first_pickup and not first_pickup.reviewed and \
+                            (not first_pickup.exact_time and
+                             first_pickup.time_window_type == "any"):
+                        first_pickup.sudo().write({
+                            "time_window_type": "exact",
+                            "exact_time": t_float})
                 except Exception:
                     pass
             rows = request.structured_stop_ids.sorted("sequence")
@@ -328,6 +375,15 @@ class EstimatorScenarioRequest(models.Model):
                 response["suggested_sell"] = \
                     best.get("suggested_sell") if best else False
             response["operational_warnings"] = list(warnings)
+
+            # §5 — blank stop dates come from the resolved pickup date
+            # and the calculated schedule; explicit user dates are never
+            # overwritten.
+            self._fill_stop_dates(request, payload, result)
+            stop_dicts = [r._stop_dict()
+                          for r in request.structured_stop_ids
+                          .sorted("sequence")]
+            response["structured_stops"] = stop_dicts
 
             lead = self.sudo()._find_open_lead(request.partner_id)
             if lead:
@@ -557,40 +613,62 @@ class EstimatorScenarioRequest(models.Model):
 
         rows = Stop.search([("request_id", "=", request.id)],
                            order="sequence")
-        # 3. Saved-location resolution per row (only when the address
-        #    changed or no location is linked yet).
-        if "logistics.estimator.bridge" in self.env.registry:
-            bridge = self.env["logistics.estimator.bridge"]
-            for rec in rows:
-                if rec.saved_location_id and rec.reviewed:
-                    # User-picked or user-confirmed — never re-match.
-                    continue
-                if rec.saved_location_id and not rec.reviewed:
-                    # Auto-matched earlier; re-extraction may have changed
-                    # the address — re-resolve to stay truthful.
-                    rec.sudo().write({"saved_location_id": False})
-                if not (rec.address or "").strip():
-                    continue
-                result = bridge.location_match_or_create(
-                    rec.company_name or "", rec.address or "",
-                    rec.city or "", rec.province or "",
-                    rec.postal_code or "", rec.lat or 0.0,
-                    rec.lng or 0.0, rec.place_id or "")
-                if result.get("saved_location_id"):
-                    fill = {"saved_location_id":
-                            int(result["saved_location_id"])}
-                    # Inherit the matched location's missing parts — the
-                    # street-only pickup gains city/province/postal, so
-                    # the FSA/corridor card and the completeness status
-                    # both resolve.
-                    if result.get("city") and not rec.city:
-                        fill["city"] = result["city"]
-                    if result.get("province_code") and not rec.province:
-                        fill["province"] = result["province_code"]
-                    if result.get("postal_code") and not rec.postal_code:
-                        fill["postal_code"] = result["postal_code"]
-                    rec.sudo().write(fill)
+        self._match_stop_locations(rows)
         return rows, conflicts
+
+    def _match_stop_locations(self, rows):
+        """Saved-location resolution per row (only when the address
+        changed or no location is linked yet). Re-entrant — safe to run
+        again after a geocode filled the postal code."""
+        if "logistics.estimator.bridge" not in self.env.registry:
+            return
+        bridge = self.env["logistics.estimator.bridge"]
+        for rec in rows:
+            if rec.saved_location_id and rec.reviewed:
+                # User-picked or user-confirmed — never re-match.
+                continue
+            if rec.saved_location_id and not rec.reviewed:
+                # Auto-matched earlier; re-extraction may have changed
+                # the address — re-resolve to stay truthful.
+                rec.sudo().write({"saved_location_id": False})
+            if not (rec.address or "").strip():
+                continue
+            result = bridge.location_match_or_create(
+                rec.company_name or "", rec.address or "",
+                rec.city or "", rec.province or "",
+                rec.postal_code or "", rec.lat or 0.0,
+                rec.lng or 0.0, rec.place_id or "")
+            fill = {}
+            if result.get("saved_location_id"):
+                fill["saved_location_id"] = \
+                    int(result["saved_location_id"])
+                # Inherit the matched location's missing parts — the
+                # street-only pickup gains city/province/postal, so
+                # the FSA/corridor card and the completeness status
+                # both resolve.
+                if result.get("city") and not rec.city:
+                    fill["city"] = result["city"]
+                if result.get("province_code") and not rec.province:
+                    fill["province"] = result["province_code"]
+                if result.get("postal_code") and not rec.postal_code:
+                    fill["postal_code"] = result["postal_code"]
+                # Facility scheduling settings (the SAME authority
+                # Prema Dispatch schedules with).
+                if result.get("operating_hours_snapshot"):
+                    fill["operating_hours_snapshot"] = \
+                        result["operating_hours_snapshot"]
+                if result.get("tz_name"):
+                    fill["tz_name"] = result["tz_name"]
+                svc = (result.get("service_time_minutes_pickup")
+                       if rec.stop_type == "pickup"
+                       else result.get("service_time_minutes_delivery"))
+                if svc and not rec.service_time_minutes:
+                    fill["service_time_minutes"] = int(svc)
+                if result.get("per_pallet_service_minutes"):
+                    fill["per_pallet_service_minutes"] = int(
+                        result["per_pallet_service_minutes"])
+            if fill:
+                rec.sudo().write(fill)
 
     def _payload_stop_dicts(self, rows, warnings):
         """Convert structured rows into the payload stop dict shape the
@@ -620,8 +698,38 @@ class EstimatorScenarioRequest(models.Model):
                 "window_start": rec.window_start or 0.0,
                 "window_end": rec.window_end or 0.0,
                 "status": rec.status or "incomplete",
+                "operating_hours_snapshot":
+                    rec.operating_hours_snapshot or {},
+                "tz_name": rec.tz_name or "America/Toronto",
+                "service_time_minutes": rec.service_time_minutes or 0,
+                "per_pallet_service_minutes":
+                    rec.per_pallet_service_minutes or 0,
             })
         return stop_dicts
+
+    def _fill_stop_dates(self, request, payload, result):
+        """§5 — blank stop dates come from the selected pickup date and
+        the calculated schedule; explicit dates are never overwritten."""
+        pickup_date = payload.get("pickup_date") or False
+        if not pickup_date:
+            return
+        sched_stops = []
+        for card in (result.get("scenarios") or []):
+            sch = card.get("schedule") or {}
+            if sch.get("stops"):
+                sched_stops = sch["stops"]
+                break
+        for i, rec in enumerate(
+                request.structured_stop_ids.sorted("sequence")):
+            if rec.stop_date:
+                continue
+            if rec.stop_type == "pickup":
+                rec.sudo().write({"stop_date": pickup_date})
+            elif i < len(sched_stops):
+                dep_date = str(
+                    sched_stops[i].get("departure") or "")[:10]
+                if dep_date and dep_date[:4].isdigit():
+                    rec.sudo().write({"stop_date": dep_date})
 
     def _enrich_payload(self, request, payload, rows, facts, warnings):
         """Post-merge payload enrichment: extraction equipment/temp, the
@@ -669,8 +777,23 @@ class EstimatorScenarioRequest(models.Model):
         cases = _sum("cases")
         weight = _sum("weight_lbs")
         payload["pallets"] = pallets
-        payload["weight_lbs"] = weight
+        # §7: unknown weight stays UNKNOWN — a missing weight must never
+        # ride as a valid zero weight into capacity/pricing.
+        payload["weight_lbs"] = weight if weight > 0 else False
         payload["total_cases"] = cases
+        # Per-stop service durations from Saved Location settings (same
+        # authority Prema Dispatch schedules with) — the payload total
+        # then equals the stop-by-stop schedule's own sum.
+        svc_total = 0
+        for s in stops:
+            svc = int(s.get("service_time_minutes") or 0)
+            if svc:
+                per_p = int(s.get("per_pallet_service_minutes") or 0)
+                if per_p:
+                    svc += int(s.get("pallets") or 0) * per_p
+                svc_total += svc
+        if svc_total:
+            payload["service_minutes"] = svc_total
 
         # Per-segment onboard peak — capacity validation uses the peak
         # load aboard each route segment, not merely the grand total.
@@ -756,12 +879,14 @@ class EstimatorScenarioRequest(models.Model):
     # ── Explicit conversion action (§10.9 — human click only) ───────
 
     @api.model
-    def action_rate_confirmation_rpc(self, request_id):
-        """Draft Rate Confirmation for the request's customer. This is the
-        explicit conversion click: it reuses the CRM lead bridge
-        (action_create_draft_rate_confirmation) which drafts UNPRICED and
-        never sends; every number stays on this request record for the
-        human to apply."""
+    def action_rate_confirmation_rpc(self, request_id, scenario_key=None):
+        """§10 — Create Draft Rate Confirmation for the request's customer
+        with the SELECTED scenario transferred (stops, quantities,
+        windows, instructions, suggested sell). This is the explicit
+        conversion click: exactly ONE editable draft; nothing is sent,
+        confirmed, invoiced or booked. Returns the canonical workflow
+        chain (review → send → acceptance → booking) with the booking
+        step unavailable until approval is recorded."""
         request = self.sudo().browse(int(request_id))
         if not request.exists():
             return {"error": "Request not found."}
@@ -778,20 +903,71 @@ class EstimatorScenarioRequest(models.Model):
                                "use 'Create Draft Rate Confirmation' there — "
                                "the estimate reference is %s."
                                % (request.partner_id.name or "?", request.name)}
-        if not hasattr(lead, "action_create_draft_rate_confirmation"):
-            return {"error": "crm_bridge_offline",
-                    "message": "The CRM rate-confirmation bridge is not "
-                               "loaded on this database."}
         try:
-            action = lead.action_create_draft_rate_confirmation()
+            if scenario_key:
+                request.sudo().write({
+                    "selected_scenario": str(scenario_key)})
+            transfer = {}
+            if "logistics.estimator.bridge" in self.env.registry:
+                transfer = self.env[
+                    "logistics.estimator.bridge"] \
+                    .transfer_estimator_scenario_rpc(
+                        request.id, scenario_key or request.selected_scenario)
+                if transfer.get("quote_id"):
+                    request.sudo().write({
+                        "quote_id": int(transfer["quote_id"])})
+            action = transfer.get("action")
+            if not action and hasattr(
+                    lead, "action_create_draft_rate_confirmation"):
+                action = lead.action_create_draft_rate_confirmation()
             return {"ok": True, "action": action,
-                    "message": "Draft rate confirmation for %s surfaced "
-                               "(unpriced by design — apply the suggested "
-                               "sell above through the dispatch pricing "
-                               "flow)." % (lead.name or "the opportunity")}
+                    "quote_id": transfer.get("quote_id"),
+                    "quote_name": transfer.get("quote_name"),
+                    "quote_state": transfer.get("state"),
+                    "workflow": transfer.get("workflow") or [],
+                    "message": "Draft Rate Confirmation %s created for %s "
+                               "(nothing sent)."
+                               % (transfer.get("quote_name") or "",
+                                  lead.name or "the opportunity")}
         except Exception as exc:
             return {"error": "rate_confirmation_failed",
                     "message": str(exc)[:400]}
+
+    @api.model
+    def quote_workflow_status_rpc(self, request_id):
+        """Refresh the canonical quote workflow chain for the panel."""
+        request = self.sudo().browse(int(request_id))
+        if not request.exists() or not request.quote_id:
+            return {"quote_id": (request.quote_id.id
+                                 if request and request.quote_id else False),
+                    "workflow": []}
+        CQ = self.env["logistics.custom.quote"].sudo()
+        quote = CQ.browse(request.quote_id.id)
+        if not quote.exists():
+            return {"quote_id": request.quote_id.id, "workflow": []}
+        return {
+            "quote_id": quote.id,
+            "quote_name": quote.name,
+            "state": quote.state,
+            "workflow": [
+                {"step": "review",
+                 "label": "Staff reviews the draft",
+                 "done": quote.state in ("reviewing", "quoted", "accepted",
+                                         "converted")},
+                {"step": "send",
+                 "label": "Staff explicitly sends the Rate Confirmation",
+                 "done": bool(quote.is_locked)},
+                {"step": "acceptance",
+                 "label": "Customer approval recorded against the reviewed "
+                          "version",
+                 "done": bool(quote.acceptance_recorded_at)},
+                {"step": "booking",
+                 "label": "Staff confirms the booking (capacity and "
+                          "schedule re-checked at conversion)",
+                 "done": quote.state == "converted",
+                 "available": bool(quote.acceptance_recorded_at)},
+            ],
+        }
 
     # ── Pipeline helpers ────────────────────────────────────────────
 

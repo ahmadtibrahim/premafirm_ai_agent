@@ -69,6 +69,11 @@ class EstimatorChatPanel extends Component {
                                    //   locOptions, locOpen}]
             conflicts:   [],       // [{sequence, current, proposed}]
             applyChanges:false,
+            // §2 scenario selection + §1 cost breakdown modal
+            selectedScenario: null,  // scenario key
+            costModalKey:   null,    // scenario key whose breakdown is open
+            quoteWorkflow:  [],      // quote -> approval -> booking chain
+            quoteName:      "",
         });
 
         onWillStart(async () => {
@@ -91,6 +96,8 @@ class EstimatorChatPanel extends Component {
             error: null, routeDev: null, pickupDate: "",
             returnHome: true, marginPct: null,
             stops: [], conflicts: [], applyChanges: false,
+            selectedScenario: null, costModalKey: null,
+            quoteWorkflow: [], quoteName: "",
         });
         // A fresh estimate is a new enquiry — a stale customer pick from
         // an earlier estimate must never silently ride along.
@@ -281,6 +288,46 @@ class EstimatorChatPanel extends Component {
 
     onPickupDateChange(ev) {
         this.state.pickupDate = ev.target.value || "";
+        // §5 — when the selected date changes, dependent ETAs and the
+        // schedule recalculate (the explicit date is never overwritten).
+        if (this.state.result && this.state.result.ok && !this.state.loading) {
+            this._runEstimate();
+        }
+    }
+
+    // ── §2 scenario selection / §1 cost breakdown ────────────────────
+
+    selectScenario(key) {
+        // Pure review state — selecting a scenario never creates,
+        // sends, confirms or books anything.
+        this.state.selectedScenario = key;
+    }
+
+    openCostModal(key) {
+        this.state.costModalKey = key;
+    }
+
+    closeCostModal() {
+        // Closing returns to the SAME estimate — nothing is re-run and
+        // no edit is lost.
+        this.state.costModalKey = null;
+    }
+
+    onResultClick(ev) {
+        const closeEl = ev.target.closest("[data-close-cost]");
+        if (closeEl) {
+            this.closeCostModal();
+            return;
+        }
+        const costEl = ev.target.closest("[data-cost-key]");
+        if (costEl) {
+            this.openCostModal(costEl.dataset.costKey);
+            return;
+        }
+        const cardEl = ev.target.closest("[data-card-key]");
+        if (cardEl) {
+            this.selectScenario(cardEl.dataset.cardKey);
+        }
     }
 
     onReturnHomeChange(ev) {
@@ -718,16 +765,25 @@ class EstimatorChatPanel extends Component {
         }
         h.push(`</div>`);
 
-        // 2. Scenario cards
+        // 2. Scenario cards — §2 selectable, §1 clickable cost breakdown,
+        // §6 reviewable schedule, §4 per-destination corridor rows.
         const scenarios = res.scenarios || [];
         if (scenarios.length) {
-            h.push(`<div class="o_est_section"><div class="o_est_sec_title">🔄 Three ways to move it</div>`);
+            h.push(`<div class="o_est_section"><div class="o_est_sec_title">🔄 Three ways to move it <span class="o_est_sec_meta">select a scenario to review its schedule</span></div>`);
+            const badgeLabel = (b) => ({
+                "feasible": "feasible",
+                "verified": "verified",
+                "conditional": "conditional — verification required",
+                "infeasible": "infeasible",
+                "requires_estimate": "requires estimate",
+            }[b] || b);
             for (const card of scenarios) {
                 const badge = card.badge || (card.feasible ? "feasible" : "infeasible");
-                h.push(`<div class="o_est_card card-${this._esc(badge)}">
+                const selected = this.state.selectedScenario === card.key;
+                h.push(`<div class="o_est_card card-${this._esc(badge)}${selected ? " o_est_card_selected" : ""}" data-card-key="${this._esc(card.key)}">
                     <div class="o_est_card_head">
                         <span class="o_est_card_title">${this._esc(card.title)}</span>
-                        <span class="o_est_badge badge-${this._esc(badge)}">${this._esc(badge).replace("_", " ")}</span>
+                        <span class="o_est_badge badge-${this._esc(badge)}">${this._esc(badgeLabel(badge))}</span>
                     </div>
                     <div class="o_est_card_body">`);
                 if (card.truck) h.push(this._kv("Truck", this._esc(card.truck)));
@@ -735,8 +791,6 @@ class EstimatorChatPanel extends Component {
                 if (card.key === "scheduled_ltl" && card.date_requested
                         && card.pickup_date
                         && card.date_requested !== card.pickup_date) {
-                    // The requested day isn't served — the card shows the
-                    // next corridor date instead of a bare "not available".
                     h.push(this._kv("Next available", `📅 <b>${this._esc(card.pickup_date)}</b> — requested ${this._esc(card.date_requested)}`, "kvm"));
                 }
                 if (card.delivery_date || card.return_date) {
@@ -746,7 +800,10 @@ class EstimatorChatPanel extends Component {
                 h.push(this._kv("Distance", card.distance_km === false ? "—" : `${this._num(card.distance_km)} km`, "kvm"));
                 if (card.drive_hrs !== false) h.push(this._kv("Drive + service", card.drive_hrs === false ? "—" : `${this._num(card.drive_hrs)} h`, "kvm"));
                 if (card.cost !== false) {
-                    h.push(this._kv("Operating cost", this._money(card.cost), "kvm"));
+                    const costVal = card.cost_breakdown
+                        ? `${this._money(card.cost)} <a class="o_est_cost_link" data-cost-key="${this._esc(card.key)}">breakdown</a>`
+                        : this._money(card.cost);
+                    h.push(this._kv("Operating cost", costVal, "kvm"));
                     h.push(this._kv("Suggested sell", `<b>${this._money(card.suggested_sell)}</b>`));
                     h.push(this._kv("Markup on cost", `${this._num(card.markup_pct_on_cost, 0)}%`, "kvm"));
                     if (card.gross_margin_pct !== false) {
@@ -762,9 +819,11 @@ class EstimatorChatPanel extends Component {
                 if (card.incremental_km) h.push(this._kv("Empty mileage", `${this._num(card.incremental_km, 0)} km`, "kvm"));
                 const avail = card.availability || {};
                 if (card.key !== "scheduled_ltl") {
-                    const status = avail.status === "free" ? `<span class="o_est_ok">free ✓</span>` :
-                        avail.status === "conflicts" ? `<span class="o_est_bad">conflicts</span>` : "—";
+                    const status = avail.status === "conflicts"
+                        ? `<span class="o_est_bad">conflicts</span>`
+                        : `<span class="o_est_ok">${avail.checked ? "no conflicting booking found" : "not checked"}</span>`;
                     h.push(this._kv("Truck availability", status));
+                    if (avail.note) h.push(`<div class="o_est_sub">${this._esc(avail.note)}</div>`);
                     if (avail.conflicts && avail.conflicts.length) {
                         h.push(`<div class="o_est_conflicts">`);
                         for (const c of avail.conflicts) {
@@ -778,6 +837,19 @@ class EstimatorChatPanel extends Component {
                 }
                 if (card.key === "scheduled_ltl") {
                     h.push(this._kv("Network", `${this._esc(card.corridor || "")}${card.suggested_sell === false ? "" : ""}`));
+                    const pd = card.per_destination || [];
+                    if (pd.length) {
+                        h.push(`<div class="o_est_alt_title">Each destination</div>`);
+                        h.push(`<table class="o_est_table"><thead><tr><th>Destination</th><th>Pallets</th><th>Pickup</th><th>Delivered</th><th>Corridor</th><th>Reason</th></tr></thead><tbody>`);
+                        for (const d of pd) {
+                            h.push(`<tr><td>${this._esc(d.name)}</td><td>${this._esc(d.pallets || 0)}</td><td>${this._esc(d.served_date || "—")}</td><td>${this._esc(d.delivery_date || "—")}</td><td>${this._esc(d.corridor || "—")}</td><td>${this._esc(d.reason || "")}</td></tr>`);
+                        }
+                        h.push(`</tbody></table>`);
+                    }
+                }
+                if (card.conditional_reasons && card.conditional_reasons.length) {
+                    h.push(`<div class="o_est_alt_title">Verification required</div>`);
+                    h.push(this._chips(card.conditional_reasons, "cond"));
                 }
                 if (card.blocking && card.blocking.length) {
                     h.push(this._chips(card.blocking, "block"));
@@ -793,12 +865,54 @@ class EstimatorChatPanel extends Component {
                     }
                     h.push(`</tbody></table>`);
                 }
+                if (selected && card.schedule && card.schedule.stops && card.schedule.stops.length) {
+                    h.push(`<div class="o_est_alt_title">Stop-by-stop schedule — ${this._esc(card.schedule.start_at || "")} <span class="o_est_sec_meta">${this._esc(card.schedule.source || "")}</span></div>`);
+                    h.push(`<table class="o_est_table"><thead><tr><th>#</th><th>Stop</th><th>Arrive</th><th>Wait</th><th>Service</th><th>Depart</th><th>Onboard</th><th>Note</th></tr></thead><tbody>`);
+                    for (const s of card.schedule.stops) {
+                        h.push(`<tr><td>${s.seq}</td><td>${s.stop_type === "pickup" ? "📦" : "📍"} ${this._esc(s.name)}</td><td>${this._esc(s.arrival)}</td><td>${s.wait_min ? this._esc(s.wait_min) + " min" : "—"}</td><td>${this._esc(s.service_min)} min</td><td>${this._esc(s.departure)}</td><td>${s.onboard_pallets} plt${s.onboard_cases ? " / " + this._esc(s.onboard_cases) + " cs" : ""}</td><td>${this._esc(s.note || "")}</td></tr>`);
+                    }
+                    h.push(`</tbody></table>`);
+                    const tc = card.schedule.truck_commitments || [];
+                    if (tc.length) {
+                        h.push(`<div class="o_est_alt_title">Truck's existing commitments (read-only)</div>`);
+                        h.push(`<table class="o_est_table"><thead><tr><th>Job</th><th>Pickup</th><th>Done</th><th>Pallets</th></tr></thead><tbody>`);
+                        for (const j of tc) {
+                            h.push(`<tr><td>${this._esc(j.job)}</td><td>${this._esc(j.pickup)}</td><td>${this._esc(j.eta_done)}</td><td>${this._esc(j.pallets || 0)}</td></tr>`);
+                        }
+                        h.push(`</tbody></table>`);
+                    }
+                    for (const n of card.schedule.notes || []) {
+                        h.push(`<div class="o_est_note note-warn">${this._esc(n)}</div>`);
+                    }
+                }
                 if (card.assumptions && card.assumptions.length) {
                     h.push(`<div class="o_est_note">${card.assumptions.map(a => "· " + this._esc(a)).join("<br/>")}</div>`);
                 }
                 h.push(`</div></div>`);
             }
             h.push(`</div>`);
+
+            // §1 cost breakdown modal (X top-right; closing returns to
+            // the same estimate without losing anything)
+            if (this.state.costModalKey) {
+                const mc = scenarios.find(c => c.key === this.state.costModalKey);
+                if (mc && mc.cost_breakdown) {
+                    const cb = mc.cost_breakdown;
+                    h.push(`<div class="o_est_modal_backdrop"><div class="o_est_modal">
+                        <div class="o_est_modal_head">
+                            <b>Operating cost — ${this._esc(mc.title)}</b>
+                            <button type="button" class="o_est_modal_x" data-close-cost="1" title="Close">✕</button>
+                        </div>
+                        <div class="o_est_modal_body">
+                        <table class="o_est_table"><thead><tr><th>Component</th><th>Quantity</th><th>Rate</th><th>Amount</th><th>Basis</th></tr></thead><tbody>`);
+                    for (const c of cb.components || []) {
+                        h.push(`<tr><td>${this._esc(c.label)}</td><td>${this._esc(c.qty || "")}</td><td>${this._esc(c.rate || "")}</td><td>${this._money(c.amount)}</td><td class="o_est_sub">${this._esc(c.note || "")}</td></tr>`);
+                    }
+                    h.push(`</tbody></table>
+                        <div class="o_est_modal_total">Total operating cost <b>${this._money(cb.total)}</b></div>
+                        </div></div></div>`);
+                }
+            }
         }
 
         // 3. Customer pricing intel
@@ -920,14 +1034,32 @@ class EstimatorChatPanel extends Component {
             "premafirm.estimator.scenario.request",
             "action_rate_confirmation_rpc",
             [],
-            { request_id: st.result.request_id }
+            { request_id: st.result.request_id,
+              scenario_key: st.selectedScenario }
         );
-        if (result?.action) {
+        if (result?.ok) {
+            st.quoteWorkflow = result.workflow || [];
+            st.quoteName = result.quote_name || "";
             this.notification.add(result.message || "Draft created", { type: "success" });
-            await this.action.doAction(result.action);
+            if (result.action) {
+                await this.action.doAction(result.action);
+            }
             return;
         }
         this.notification.add(result?.message || result?.error || "Could not create the draft", { type: "warning" });
+    }
+
+    async refreshQuoteWorkflow() {
+        const st = this.state;
+        if (!st.result?.request_id) return;
+        const result = await this.orm.call(
+            "premafirm.estimator.scenario.request",
+            "quote_workflow_status_rpc",
+            [],
+            { request_id: st.result.request_id }
+        );
+        st.quoteWorkflow = result?.workflow || [];
+        st.quoteName = result?.quote_name || st.quoteName || "";
     }
 
     // ── Template helpers ───────────────────────────────────────────

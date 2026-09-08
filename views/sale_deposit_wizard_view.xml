@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="premafirm_sale_deposit_wizard_form" model="ir.ui.view">
+        <field name="name">premafirm.sale.deposit.wizard.form</field>
+        <field name="model">premafirm.sale.deposit.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Record Customer Deposit">
+                <group>
+                    <group>
+                        <field name="customer" readonly="1"/>
+                        <field name="sale_order_id" readonly="1"/>
+                    </group>
+                    <group>
+                        <field name="order_total" readonly="1"/>
+                        <field name="amount"
+                               placeholder="e.g. 170.00"/>
+                    </group>
+                </group>
+                <p class="text-muted mt-2">
+                    Records the deposit as a down-payment invoice (posted, so the
+                    bank payment can be applied to it) and automatically applies
+                    any unmatched bank payment already linked to the customer —
+                    e.g. the e-transfer received while this order was still open.
+                    The deposit is deducted automatically from the final invoice.
+                </p>
+                <footer>
+                    <button name="action_apply" type="object"
+                            string="Record &amp; Apply Deposit"
+                            class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

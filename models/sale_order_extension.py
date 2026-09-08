@@ -275,6 +275,110 @@ class SaleOrder(models.Model):
             vals["journal_id"] = journal.id
         return vals
 
+    # ── Customer deposit on quotation / order ────────────────────────────
+    deposit_recorded = fields.Boolean(
+        compute="_compute_deposit_recorded", string="Deposit Recorded",
+        help="A down-payment (deposit) has already been recorded on this order.")
+
+    @api.depends("order_line.is_downpayment", "order_line.display_type")
+    def _compute_deposit_recorded(self):
+        for order in self:
+            # the core down-payment flow adds an is_downpayment section line
+            # AND is_downpayment product line(s) to the order — either means a
+            # deposit was recorded (sale.order.line product lines carry
+            # display_type=False, NOT "product" — that value is account.move's)
+            order.deposit_recorded = bool(order.order_line.filtered(
+                lambda l: l.is_downpayment))
+
+    def action_record_deposit(self):
+        """'Customer Deposit' button: open the record-deposit wizard.
+
+        The wizard creates + posts the down-payment invoice through the core
+        sale.advance.payment.inv machinery and auto-applies any unmatched bank
+        payment already received (INV/2026/00093 fix).
+        """
+        self.ensure_one()
+        if self.state != "sale":
+            raise exceptions.UserError(
+                'Confirm the quotation first (state "Sale Order") before '
+                "recording a customer deposit.")
+        if self.deposit_recorded:
+            raise exceptions.UserError(
+                "A deposit was already recorded on %s — see its down-payment "
+                "invoice on the Invoices smart button." % self.name)
+        return {
+            "type": "ir.actions.act_window",
+            "name": "Record Customer Deposit",
+            "res_model": "premafirm.sale.deposit.wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {"default_sale_order_id": self.id},
+        }
+
+    def _get_order_attachments(self):
+        """Attachments attached to this order that should follow onto its
+        invoices: form/drop attachments (res_model='sale.order') plus chatter
+        attachments (res_model='mail.message' on this order's messages).
+
+        The auto-generated Quotation/Order PDF is excluded — it is a snapshot
+        of the order itself, not a document the customer attached (the POD
+        scans etc. on the order do follow, INV/2026/00093 fix).
+        """
+        self.ensure_one()
+        sources = self.env["ir.attachment"].search([
+            "|",
+            "&", ("res_model", "=", "sale.order"), ("res_id", "=", self.id),
+            "&", ("res_model", "=", "mail.message"),
+                 ("res_id", "in", self.message_ids.ids),
+        ])
+        if not sources:
+            return sources
+        import re
+        auto_pdf = re.compile(r"^(Quotation|Order) - .+\.pdf$")
+        return sources.filtered(lambda a: not auto_pdf.match(a.name or ""))
+
+    def _copy_attachments_to_invoices(self, moves):
+        """Copy each order's attachments onto the invoice(s) created from it.
+
+        Mirrors the manual drag-and-drop onto the invoice form
+        (res_model='account.move'); skips names already present on the move so
+        re-running never duplicates.
+        """
+        for move in moves:
+            order = self.filtered(lambda o: o.name == move.invoice_origin)
+            if not order and move.move_type == "out_invoice":
+                order = move.line_ids.sale_line_ids.order_id[:1]  # DP invoices too
+            if not order:
+                continue
+            sources = order._get_order_attachments()
+            if not sources:
+                continue
+            existing = self.env["ir.attachment"].search([
+                "|",
+                "&", ("res_model", "=", "account.move"), ("res_id", "=", move.id),
+                "&", ("res_model", "=", "mail.message"),
+                     ("res_id", "in", move.message_ids.ids),
+            ])
+            existing_names = {a.name for a in existing}
+            for att in sources:
+                if att.name in existing_names:
+                    continue
+                att.copy({"res_model": "account.move", "res_id": move.id})
+                existing_names.add(att.name)
+
+    def _create_invoices(self, grouped=False, final=False, date=None):
+        """Create invoice(s) for this order, then copy the order's attachments
+        (POD scans, rate sheets…) onto the new invoice(s).
+
+        This is the "Create Invoice" button from the quotation/order — before
+        this override attachments attached to the order never travelled to the
+        invoice (INV/2026/00093 fix).
+        """
+        moves = super()._create_invoices(grouped=grouped, final=final, date=date)
+        if moves:
+            self._copy_attachments_to_invoices(moves)
+        return moves
+
 
 class SaleOrderLine(models.Model):
     _inherit = "sale.order.line"

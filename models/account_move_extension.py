@@ -1150,6 +1150,122 @@ class AccountMove(models.Model):
         else:
             self.with_context(skip_invoice_sync=True).write({"invoice_line_ids": line_vals})
 
+    # ── Open on-account bank payments (customer deposits) ─────────────────
+    def _get_open_on_account_bank_payments(self):
+        """Open receivable items on the customer account that originated from
+        bank statement lines (e-transfers, transfers…) and are still unmatched.
+
+        These are the "deposits" received before an invoice existed: posted
+        items, same commercial partner, same currency, not fully reconciled.
+        Only credit-side residuals are candidates — money actually received
+        toward the account (bank payments TO the customer show up as debit
+        residuals and must never be auto-applied).
+        """
+        self.ensure_one()
+        partner = self.partner_id.commercial_partner_id
+        return self.env["account.move.line"].search([
+            ("account_id.account_type", "=", "asset_receivable"),
+            ("parent_state", "=", "posted"),
+            ("statement_line_id", "!=", False),
+            ("partner_id", "=", partner.id),
+            ("currency_id", "=", self.currency_id.id),
+            ("amount_residual", "<", 0.0),
+            ("reconciled", "=", False),
+        ], order="date, id")
+
+    def _apply_open_customer_payments(self):
+        """Reconcile this invoice's outstanding balance with the customer's
+        unmatched on-account bank payments, oldest first, capped at the balance.
+
+        :return: list of (aml, applied_amount) for every bank line touched.
+        """
+        self.ensure_one()
+        result = []
+        if self.state != "posted" or self.move_type != "out_invoice":
+            return result
+        candidates = self._get_open_on_account_bank_payments()
+        if not candidates:
+            return result
+
+        def _receivable_aml():
+            return self.line_ids.filtered(
+                lambda l: l.account_id.account_type == "asset_receivable"
+                and not l.reconciled and l.amount_residual > 0.0)[:1]
+
+        inv_aml = _receivable_aml()
+        if not inv_aml:
+            return result
+        Reconcile = self.env["account.move.line"]
+        for cand in candidates:
+            if inv_aml.amount_residual <= 0.0:
+                break
+            to_apply = min(abs(cand.amount_residual), inv_aml.amount_residual)
+            if to_apply <= 0.0:
+                continue
+            try:
+                Reconcile._reconcile_plan([inv_aml | cand])
+            except Exception as e:  # never let one odd line block the rest
+                _logger.warning("Auto-apply skipped bank line %s against %s: %s",
+                                cand.id, self.name, e)
+                continue
+            result.append((cand, to_apply))
+            self.invalidate_recordset()
+            inv_aml = _receivable_aml()
+        return result
+
+    def action_apply_open_customer_payments(self):
+        """Header button on a posted customer invoice: apply the customer's
+        unmatched bank payments (deposits) to this invoice in one click.
+
+        Fixes the INV/2026/00093 gap — before this button the deposit could
+        only be applied from the bank statement line AFTER the invoice was
+        posted, and nothing on the invoice hinted the money was waiting.
+        """
+        self.ensure_one()
+        if self.state != "posted" or self.move_type != "out_invoice":
+            raise UserError("Only posted customer invoices can apply payments.")
+        applied = self._apply_open_customer_payments()
+        if not applied:
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": "Nothing to Apply",
+                    "message": ("No unmatched on-account bank payment for %s was "
+                                "found. Check the customer's bank statement lines."
+                                % self.partner_id.display_name),
+                    "type": "warning",
+                    "sticky": False,
+                },
+            }
+        total = sum(amount for _aml, amount in applied)
+        lines = "\n".join(
+            "- %s — %s (%s)" % (
+                (aml.statement_line_id.payment_ref
+                 or aml.statement_line_id.partner_name
+                 or aml.name or "bank payment"),
+                aml.statement_line_id.move_id.name or "",
+                self.currency_id.format(amount),
+            )
+            for aml, amount in applied
+        )
+        self.message_post(body=(
+            "Applied %s from unmatched bank payment(s) via 'Apply Open Payments':<br/>%s"
+            % (self.currency_id.format(total), lines)))
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Payments Applied",
+                "message": "%s applied to %s. Remaining balance: %s." % (
+                    self.currency_id.format(total), self.name,
+                    self.currency_id.format(self.amount_residual)),
+                "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "reload"},
+            },
+        }
+
 
 class ResCompany(models.Model):
     _inherit = 'res.company'

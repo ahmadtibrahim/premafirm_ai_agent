@@ -41,6 +41,11 @@ from . import crm_workspace  # PHASES 16-17 — priority dashboard buckets +
 from . import fleet_vehicle_extension
 from . import sale_order_extension
 from . import account_move_extension
+from . import mail_template_extension  # invoice-email body fix: function-tag
+                                       # installer (noupdate XMLIDs can't be
+                                       # <record>-overridden in Odoo 18)
+from . import sale_deposit_wizard  # customer-deposit wizard (INV/2026/00093):
+                                  # DP invoice + auto-apply bank payments
 from . import invoice_ai_product
 from . import mail_compose_message
 from . import mail_activity

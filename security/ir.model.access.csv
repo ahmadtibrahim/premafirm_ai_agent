@@ -22,6 +22,7 @@ access_premafirm_stops_review_wizard_stop,stops review wizard stop,model_premafi
 access_premafirm_ml_learning,ml learning hooks,model_premafirm_ml_learning,base.group_user,1,1,1,1
 access_premafirm_dispatch_wizard,dispatch wizard,model_premafirm_dispatch_wizard,base.group_user,1,1,1,1
 access_premafirm_dispatch_wizard_stop,dispatch wizard stop,model_premafirm_dispatch_wizard_stop,base.group_user,1,1,1,1
+access_premafirm_sale_deposit_wizard_user,sale deposit wizard user,model_premafirm_sale_deposit_wizard,base.group_user,1,1,1,1
 access_premafirm_load_user,premafirm load user,model_premafirm_load,base.group_user,1,1,1,0
 access_premafirm_load_mgr,premafirm load mgr,model_premafirm_load,base.group_system,1,1,1,1
 access_premafirm_load_stop_user,premafirm load stop user,model_premafirm_load_stop,base.group_user,1,1,1,1

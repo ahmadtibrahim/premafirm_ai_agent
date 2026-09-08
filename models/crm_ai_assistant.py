@@ -10,9 +10,11 @@ FIX LOG (May 13 2026):
 """
 import logging
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
+import pytz
 from markupsafe import Markup
+
 from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
@@ -56,12 +58,16 @@ def _strip_ai_meta(text):
     - Lines starting with "Subject:"
     - Everything from a signature separator (--) onward
     - Everything from a closing line (Best regards / Sincerely / Ahmad Ibrahim etc.) onward
+    - A trailing sign-off block the top-down cut missed ("Thanks,\\nAhmad",
+      "Kind regards,\\nAhmad Ibrahim", ...) — see _strip_trailing_signoff.
     """
     lines = text.replace('\r\n', '\n').split('\n')
     body_lines = []
     sig_triggers = re.compile(
-        r'^(--|best regards|best,|sincerely|warm regards|regards,|'
-        r'ahmad ibrahim|premafirm|owner.?operator|cheers,)',
+        r'^(--|(?:best|kind|warm|many|my|simple)\s+regards?|regards,|'
+        r'best wishes|best,|sincerely|warmly|cheers,|yours '
+        r'(?:truly|sincerely|faithfully)|cordially|respectfully|'
+        r'ahmad ibrahim|premafirm|owner.?operator)',
         re.IGNORECASE,
     )
     for line in lines:
@@ -71,7 +77,146 @@ def _strip_ai_meta(text):
         if sig_triggers.match(stripped):
             break
         body_lines.append(line)
-    return '\n'.join(body_lines).strip()
+    return _strip_trailing_signoff('\n'.join(body_lines).strip())
+
+
+# Sign-off heads the model appends despite the draft rules ("never end with a
+# sign-off line").  Each form is checked independently: a single alternation
+# would let "thanks?" swallow the prefix of "Thank you," and never reach the
+# longer form.
+_SIGNOFF_HEADS = (
+    r'with\s+(?:best|kind|warm|many)?\s*regards?',
+    r'(?:best|kind|warm|many|my|simple)?\s*regards?',
+    r'best\s+wishes',
+    r'many\s+thanks?',
+    r'thanks?\s+(?:so\s+)?much',
+    r'thank\s+you\s+(?:so\s+)?much',
+    r'thanks?',
+    r'thank\s+you',
+    r'best',
+    r'sincerely',
+    r'warmly',
+    r'cheers',
+    r'thx',
+    r'yours\s+(?:truly|sincerely|faithfully)',
+    r'cordially',
+    r'respectfully',
+    r'have\s+a\s+(?:great|good|nice|wonderful|lovely)\s+'
+    r'(?:day|weekend|one|afternoon|evening|morning)',
+)
+_SIGNOFF_HEADS_RE = [re.compile(f'^{p}', re.IGNORECASE) for p in _SIGNOFF_HEADS]
+
+# "Ahmad Ibrahim", "PremaFirm Inc.", "Owner/Operator", "OdooBot" — but never a
+# prose sentence (stop words reject "for your help", an interior '.' rejects
+# "quick reply.", a comma rejects "See you, ...").  "Inc." is the one allowed
+# trailing dot.  Closing words ("regards", "thanks" ...) are stop words so a
+# bare "Best regards" line is recognized as a sign-off head, not a name.
+_NAME_LINE_RE = re.compile(r"[A-Za-z0-9 &'/-]+")
+_NAME_STOPWORDS = {
+    'for', 'the', 'your', 'you', 'and', 'to', 'a', 'of', 'on', 'in', 'with',
+    'my', 'our', 'so', 'much', 'again', 'very', 'all', 'this', 'that', 'it',
+    'we', 'will', 'please', 'let', 'know', 'have', 'has', 'from', 'at', 'be',
+    'best', 'regards', 'regard', 'wishes', 'thanks', 'thank', 'cheers', 'thx',
+    'sincerely', 'warmly', 'yours', 'truly', 'faithfully', 'cordially',
+    'respectfully',
+}
+
+
+def _is_name_line(s):
+    s = s.strip()
+    if not 1 <= len(s) <= 45:
+        return False
+    if not re.search(r'[A-Za-z]', s):
+        return False
+    if '!' in s or '?' in s or s.count('.') > 1:
+        return False
+    if '.' in s and not s.endswith('.'):
+        return False
+    if not _NAME_LINE_RE.fullmatch(s):
+        return False
+    return not any(w in _NAME_STOPWORDS for w in s.lower().split())
+
+
+def _is_signoff_head(s):
+    s = s.strip()
+    for pat in _SIGNOFF_HEADS_RE:
+        m = pat.match(s)
+        if not m:
+            continue
+        rest = re.sub(r'^[,.;:!]+', '', s[m.end():]).strip()
+        if not rest:
+            return True  # "Best regards", "Thanks so much!", "Have a great day"
+        if _is_name_line(rest):
+            return True  # "Best, Ahmad" / "Kind regards, Ahmad Ibrahim"
+        # A longer head may still fit ("thank" was a prefix of "thank you,");
+        # keep trying the remaining forms.
+    return False
+
+
+def _strip_trailing_signoff(text):
+    """Remove a trailing sign-off block from the END of the text only.
+
+    The top-down trigger cut cannot catch the thanks-family ("Thanks,\\nAhmad"
+    would survive because "Thanks for your help" inside the body legitimately
+    starts with the same word), so this pass works backwards: it walks up over
+    blank, name and sign-off-head lines until it hits real content, then peels
+    the block only when its top line is a sign-off head ("Best regards,\\n
+    OdooBot", "Regards,\\nAhmad Ibrahim\\nOwner/Operator", "Thanks, Ahmad",
+    a bare "Have a great weekend").  Interior content is never touched, and a
+    final name line with no sign-off head above it is left alone.
+    """
+    lines = text.replace('\r\n', '\n').split('\n')
+    end = len(lines)
+    while end and not lines[end - 1].strip():
+        end -= 1
+    top = None
+    i = end - 1
+    while i >= 0:
+        s = lines[i].strip()
+        if not s:
+            i -= 1
+            continue
+        if _is_name_line(s) or _is_signoff_head(s):
+            top = i
+            i -= 1
+            continue
+        break
+    if top is None or not _is_signoff_head(lines[top].strip()):
+        return text
+    if not all(not lines[k].strip()
+               or _is_name_line(lines[k].strip())
+               or _is_signoff_head(lines[k].strip())
+               for k in range(top + 1, end)):
+        return text
+    out = '\n'.join(lines[:top]).rstrip()
+    return out if out.strip() else text
+
+
+def _draft_email_only(text):
+    """Collapse a model draft to its canonical stored form.
+
+    A draft answer is stored as exactly what the composer will send: a single
+    "SUBJECT: ..." line followed by the email body, with any stray subject
+    lines, signature blocks, '---' postscripts or sign-off lines removed.  If
+    nothing survives (the model replied with only a signature), the original
+    text is kept rather than a shell of the email.
+    """
+    lines = text.replace('\r\n', '\n').split('\n')
+    subject = None
+    body_start = 0
+    for i, line in enumerate(lines):
+        m = re.match(r'^subject\s*:\s*(.+)$', line.strip(), re.IGNORECASE)
+        if m and m.group(1).strip():
+            subject = m.group(1).strip()
+            body_start = i + 1
+            break
+    body = _strip_ai_meta('\n'.join(lines[body_start:])) \
+        if body_start < len(lines) else ''
+    if not body.strip():
+        return text
+    if subject:
+        return f'SUBJECT: {subject}\n\n{body}'.strip()
+    return body
 
 
 def _gpt(env, system, messages, max_tokens=800):
@@ -81,6 +226,268 @@ def _gpt(env, system, messages, max_tokens=800):
         raise ValueError("DeepSeek API key not configured.")
     return deepseek_chat(messages=messages, system=system, max_tokens=max_tokens, api_key=key)
 
+
+# ── Ask-AI: draft-request classification ─────────────────────────────────────
+# A "draft" request asks the AI to produce an email/message the user can send;
+# everything else (analysis, advice, reviews) goes through the general prompt.
+# The negative lookahead keeps rhetorical questions ("why should I email?")
+# from being misclassified as drafting instructions.
+_DRAFT_REQUEST_RE = re.compile(
+    r'\b(draft|write|compose|send|prepare|create|re-?send|reply|respond|'
+    r'answer|email)\b'
+    r'(?:(?!\bwhy\b|\bhow\b|\bshould\b|\bwould\b|\bcan\b|\bwhat\b).){0,80}'
+    r'\b(e-?mail|mail|message|note|follow[- ]?up|followup|subject|thread|'
+    r'reply|voicemail|her|him|them)\b'
+    r'|\b(touch base|reach(?:ing)? out|get back to)\b',
+    re.IGNORECASE | re.DOTALL,
+)
+
+# The user asked the AI to *check* account history (notes/thread/calls) — used
+# with the retrieval guard so we say so when nothing was retrievable.
+_HISTORY_CHECK_RE = re.compile(
+    r'\b(check|review|look|read|consult|refer|use|see)\b.{0,50}'
+    r'\b(notes?|history|thread|chatter|log(?:ged)?|calls?|emails?|activity)\b'
+    r'|\b(notes?|history|thread|chatter|logs?)\b.{0,50}'
+    r'\b(check|review|look|see|read)\b',
+    re.IGNORECASE | re.DOTALL,
+)
+
+_HISTORY_UNAVAILABLE_NOTE = (
+    "\n\n---\nNote for Ahmad (not part of the email): I could not retrieve any "
+    "email thread, internal notes, activities, meetings or call records for "
+    "this lead, so the draft above is based only on your message. I have not "
+    "pretended to check history I could not see."
+)
+
+
+def _user_tz_name(env):
+    """Timezone of the logged-in user; Eastern is the operating default.
+
+    Odoo 18 keeps the tz on res.users' partner; fall back so drafts and
+    timestamps stay coherent even for users without a zone configured.
+    """
+    try:
+        user = env.user
+        return (user.tz
+                or (user.partner_id.tz if user.partner_id else '')
+                or 'America/Toronto')
+    except Exception:
+        return 'America/Toronto'
+
+
+def _localize(dt, tz_name):
+    """Convert an Odoo (naive UTC) datetime to the user's zone, naive-local."""
+    if not dt:
+        return None
+    try:
+        tz = pytz.timezone(tz_name)
+    except Exception:
+        tz = pytz.timezone('America/Toronto')
+    if getattr(dt, 'tzinfo', None) is not None:
+        return dt.astimezone(tz).replace(tzinfo=None)
+    return pytz.utc.localize(dt).astimezone(tz).replace(tzinfo=None)
+
+
+def _now_local(tz_name):
+    """Current wall-clock time in the user's zone, naive-local."""
+    try:
+        tz = pytz.timezone(tz_name)
+    except Exception:
+        tz = pytz.timezone('America/Toronto')
+    return datetime.now(pytz.utc).astimezone(tz).replace(tzinfo=None)
+
+
+def _when(dt, tz_name, today=None):
+    """Human label for a naive-UTC datetime: 'YYYY-MM-DD HH:MM local (rel)'."""
+    loc = _localize(dt, tz_name)
+    if loc is None:
+        return '?'
+    if today is None:
+        today = _now_local(tz_name).date()
+    day = loc.date()
+    if day == today:
+        rel = 'today'
+    elif day == today - timedelta(days=1):
+        rel = 'yesterday'
+    elif day < today:
+        rel = f'{abs((today - day).days)} days ago'
+    else:
+        rel = f'in {(day - today).days} days'
+    return f'{loc.strftime("%Y-%m-%d %H:%M")} local ({rel})'
+
+
+def _when_date(d, tz_name, today=None):
+    """Relative label for a plain date (invoice dates etc.)."""
+    if not d:
+        return '?'
+    if today is None:
+        today = _now_local(tz_name).date()
+    if d == today:
+        rel = 'today'
+    elif d == today - timedelta(days=1):
+        rel = 'yesterday'
+    elif d < today:
+        rel = f'{abs((today - d).days)} days ago'
+    else:
+        rel = f'in {(d - today).days} days'
+    return f'{d.strftime("%Y-%m-%d")} ({rel})'
+
+
+def _today_context_line(tz_name):
+    from odoo.addons.premafirm_ai_engine.services.deepseek_utils import (
+        today_context_line,
+    )
+    try:
+        return today_context_line(tz_name)
+    except Exception:
+        return today_context_line()
+
+
+def _profile_company_context(env):
+    """Company facts for DRAFTS — business-profile fields ONLY.
+
+    Deliberately excludes the knowledge-base documents and the hard-coded
+    fallback text (whose lanes/credentials lists are not maintained as
+    'current company information') so the AI can never auto-claim
+    cross-border authority, MC/USDOT numbers, insurance figures or lanes the
+    operator has not recorded in the profile.
+    """
+    parts = ['=== COMPANY CONTEXT ===']
+    try:
+        profile = env['premafirm.business.profile'].sudo().get_profile()
+    except Exception:
+        profile = None
+    if not profile:
+        parts.append('(no company profile configured — claim nothing about '
+                     'the company beyond what the user states)')
+        return '\n'.join(parts)
+    parts.append(f'Company: {profile.company_name or "PremaFirm Inc."}')
+    for label, value in (
+            ('Overview', profile.company_overview),
+            ('Services', profile.services_description),
+            ('Key differentiators', profile.key_differentiators),
+            ('Pricing context', profile.pricing_context),
+            ('Team', profile.team_info),
+    ):
+        if value:
+            parts.append(f'\n{label}:\n{value}')
+    if profile.tone_of_voice:
+        parts.append(f'\nTone of voice: '
+                     f'{dict(profile._fields["tone_of_voice"].selection).get(profile.tone_of_voice, profile.tone_of_voice)}')
+    parts.append('\nOnly facts stated above may ever be claimed about '
+                 'PremaFirm in a draft.')
+    return '\n'.join(parts)
+
+
+# Drafting rules for the Ask-AI widget — code-side, so they apply even where
+# the editable ai_role_prompt stored in the DB predates these rules.
+_DRAFT_RULES = r'''
+=== GROUND-TRUTH RULES (MUST FOLLOW) ===
+1. The user's REQUEST below is ground truth: it happened exactly as stated.
+   Restate those facts faithfully. Never embellish, soften, or add to them.
+2. INVENT NOTHING. Never invent conversations, meetings, calls, emails,
+   dates, referrals, promises, interest, requirements, availability, or
+   customer statements that the REQUEST or ACCOUNT CONTEXT does not contain.
+3. Absence is not an event. "Anna is not in today" does NOT mean you spoke
+   with Anna, that Anna told you anything, or that you know why she is out.
+   "I tried calling Victoria today and reached voicemail" does NOT mean the
+   call connected, that you left a message, or that you ever reached her.
+4. Never claim you spoke with, emailed, or met anyone unless ACCOUNT CONTEXT
+   shows a real dated message/call with that person, or the REQUEST says so.
+5. Keep history anchored to its own dates. An entry stamped weeks ago is NOT
+   current just because it reads like it; never present old events as fresh,
+   and never resolve "today/yesterday/tomorrow/last week" by guessing — use
+   the CURRENT DATE line, which is the real current date in the user's zone.
+
+=== PRIVACY OF INTERNAL NOTES ===
+6. INTERNAL NOTES (opportunity description, chatter notes, contact/company
+   logs, call dispositions) are private background context for your
+   understanding ONLY. NEVER quote, paraphrase, or hint at them in the
+   email — never write "our notes show", "I saw in your file", "according to
+   our records" or "I understand you...". The customer only learns what the
+   user's REQUEST states.
+7. If the user says "check the internal notes", use them to understand the
+   situation and shape the email — the email still only carries the user's
+   own statements.
+8. Never claim you checked history that is not in ACCOUNT CONTEXT, and never
+   comment on the history at all inside the email. If the user asked you to
+   check notes/history and none could be retrieved, a "---" note is appended
+   automatically AFTER your reply by the system — you must not write it
+   yourself, and you must not pretend you reviewed anything.
+
+=== CONTINUING THE REAL CONVERSATION ===
+9. Address exactly the person the user names in the REQUEST — even when the
+   lead's own contact is someone else. Address nobody else, copy nobody else.
+10. Review the EMAIL THREAD section first. If a real exchange exists,
+    continue it: same subject context, no repeated introduction, no
+    re-asking questions already answered, no re-introducing PremaFirm to a
+    company that already knows it.
+11. When the email must mention someone who is unavailable (e.g. "Anna is out
+    of the office today"), state only the fact the user gave. Do not explain
+    why, do not name a source, do not attribute it.
+
+=== COMPANY CLAIMS ===
+12. Only mention PremaFirm services, lanes, equipment, capacity, rates,
+    authority numbers, insurance, or Canada-USA cross-border capability that
+    (a) appear verbatim in COMPANY CONTEXT above AND (b) the user's request
+    actually needs. Otherwise omit. Never add claims the profile does not
+    support, and never volunteer cross-border or credentials unprompted.
+
+=== AMBIGUITY / CONFLICT ===
+13. The user's latest explicit words override any older context row. If
+    drafting would require an important guess (recipient's email absent and
+    not given, two context entries irreconcilably conflict, the person named
+    cannot be identified), do NOT guess: reply with exactly one short line
+    starting "QUESTION: " asking what you need.
+14. If the REQUEST turns out to be a question rather than an instruction to
+    draft, answer it briefly and factually instead of drafting.
+
+=== OUTPUT FORMAT (email requests) ===
+15. Output ONLY the email:
+    Line 1: SUBJECT: <one concise subject>
+    Blank line.
+    Body starting "Hi <FirstName>," — brief (under ~110 words), plain text,
+    no markdown, no bullet lists unless the situation truly needs one.
+16. Nothing before the subject. No "Objective", "Account insight",
+    "Recommended next action", analysis, review, or notes after the body. No
+    signature or contact block — the email system appends the signature. That
+    includes any closing sign-off line: never end with "Best regards",
+    "Thanks", your name, or the sender's name — finish at the last content
+    sentence.
+17. Never append anything after the email yourself — no "---" line, no note,
+    no commentary about the history you found or did not find, no hedging.
+    Your reply ends when the email ends. (If a check genuinely found nothing,
+    a "---" note appears automatically on its own; do not duplicate or
+    pre-empt it. If an important decision is missing, use the QUESTION: line
+    from rule 13 INSTEAD of the email.)
+'''
+
+# Discipline block appended to the general (non-draft) mode.  The legacy
+# editable role prompt tells the model to "connect dots across all history
+# automatically", which is exactly what makes it invent prior conversations —
+# these code-side rules outrank that instruction by coming after it.
+_FACT_DISCIPLINE_RULES = r'''
+=== FACT DISCIPLINE (ALWAYS) ===
+- The user's REQUEST is ground truth. Never invent conversations, dates,
+  referrals, promises, requirements, interest, or availability beyond it and
+  beyond the dated history present in ACCOUNT CONTEXT.
+- Absence is not an event: "X is not in today" never implies a prior
+  conversation with X; a voicemail is not a conversation and not a message
+  left.
+- Keep every historical item anchored to its own timestamp; use the CURRENT
+  DATE line to interpret today/yesterday/tomorrow. Never present old events
+  as current.
+- INTERNAL NOTES are private: never quote them to customers, never attribute
+  anything to notes, and never claim you checked history that is not present
+  in ACCOUNT CONTEXT — say so instead.
+- Only mention services, lanes, credentials, insurance, or cross-border
+  capability that the COMPANY CONTEXT in your system prompt actually
+  supports, and only when relevant to the request.
+- When asked for a brief email or message, output ONLY a "SUBJECT:" line and
+  the body — no other sections.
+- If an important ambiguity remains, ask ONE short question rather than
+  guessing.
+'''
 
 # ── CRM Lead AI Assistant ─────────────────────────────────────────────────────
 
@@ -103,16 +510,46 @@ class CrmLeadAIAssistant(models.Model):
         if not user_input:
             return {'type': 'ir.actions.client', 'tag': 'reload'}
         try:
-            system = self._ai_system_prompt()
+            is_draft = bool(_DRAFT_REQUEST_RE.search(user_input))
+            system = (self._ai_draft_system_prompt() if is_draft
+                      else self._ai_system_prompt())
             context = self._ai_lead_context()
             response = _gpt(self.env, system, [{
                 'role': 'user',
                 'content': f'ACCOUNT CONTEXT:\n{context}\n\nREQUEST:\n{user_input}',
             }], max_tokens=1200)
+            if is_draft and response:
+                response = self._draft_post_checks(response, user_input)
             self.sudo().write({'x_ai_chat_response': response})
         except Exception as exc:
             self.sudo().write({'x_ai_chat_response': f'⚠ {exc}'})
         return {'type': 'ir.actions.client', 'tag': 'reload'}
+
+    def _draft_post_checks(self, response, user_input):
+        """Deterministic guards on a generated draft (the model rules cover
+        the same ground; these make them unforgeable).
+
+        * The draft is normalized to "SUBJECT: ... + email body" — the exact
+          form the composer sends — so a sign-off line ("Best regards,
+          OdooBot"), a stray signature or a '---' postscript the model wrote
+          never appears in the stored chat answer either.
+        * If the user explicitly asked us to check notes/history and NO
+          history at all was retrievable, append the '---' note so it is
+          visible in the chat but never lands in the composed email (the
+          composer truncates the body at a '---' separator).
+        * A bare "QUESTION: ..." answer is left untouched so the user can
+          answer it in the same box — never wrapped in draft framing.
+        """
+        if response.strip().startswith('QUESTION'):
+            return response
+        response = _draft_email_only(response)
+        asked_for_history = bool(_HISTORY_CHECK_RE.search(user_input))
+        if asked_for_history:
+            stats = self._ai_history_stats()
+            if not any(stats.values()):
+                if '\n---' not in response:
+                    response += _HISTORY_UNAVAILABLE_NOTE
+        return response
 
     # ── FIXED: Compose Email ──────────────────────────────────────────────────
 
@@ -530,6 +967,39 @@ class CrmLeadAIAssistant(models.Model):
             return None
         return p.parent_id if p.parent_id else (p if p.is_company else None)
 
+    def _ai_draft_system_prompt(self):
+        """System prompt for requests that ask for a DRAFTED email/message.
+
+        Built in code (NOT from the editable ai_role_prompt, whose legacy
+        text demands analysis sections and 'connect-the-dots' narration —
+        exactly what made brief emails drift into invented history).
+        Company context comes from the operator-maintained business-profile
+        fields only, so lanes/credentials/cross-border are never auto-claimed
+        beyond what the profile states as current.
+        """
+        tz_name = _user_tz_name(self.env)
+        user = self.env.user
+        parts = [_profile_company_context(self.env)]
+        parts.append(_DRAFT_RULES)
+        parts.append(
+            '=== WHO YOU ARE DRAFTING FOR ===\n'
+            f'You are drafting on behalf of {user.name or "the logged-in user"} '
+            f'(the person writing the REQUEST). Sign off and self-identify as '
+            f'that person — never as Ahmad Ibrahim unless the REQUEST comes '
+            f'from Ahmad Ibrahim. Do not include any signature, title block '
+            f'or contact details in the email; the email system appends the '
+            f'signature itself.'
+        )
+        parts.append(
+            '=== CURRENT DATE ===\n'
+            + _today_context_line(tz_name)
+            + f' All timestamps in ACCOUNT CONTEXT below are shown in this '
+              f'same timezone ({tz_name}) and marked "local". Treat "today", '
+              f'"yesterday" and "tomorrow" in the REQUEST strictly against '
+              f'the date above — never a guessed one.'
+        )
+        return '\n\n'.join(parts)
+
     def _ai_system_prompt(self):
         from odoo.addons.premafirm_ai_engine.models.business_profile import DEFAULT_ROLE_PROMPT
         try:
@@ -547,17 +1017,49 @@ class CrmLeadAIAssistant(models.Model):
         current_user = self.env.user
         if current_user and current_user.name:
             prompt += f'\n\nCURRENT USER: You are acting as {current_user.name}. Use their name in any email sign-offs or self-references, NOT Ahmad Ibrahim.'
+        # Real "today" in the user's own timezone — the model must never guess
+        # the current date when resolving relative words in the request.
+        tz_name = _user_tz_name(self.env)
+        prompt += ('\n\n=== CURRENT DATE ===\n'
+                   + _today_context_line(tz_name)
+                   + f' All timestamps in ACCOUNT CONTEXT are shown in this '
+                     f'timezone ({tz_name}) and marked "local".')
+        # Code-side fact discipline — appended AFTER the editable role prompt
+        # so its "connect the dots" style cannot override ground truth.
+        prompt += '\n\n' + _FACT_DISCIPLINE_RULES
         return prompt
 
     def _ai_lead_context(self):
-        """Build a 360° account context for the AI: lead, contacts, activities, emails, notes, invoices, leads."""
+        """Build a dated 360° account context for the AI.
+
+        Design rules (ASK-AI fix wave):
+        * Every historical entry carries its LOCAL date in the user's
+          timezone plus a relative label, so 'today/yesterday' in the
+          request can never re-date old events.
+        * Real emails, chatter/internal notes, activities, meetings and call
+          records are reported in SEPARATE clearly-labelled sections, so the
+          model can tell an actual conversation from an internal note.
+        * The opportunity description and lead-level chatter are included
+          (they were previously only visible when they happened to sit in
+          the top-12 message mix), while tracking/stage-change noise is
+          excluded.
+        """
         parts = []
         partner = self.partner_id
         company = self._ai_company_partner()
         contact_name = partner.name if partner else self.partner_name or 'Unknown'
         company_name = company.name if company else contact_name
+        tz_name = _user_tz_name(self.env)
+        today = _now_local(tz_name).date()
 
-        # ── Lead snapshot ─────────────────────────────────────────────────────
+        # ── Date anchor ─────────────────────────────────────────────────────
+        parts.append('=== DATE CONTEXT ===')
+        parts.append(_today_context_line(tz_name))
+        parts.append(f'All timestamps below are shown in this timezone '
+                     f'({tz_name}) and marked "local". Older entries are old '
+                     'even when they read like the current situation.')
+
+        # ── Lead snapshot ───────────────────────────────────────────────────
         parts.append('=== CURRENT LEAD ===')
         parts.append(f'Lead #{self.id}: {self.name}')
         parts.append(f'Contact: {contact_name}'
@@ -576,21 +1078,21 @@ class CrmLeadAIAssistant(models.Model):
                      'unsubscribed': 'Unsubscribed'}.get(self.x_response_status, self.x_response_status)
             parts.append(f'Response status: {label}')
         if self.x_last_outreach_at:
-            days_ago = (date.today() - self.x_last_outreach_at.date()).days
-            parts.append(f'Last outreach: {self.x_last_outreach_at.strftime("%Y-%m-%d")} ({days_ago} days ago)')
+            parts.append('Last outreach: '
+                         f'{_when(self.x_last_outreach_at, tz_name, today)}')
         referred = getattr(self, 'x_referred_by_partner_id', None)
         if referred:
             parts.append(f'Referred by: {referred.name}'
                          + (f' ({referred.function})' if referred.function else ''))
 
-        # ── Stage change history ───────────────────────────────────────────────
+        # ── Stage change history ────────────────────────────────────────────
         stage_changes = []
         try:
             for msg in self.message_ids.sorted('date'):
                 for tv in msg.sudo().tracking_value_ids:
                     try:
                         if tv.field_id.name == 'stage_id':
-                            ts = msg.date.strftime('%Y-%m-%d') if msg.date else '?'
+                            ts = _when(msg.date, tz_name, today) if msg.date else '?'
                             old = tv.old_value_char or '?'
                             new = tv.new_value_char or '?'
                             stage_changes.append(f'[{ts}] {old} → {new}')
@@ -601,7 +1103,69 @@ class CrmLeadAIAssistant(models.Model):
         if stage_changes:
             parts.append('Stage history: ' + ' | '.join(stage_changes[-6:]))
 
-        # ── Open activities & follow-up tasks ────────────────────────────────
+        # ── Lead internal description ───────────────────────────────────────
+        try:
+            desc = _strip_html(self.description or '')[:500]
+            if desc:
+                parts.append('\n=== LEAD INTERNAL DESCRIPTION ===')
+                parts.append(desc)
+        except Exception:
+            pass
+
+        # ── Lead chatter / internal notes ───────────────────────────────────
+        lead_notes = []
+        try:
+            for msg in self.message_ids.sorted('date', reverse=True):
+                if msg.message_type != 'comment':
+                    continue
+                if msg.tracking_value_ids:
+                    continue  # stage-change noise (tracked in Stage history)
+                body = _strip_html(msg.body)
+                if not body or len(body) < 15:
+                    continue
+                author = msg.author_id.name if msg.author_id else '?'
+                lead_notes.append(f'[{_when(msg.date, tz_name, today)} local] '
+                                  f'{author}: {body[:400]}')
+                if len(lead_notes) >= 12:
+                    break
+        except Exception:
+            pass
+        if lead_notes:
+            parts.append('\n=== LEAD CHATTER / INTERNAL NOTES (newest first) ===')
+            parts.extend(lead_notes)
+
+        # ── Email thread (real emails only) ─────────────────────────────────
+        emails = []
+        try:
+            for msg in self.message_ids.sorted('date', reverse=True):
+                if msg.message_type != 'email':
+                    continue
+                body = _strip_html(msg.body)
+                if not body or len(body) < 10:
+                    continue
+                if msg.author_id and msg.author_id.user_ids:
+                    to = ', '.join(p.name for p in msg.partner_ids[:3]) or '?'
+                    direction = f'→ SENT to {to}'
+                    author = 'us'
+                else:
+                    direction = '← RECEIVED from'
+                    author = msg.author_id.name if msg.author_id else '?'
+                subject = (msg.subject or '').strip()
+                head = f'[{_when(msg.date, tz_name, today)} local] {direction} {author}'
+                if subject:
+                    head += f' — "{subject}"'
+                emails.append(f'{head}: {body[:450]}')
+                if len(emails) >= 15:
+                    break
+        except Exception:
+            pass
+        parts.append('\n=== EMAIL THREAD (newest first) ===')
+        if emails:
+            parts.extend(emails)
+        else:
+            parts.append('(no emails found yet)')
+
+        # ── Open activities & follow-up tasks ───────────────────────────────
         try:
             activities = self.env['mail.activity'].sudo().search([
                 ('res_model', '=', 'crm.lead'), ('res_id', '=', self.id),
@@ -621,21 +1185,36 @@ class CrmLeadAIAssistant(models.Model):
         except Exception:
             pass
 
-        # ── Meetings / calls ─────────────────────────────────────────────────
+        # ── Meetings / calls ────────────────────────────────────────────────
         try:
             meetings = self.env['calendar.event'].sudo().search(
                 [('opportunity_id', '=', self.id)], limit=5, order='start desc'
             )
             if meetings:
-                parts.append('\n=== MEETINGS / CALLS ===')
+                parts.append('\n=== MEETINGS ===')
                 for m in meetings:
-                    ts = m.start.strftime('%Y-%m-%d %H:%M') if m.start else '?'
+                    ts = _when(m.start, tz_name, today) if m.start else '?'
                     attendees = ', '.join(m.partner_ids.mapped('name')[:4])
-                    parts.append(f'[{ts}] {m.name} — attendees: {attendees}')
+                    parts.append(f'[{ts} local] {m.name} — attendees: {attendees}')
+        except Exception:
+            pass
+        try:
+            calls = self.env['voipms.call.log'].sudo().search(
+                [('lead_id', '=', self.id)], limit=8, order='date desc'
+            )
+            if calls:
+                parts.append('\n=== LOGGED PHONE CALLS ===')
+                for c in calls:
+                    who = c.partner_id.name if c.partner_id else (c.caller_number or '?')
+                    parts.append(
+                        f'[{_when(c.date, tz_name, today)} local] '
+                        f'{c.direction} call to/from {who} — '
+                        f'{c.call_status} — {c.duration or 0}s'
+                    )
         except Exception:
             pass
 
-        # ── Contact profile ───────────────────────────────────────────────────
+        # ── Contact profile ─────────────────────────────────────────────────
         if partner and not partner.is_company:
             cp = []
             if partner.function:
@@ -648,7 +1227,7 @@ class CrmLeadAIAssistant(models.Model):
                 parts.append('\n=== CONTACT PROFILE ===')
                 parts.extend(cp)
 
-        # ── Company profile ───────────────────────────────────────────────────
+        # ── Company profile ─────────────────────────────────────────────────
         if company:
             cp = []
             if company.website:
@@ -663,7 +1242,7 @@ class CrmLeadAIAssistant(models.Model):
                 parts.append('\n=== COMPANY PROFILE ===')
                 parts.extend(cp)
 
-        # ── ALL contacts at this company ──────────────────────────────────────
+        # ── ALL contacts at this company ────────────────────────────────────
         if company:
             all_contacts = company.child_ids.filtered(lambda c: not c.is_company and c.active)
             if all_contacts:
@@ -677,26 +1256,7 @@ class CrmLeadAIAssistant(models.Model):
                         line += ' ← CURRENT CONTACT'
                     parts.append(line)
 
-        # ── Email thread — newest first, last 12 ─────────────────────────────
-        parts.append('\n=== EMAIL THREAD (newest first) ===')
-        count = 0
-        for msg in self.message_ids.sorted('date', reverse=True):
-            if msg.message_type not in ('email', 'comment'):
-                continue
-            body = _strip_html(msg.body)
-            if not body or len(body) < 10:
-                continue
-            direction = '→ SENT' if (msg.author_id and msg.author_id.user_ids) else '← RECEIVED'
-            ts = msg.date.strftime('%Y-%m-%d') if msg.date else '??'
-            author = msg.author_id.name if msg.author_id else '?'
-            parts.append(f'[{direction} | {ts} | {author}]: {body[:500]}')
-            count += 1
-            if count >= 12:
-                break
-        if count == 0:
-            parts.append('(no emails yet — this would be FIRST CONTACT)')
-
-        # ── Contact log notes ─────────────────────────────────────────────────
+        # ── Contact log notes ───────────────────────────────────────────────
         if partner and not partner.is_company:
             cnotes = [n for n in partner.message_ids.sorted('date', reverse=True)
                       if n.message_type == 'comment' and _strip_html(n.body)][:8]
@@ -705,9 +1265,9 @@ class CrmLeadAIAssistant(models.Model):
                 for n in cnotes:
                     b = _strip_html(n.body)
                     if b:
-                        parts.append(f'[{n.date.strftime("%Y-%m-%d") if n.date else "??"}]: {b[:400]}')
+                        parts.append(f'[{_when(n.date, tz_name, today)} local]: {b[:400]}')
 
-        # ── Company log notes ─────────────────────────────────────────────────
+        # ── Company log notes ───────────────────────────────────────────────
         if company:
             anotes = [n for n in company.message_ids.sorted('date', reverse=True)
                       if n.message_type == 'comment' and _strip_html(n.body)][:10]
@@ -716,9 +1276,9 @@ class CrmLeadAIAssistant(models.Model):
                 for n in anotes:
                     b = _strip_html(n.body)
                     if b:
-                        parts.append(f'[{n.date.strftime("%Y-%m-%d") if n.date else "??"}]: {b[:400]}')
+                        parts.append(f'[{_when(n.date, tz_name, today)} local]: {b[:400]}')
 
-        # ── Invoice history ───────────────────────────────────────────────────
+        # ── Invoice history ─────────────────────────────────────────────────
         search_partner_ids = []
         if partner:
             search_partner_ids.append(partner.id)
@@ -743,16 +1303,15 @@ class CrmLeadAIAssistant(models.Model):
                         (l.name or (l.product_id.name if l.product_id else '') or '')[:50]
                         for l in inv.invoice_line_ids.filtered(lambda ln: not ln.display_type)[:3]
                     )
-                    days_ago = (date.today() - inv.invoice_date).days if inv.invoice_date else '?'
                     parts.append(
-                        f'[{inv.invoice_date}] {inv.name} — '
+                        f'[{_when_date(inv.invoice_date, tz_name, today)}] {inv.name} — '
                         f'${inv.amount_total:,.0f} {inv.currency_id.name} — '
-                        f'{lines_summary or "no line detail"} ({days_ago} days ago)'
+                        f'{lines_summary or "no line detail"}'
                     )
                 total_rev = sum(inv.amount_total for inv in invoices)
                 parts.append(f'Total from last {len(invoices)} invoices: ${total_rev:,.0f}')
 
-        # ── Other leads for this account ──────────────────────────────────────
+        # ── Other leads for this account ────────────────────────────────────
         if company:
             other_leads = self.env['crm.lead'].sudo().search([
                 '|',
@@ -763,7 +1322,7 @@ class CrmLeadAIAssistant(models.Model):
             if other_leads:
                 parts.append('\n=== OTHER LEADS / HISTORY FOR THIS ACCOUNT ===')
                 for l in other_leads:
-                    ts = l.x_last_outreach_at.strftime('%Y-%m-%d') if l.x_last_outreach_at else 'no outreach'
+                    ts = _when(l.x_last_outreach_at, tz_name, today) if l.x_last_outreach_at else 'no outreach'
                     won_lost = ' ✅ WON' if l.active and getattr(l, 'probability', 0) == 100 else \
                                (' ❌ LOST' if not l.active else '')
                     contact_on_lead = l.partner_id.name if l.partner_id else '?'
@@ -773,8 +1332,67 @@ class CrmLeadAIAssistant(models.Model):
                         f'last outreach: {ts} — reply: {l.x_response_status or "none"}'
                     )
 
-        return '\n'.join(parts)
+        text = '\n'.join(parts)
+        # Hard ceiling so a history-heavy account can never blow the prompt
+        if len(text) > 24000:
+            text = text[:24000] + '\n[ACCOUNT CONTEXT TRUNCATED — oldest entries omitted]'
+        return text
 
+    def _ai_history_stats(self):
+        """Counts of what the context builder actually retrieved — used by the
+        'say so rather than pretend' guard in _draft_post_checks.
+
+        The discipline module auto-schedules boilerplate activities on every
+        lead (Initial Contact, Follow-up ... see _TYPE_XMLIDS). Those are
+        pipeline scaffolding, not retrieved history: counting them would
+        silence the honest 'no history could be retrieved' note on a fresh
+        lead, which is exactly the case the note exists for.
+        """
+        stats = {'emails': 0, 'notes': 0, 'activities': 0, 'meetings': 0,
+                 'calls': 0}
+        try:
+            msgs = self.message_ids
+            stats['emails'] = len([m for m in msgs if m.message_type == 'email'])
+            stats['notes'] = len([m for m in msgs
+                                  if m.message_type == 'comment'
+                                  and not m.tracking_value_ids])
+            activities = self.env['mail.activity'].sudo().search([
+                ('res_model', '=', 'crm.lead'), ('res_id', '=', self.id)])
+            scaffold_ids = self._ai_discipline_activity_type_ids()
+            stats['activities'] = len([
+                a for a in activities
+                if a.activity_type_id.id not in scaffold_ids])
+            stats['meetings'] = self.env['calendar.event'].sudo().search_count([
+                ('opportunity_id', '=', self.id)])
+            stats['calls'] = self.env['voipms.call.log'].sudo().search_count([
+                ('lead_id', '=', self.id)])
+        except Exception:
+            pass
+        return stats
+
+    def _ai_discipline_activity_type_ids(self):
+        """Ids of the discipline module's auto-scheduled activity types.
+
+        Lazy import (module convention) of the spec dict that the discipline
+        model itself uses, so the exclusion can never drift from what the
+        automation actually schedules. Types are matched by their xmlids;
+        any row deleted or not yet loaded is skipped.
+        """
+        ids = set()
+        try:
+            from odoo.addons.premafirm_ai_engine.models import (
+                crm_activity_discipline,
+            )
+            for xmlid in crm_activity_discipline._TYPE_XMLIDS.values():
+                try:
+                    ttype = self.env.ref(xmlid, raise_if_not_found=False)
+                    if ttype:
+                        ids.add(ttype.id)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return ids
 
 # ── Partner Account Summary ───────────────────────────────────────────────────
 

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- Invoice "Sending" email shows the OUTSTANDING BALANCE, not the total.
+
+         Why (INV/2026/00093, 2026-09-08): the stock Odoo 18 template body
+         (account.email_template_edi_invoice) always renders the invoice TOTAL
+         (format_amount(object.amount_total)) — even after a down payment /
+         partial payment was applied, so the customer email asked for the full
+         $340 while the attached PDF showed the real $170 balance.
+
+         Implemented as a <function> on purpose: the core template record sits
+         in a noupdate=1 block and Odoo 18 refuses to update noupdate XMLIDs
+         on module upgrade, so a <record> override would silently never apply.
+         The body constant + installer live in
+         models/mail_template_extension.py. This runs on install AND upgrade.
+    -->
+    <data>
+        <function model="mail.template" name="premafirm_install_invoice_email_body"/>
+    </data>
+</odoo>

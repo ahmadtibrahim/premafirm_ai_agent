@@ -47,6 +47,17 @@
                         confirm="Email the customer their Rate Confirmation (Load Confirmation) now? This sends exactly once - the button disappears afterwards."/>
             </xpath>
 
+            <!-- Customer Deposit — record a deposit received while only the
+                 order exists (INV/2026/00093 fix): posts a down-payment
+                 invoice and applies the customer's unmatched bank payment -->
+            <xpath expr="//header/button[@name='action_send_order_confirmation']" position="after">
+                <button name="action_record_deposit" type="object"
+                        string="Customer Deposit"
+                        class="btn-success"
+                        icon="fa-money"
+                        invisible="state != 'sale' or deposit_recorded"/>
+            </xpath>
+
             <!-- Send for WhatsApp Approval button -->
             <xpath expr="//header/button[@name='action_confirm']" position="before">
                 <button name="action_send_wa_for_approval" type="object"
@@ -109,6 +120,11 @@
             <!-- Hidden field so JS can read x_reneg_status from the DOM -->
             <xpath expr="//sheet" position="inside">
                 <field name="x_reneg_status" invisible="1"/>
+            </xpath>
+
+            <!-- Hidden marker driving the Customer Deposit button visibility -->
+            <xpath expr="//sheet" position="inside">
+                <field name="deposit_recorded" invisible="1"/>
             </xpath>
 
             <!-- Re-Negotiation tab -->

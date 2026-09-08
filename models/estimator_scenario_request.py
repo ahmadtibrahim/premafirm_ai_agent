@@ -344,6 +344,17 @@ class EstimatorScenarioRequest(models.Model):
                 self._match_stop_locations(
                     request.structured_stop_ids.filtered(
                         lambda r: r.id in postal_filled))
+            # Keep the status badge in sync with resolution. Rows that
+            # already carried coordinates (an earlier run of the same
+            # request) skip the geocode loop above — without this poke
+            # they would keep a stale "Incomplete Address — Not Saved"
+            # badge even though they are routable (the 2026-09-08
+            # street-less Cobourg/Brantford regression: rows geocoded to
+            # the postal area stayed red while the estimate priced).
+            request.structured_stop_ids.modified(
+                ["lat", "lng", "postal_code", "address", "city",
+                 "province"])
+            request.structured_stop_ids.flush_recordset()
             # The customer's requested pickup time ("@8am") binds the
             # first pickup's exact appointment — only when the user has
             # not already set a time on that stop.

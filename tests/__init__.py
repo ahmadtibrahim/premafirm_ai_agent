@@ -9,3 +9,6 @@ from . import test_crm_recurring_opportunity
 
 # ASK-AI drafting guarantees (2026-09-08 wave)
 from . import test_ask_ai_draft_facts
+
+# Estimator structured-stop status (street-less posting regression)
+from . import test_estimator_structured_stop

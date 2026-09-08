@@ -237,42 +237,57 @@
                                                    t-on-input="(ev) => this.updateStop(stop_index, 'postal_code', ev.target.value)"/>
                                         </div>
 
-                                        <!-- Quantity / timing / instructions -->
+                                        <!-- Quantity / timing / instructions
+                                             (§7: permanent visible labels +
+                                             units — never placeholder-only) -->
                                         <div class="o_est_stop_grid o_est_stop_grid_qty">
-                                            <input type="number" min="0" class="form-control form-control-sm"
-                                                   placeholder="Pallets"
-                                                   t-att-value="stop.pallets"
-                                                   t-on-input="(ev) => this.updateStop(stop_index, 'pallets', ev.target.value)"/>
-                                            <input type="number" min="0" class="form-control form-control-sm"
-                                                   placeholder="Cases"
-                                                   t-att-value="stop.cases"
-                                                   t-on-input="(ev) => this.updateStop(stop_index, 'cases', ev.target.value)"/>
-                                            <input type="number" min="0" step="1" class="form-control form-control-sm"
-                                                   placeholder="Weight (lbs)"
-                                                   t-att-value="stop.weight_lbs"
-                                                   t-on-input="(ev) => this.updateStop(stop_index, 'weight_lbs', ev.target.value)"/>
-                                            <input type="date" class="form-control form-control-sm"
-                                                   t-att-value="stop.stop_date"
-                                                   t-on-change="(ev) => this.updateStop(stop_index, 'stop_date', ev.target.value)"/>
-                                            <select class="form-select form-select-sm"
-                                                    t-att-value="stop.time_window_type"
-                                                    t-on-change="(ev) => this.updateStop(stop_index, 'time_window_type', ev.target.value)">
-                                                <option value="any">Anytime</option>
-                                                <option value="exact">Exact time</option>
-                                                <option value="window">Time window</option>
-                                            </select>
-                                            <input type="time" class="form-control form-control-sm"
-                                                   t-if="stop.time_window_type === 'exact'"
-                                                   t-att-value="fmtHour(stop.exact_time)"
-                                                   t-on-change="(ev) => this.updateStop(stop_index, 'exact_time', this.parseHour(ev.target.value))"/>
-                                            <input type="time" class="form-control form-control-sm"
-                                                   t-if="stop.time_window_type === 'window'"
-                                                   t-att-value="fmtHour(stop.window_start)"
-                                                   t-on-change="(ev) => this.updateStop(stop_index, 'window_start', this.parseHour(ev.target.value))"/>
-                                            <input type="time" class="form-control form-control-sm"
-                                                   t-if="stop.time_window_type === 'window'"
-                                                   t-att-value="fmtHour(stop.window_end)"
-                                                   t-on-change="(ev) => this.updateStop(stop_index, 'window_end', this.parseHour(ev.target.value))"/>
+                                            <label class="o_est_stop_lbl">Pallets (positions)
+                                                <input type="number" min="0" class="form-control form-control-sm"
+                                                       t-att-value="stop.pallets"
+                                                       t-on-input="(ev) => this.updateStop(stop_index, 'pallets', ev.target.value)"/>
+                                            </label>
+                                            <label class="o_est_stop_lbl">Loose cases (boxes)
+                                                <input type="number" min="0" class="form-control form-control-sm"
+                                                       t-att-value="stop.cases"
+                                                       t-on-input="(ev) => this.updateStop(stop_index, 'cases', ev.target.value)"/>
+                                            </label>
+                                            <label class="o_est_stop_lbl">Weight (lbs)
+                                                <input type="number" min="0" step="1" class="form-control form-control-sm"
+                                                       t-att-value="stop.weight_lbs"
+                                                       t-on-input="(ev) => this.updateStop(stop_index, 'weight_lbs', ev.target.value)"/>
+                                            </label>
+                                            <label class="o_est_stop_lbl">Requested date
+                                                <input type="date" class="form-control form-control-sm"
+                                                       t-att-value="stop.stop_date"
+                                                       t-on-change="(ev) => this.updateStop(stop_index, 'stop_date', ev.target.value)"/>
+                                            </label>
+                                            <label class="o_est_stop_lbl">Appointment
+                                                <select class="form-select form-select-sm"
+                                                        t-att-value="stop.time_window_type"
+                                                        t-on-change="(ev) => this.updateStop(stop_index, 'time_window_type', ev.target.value)">
+                                                    <option value="any">Anytime</option>
+                                                    <option value="exact">Exact time</option>
+                                                    <option value="window">Time window</option>
+                                                </select>
+                                            </label>
+                                            <label class="o_est_stop_lbl"
+                                                   t-if="stop.time_window_type === 'exact'">Exact time
+                                                <input type="time" class="form-control form-control-sm"
+                                                       t-att-value="fmtHour(stop.exact_time)"
+                                                       t-on-change="(ev) => this.updateStop(stop_index, 'exact_time', this.parseHour(ev.target.value))"/>
+                                            </label>
+                                            <label class="o_est_stop_lbl"
+                                                   t-if="stop.time_window_type === 'window'">Window start
+                                                <input type="time" class="form-control form-control-sm"
+                                                       t-att-value="fmtHour(stop.window_start)"
+                                                       t-on-change="(ev) => this.updateStop(stop_index, 'window_start', this.parseHour(ev.target.value))"/>
+                                            </label>
+                                            <label class="o_est_stop_lbl"
+                                                   t-if="stop.time_window_type === 'window'">Window end
+                                                <input type="time" class="form-control form-control-sm"
+                                                       t-att-value="fmtHour(stop.window_end)"
+                                                       t-on-change="(ev) => this.updateStop(stop_index, 'window_end', this.parseHour(ev.target.value))"/>
+                                            </label>
                                         </div>
                                         <input type="text" class="form-control form-control-sm"
                                                placeholder="Special instructions"
@@ -395,7 +410,9 @@
                         </div>
 
                         <div class="o_premafirm_est_result_wrap" t-if="state.resultHtml">
-                            <div class="o_premafirm_est_result_body" t-out="resultMarkup"/>
+                            <div class="o_premafirm_est_result_body"
+                                 t-on-click="onResultClick"
+                                 t-out="resultMarkup"/>
                         </div>
 
                         <!-- Margin control — adjust before choosing a
@@ -426,6 +443,23 @@
                     </div>
 
                     <div class="o_premafirm_est_footer" t-if="state.result">
+                        <!-- §10 quote → approval → booking chain -->
+                        <div class="o_est_workflow" t-if="state.quoteWorkflow.length">
+                            <div class="o_est_alt_title">
+                                <t t-esc="state.quoteName"/>
+                                <button type="button" class="btn btn-sm btn-light ms-1"
+                                        title="Refresh quote status"
+                                        t-on-click="refreshQuoteWorkflow">↻</button>
+                            </div>
+                            <t t-foreach="state.quoteWorkflow" t-as="wf" t-key="wf.step">
+                                <span t-att-class="'o_est_wf_step ' + (wf.done ? 'done' : (wf.available ? 'ready' : 'locked'))">
+                                    <t t-if="wf.done">✔</t>
+                                    <t t-elif="wf.available">▶</t>
+                                    <t t-else="">🔒</t>
+                                    <t t-esc="wf.label"/>
+                                </span>
+                            </t>
+                        </div>
                         <button type="button"
                                 class="btn btn-secondary btn-sm"
                                 title="Route Development — this week's corridor schedule for the truck and the request's region pair"
@@ -438,11 +472,11 @@
                         </button>
                         <button type="button"
                                 class="btn btn-success btn-sm"
-                                title="Draft an UNPRICED rate confirmation on the customer's lead — nothing is sent or confirmed"
+                                title="Create ONE editable DRAFT rate confirmation on the customer's lead — nothing is sent or confirmed"
                                 t-if="canDraftRC"
                                 t-on-click="onCreateDraftRC">
                             <i class="fa fa-file-signature"/>
-                            Draft rate confirmation
+                            Create Draft Rate Confirmation
                         </button>
                         <button type="button"
                                 class="btn btn-outline-secondary btn-sm"

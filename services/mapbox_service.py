@@ -88,10 +88,16 @@ class MapboxService:
             for f in data.get("features") or []:
                 center = f.get("center") or []
                 if len(center) >= 2:
+                    postal = ""
+                    for ctx in f.get("context") or []:
+                        if (ctx.get("id") or "").startswith("postcode."):
+                            postal = ctx.get("text") or ""
+                            break
                     results.append({
                         "place_name": f.get("place_name", ""),
                         "lng": center[0],
                         "lat": center[1],
+                        "postal_code": postal,
                     })
             return results
         except Exception as e:

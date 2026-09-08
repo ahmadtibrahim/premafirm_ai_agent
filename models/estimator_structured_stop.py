@@ -68,6 +68,15 @@ class EstimatorStructuredStop(models.Model):
 
     instructions = fields.Text()
 
+    # ── Facility scheduling settings (frozen from the Saved Location,
+    #    same authority Prema Dispatch schedules with) ─────────────────
+    operating_hours_snapshot = fields.Json()
+    tz_name = fields.Char(default="America/Toronto")
+    service_time_minutes = fields.Integer(
+        help="Loading/unloading duration from the Saved Location's "
+             "planning settings (per stop type).")
+    per_pallet_service_minutes = fields.Integer()
+
     # ── Location status (computed from the resolution above) ─────────
     status = fields.Selection([
         ("saved_reused", "Reused Saved Location"),
@@ -76,8 +85,14 @@ class EstimatorStructuredStop(models.Model):
         ("incomplete", "Incomplete Address — Not Saved"),
     ], compute="_compute_status", store=True)
 
-    @api.depends("saved_location_id", "saved_location_id.verification_state",
-                 "address", "city", "province", "postal_code")
+    # NOTE: never depend on "saved_location_id.verification_state" here —
+    # the path crosses into prema.dispatch.location, which loads AFTER this
+    # module in the graph, and the engine upgrade would crash resolving
+    # the trigger chain against the unknown-model placeholder. The
+    # dispatch side pokes the recompute in prema.dispatch.location.write()
+    # when verification_state changes.
+    @api.depends("saved_location_id", "address", "city", "province",
+                 "postal_code")
     def _compute_status(self):
         for rec in self:
             loc = rec.saved_location_id
@@ -118,10 +133,16 @@ class EstimatorStructuredStop(models.Model):
             "pallets": self.pallets or 0,
             "cases": self.cases or 0,
             "weight_lbs": self.weight_lbs or 0.0,
-            "stop_date": self.stop_date or False,
+            "stop_date": (self.stop_date.isoformat()
+                          if self.stop_date else False),
             "time_window_type": self.time_window_type or "any",
             "exact_time": self.exact_time or 0.0,
             "window_start": self.window_start or 0.0,
             "window_end": self.window_end or 0.0,
             "instructions": self.instructions or "",
+            "service_time_minutes": self.service_time_minutes or 0,
+            "per_pallet_service_minutes":
+                self.per_pallet_service_minutes or 0,
+            "operating_hours_snapshot":
+                self.operating_hours_snapshot or {},
         }

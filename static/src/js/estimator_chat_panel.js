@@ -72,6 +72,12 @@ class EstimatorChatPanel extends Component {
             // §2 scenario selection + §1 cost breakdown modal
             selectedScenario: null,  // scenario key
             costModalKey:   null,    // scenario key whose breakdown is open
+            // §1 manual road-distance override — only ever shown when the
+            // stops could not be routed; nothing auto-guesses distance.
+            manualKm:       "",
+            manualHrs:      "",
+            manualOverrideUsed: false,
+            manualSignature: null,
             quoteWorkflow:  [],      // quote -> approval -> booking chain
             quoteName:      "",
         });
@@ -97,6 +103,8 @@ class EstimatorChatPanel extends Component {
             returnHome: true, marginPct: null,
             stops: [], conflicts: [], applyChanges: false,
             selectedScenario: null, costModalKey: null,
+            manualKm: "", manualHrs: "", manualOverrideUsed: false,
+            manualSignature: null,
             quoteWorkflow: [], quoteName: "",
         });
         // A fresh estimate is a new enquiry — a stale customer pick from
@@ -328,6 +336,51 @@ class EstimatorChatPanel extends Component {
         if (cardEl) {
             this.selectScenario(cardEl.dataset.cardKey);
         }
+    }
+
+    onManualKmChange(ev) {
+        this.state.manualKm = ev.target.value;
+    }
+
+    onManualHrsChange(ev) {
+        this.state.manualHrs = ev.target.value;
+    }
+
+    applyManualRoute() {
+        // §1 — an explicit human override of the road distance when the
+        // stops cannot be routed: km is required; hours left blank are
+        // estimated by the server at ~70 km/h. The box disappears once a
+        // route/cost exists, and the override stays on later re-prices
+        // (margin) until the user resets the panel.
+        const km = parseFloat(this.state.manualKm);
+        if (!(km > 0)) {
+            this.notification.add(
+                "Enter a road distance in km to apply the manual override",
+                { type: "warning" });
+            return;
+        }
+        const hrs = parseFloat(this.state.manualHrs);
+        // Signature: the override applies only while the request it was
+        // entered for is unchanged — a new message/stops/truck/date
+        // silently discards it instead of mis-pricing the next request.
+        this.state.manualSignature = [
+            this.state.vehicleId, this.state.pickupDate,
+            this.state.chatText, JSON.stringify(this._stopsPayload()),
+        ].join("|");
+        this.state.manualOverrideUsed = true;
+        this._runEstimate();
+    }
+
+    get needsManualOverride() {
+        // Shown ONLY when a direct scenario exists and could not be
+        // routed (no distance, no cost) — never on a routable estimate.
+        const r = this.state.result;
+        if (!r || r.ok === false || !r.scenarios) return false;
+        if (this.state.manualOverrideUsed) return false;
+        return r.scenarios.some(c =>
+            (c.key === "dedicated_one_way"
+             || c.key === "dedicated_round_trip")
+            && c.cost === false && c.distance_km === false);
     }
 
     onReturnHomeChange(ev) {
@@ -600,6 +653,19 @@ class EstimatorChatPanel extends Component {
 
     async _runEstimate() {
         const st = this.state;
+        // §1 — a manual distance override entered for an earlier request
+        // is dropped the moment the request itself changes (see
+        // applyManualRoute): it never prices a different posting.
+        if (st.manualOverrideUsed) {
+            const sig = [
+                st.vehicleId, st.pickupDate,
+                st.chatText, JSON.stringify(this._stopsPayload()),
+            ].join("|");
+            if (sig !== st.manualSignature) {
+                st.manualOverrideUsed = false;
+                st.manualSignature = null;
+            }
+        }
         st.loading = true;
         st.result = null;
         st.resultHtml = "";
@@ -620,6 +686,16 @@ class EstimatorChatPanel extends Component {
                 stops_input:        this._stopsPayload(),
                 request_id:         st.result?.request_id || 0,
                 apply_changes:      st.applyChanges,
+                // §1 manual road-distance override (only after the user
+                // applied one; null otherwise — server ignores).
+                manual_distance_km: st.manualOverrideUsed
+                    ? (parseFloat(st.manualKm) > 0
+                       ? parseFloat(st.manualKm) : null)
+                    : null,
+                manual_duration_hrs: st.manualOverrideUsed
+                    ? (parseFloat(st.manualHrs) > 0
+                       ? parseFloat(st.manualHrs) : null)
+                    : null,
             };
             st.applyChanges = false;
             const result = await this.orm.call(
@@ -776,6 +852,8 @@ class EstimatorChatPanel extends Component {
                 "conditional": "conditional — verification required",
                 "infeasible": "infeasible",
                 "requires_estimate": "requires estimate",
+                "estimate_unavailable": "estimate unavailable",
+                "alternative_dates": "date change required",
             }[b] || b);
             for (const card of scenarios) {
                 const badge = card.badge || (card.feasible ? "feasible" : "infeasible");
@@ -797,11 +875,21 @@ class EstimatorChatPanel extends Component {
                     h.push(this._kv("Delivery", card.delivery_date || "—", "kvm"));
                 }
                 if (card.return_date) h.push(this._kv("Return home", card.return_date, "kvm"));
+                if (card.hold_nights) {
+                    // §2 — the delivery date on the card IS the requested
+                    // date (the move holds overnight to reach it); the
+                    // sub-line makes the hold visible, not hidden.
+                    h.push(`<div class="o_est_sub">🌙 arrives the day before — holds ${this._esc(card.hold_nights)} night${card.hold_nights > 1 ? "s" : ""}${card.requested_delivery_date ? ` (driver off duty) until the requested delivery ${this._esc(card.requested_delivery_date)}` : ""}; overnight fee and reefer runtime are itemized in the COST breakdown</div>`);
+                }
                 h.push(this._kv("Distance", card.distance_km === false ? "—" : `${this._num(card.distance_km)} km`, "kvm"));
                 if (card.drive_hrs !== false) h.push(this._kv("Drive + service", card.drive_hrs === false ? "—" : `${this._num(card.drive_hrs)} h`, "kvm"));
                 if (card.cost !== false) {
+                    // §3 — the COST figure itself opens the itemized
+                    // breakdown (qty × rate = amount; rows sum exactly to
+                    // the total); the planned sell price is deliberately
+                    // separate — never an operating cost line.
                     const costVal = card.cost_breakdown
-                        ? `${this._money(card.cost)} <a class="o_est_cost_link" data-cost-key="${this._esc(card.key)}">breakdown</a>`
+                        ? `<a class="o_est_cost_amt" data-cost-key="${this._esc(card.key)}" title="Open itemized cost breakdown">${this._money(card.cost)}</a> <a class="o_est_cost_link" data-cost-key="${this._esc(card.key)}">⧉ itemized</a>`
                         : this._money(card.cost);
                     h.push(this._kv("Operating cost", costVal, "kvm"));
                     h.push(this._kv("Suggested sell", `<b>${this._money(card.suggested_sell)}</b>`));
@@ -814,6 +902,9 @@ class EstimatorChatPanel extends Component {
                     h.push(this._kv("Sell", card.suggested_sell === false ? "—" : this._money(card.suggested_sell)));
                     if (card.key === "scheduled_ltl") {
                         h.push(this._kv("Cost", "List price — assigned at booking", "kvm"));
+                    }
+                    if (card.conditional_reasons && card.conditional_reasons.length) {
+                        h.push(`<div class="o_est_sub">No operating cost shown: ${this._esc(card.conditional_reasons[0])}</div>`);
                     }
                 }
                 if (card.incremental_km) h.push(this._kv("Empty mileage", `${this._num(card.incremental_km, 0)} km`, "kvm"));
@@ -837,15 +928,44 @@ class EstimatorChatPanel extends Component {
                 }
                 if (card.key === "scheduled_ltl") {
                     h.push(this._kv("Network", `${this._esc(card.corridor || "")}${card.suggested_sell === false ? "" : ""}`));
+                    // §5 — a corridor service on OTHER dates than the
+                    // request is flagged as a date-change alternative with
+                    // the reason — never silently "feasible".
+                    if (card.date_change_reason) {
+                        h.push(`<div class="o_est_note note-altdate">📅 ${this._esc(card.date_change_reason)}</div>`);
+                    }
+                    // §5 — verify the claimed service: legs chain with
+                    // corridor / hub / feeder legs, per-leg dates and the
+                    // assigned vehicle.
+                    const legs = card.legs || [];
+                    if (legs.length) {
+                        h.push(`<div class="o_est_alt_title">How it runs — corridor legs (verified route chain)</div>`);
+                        for (const leg of legs) {
+                            h.push(`<div class="o_est_leg">${this._esc(leg)}</div>`);
+                        }
+                    }
                     const pd = card.per_destination || [];
                     if (pd.length) {
                         h.push(`<div class="o_est_alt_title">Each destination</div>`);
-                        h.push(`<table class="o_est_table"><thead><tr><th>Destination</th><th>Pallets</th><th>Pickup</th><th>Delivered</th><th>Corridor</th><th>Reason</th></tr></thead><tbody>`);
+                        h.push(`<table class="o_est_table"><thead><tr><th>Destination</th><th>Pallets</th><th>Pickup</th><th>Delivered</th><th>Service legs</th><th>Reason</th></tr></thead><tbody>`);
                         for (const d of pd) {
-                            h.push(`<tr><td>${this._esc(d.name)}</td><td>${this._esc(d.pallets || 0)}</td><td>${this._esc(d.served_date || "—")}</td><td>${this._esc(d.delivery_date || "—")}</td><td>${this._esc(d.corridor || "—")}</td><td>${this._esc(d.reason || "")}</td></tr>`);
+                            const legsCell = (d.legs || []).map(x => this._esc(x)).join("<br/>");
+                            h.push(`<tr><td>${this._esc(d.name)}</td><td>${this._esc(d.pallets || 0)}</td><td>${this._esc(d.served_date || "—")}</td><td>${this._esc(d.delivery_date || "—")}</td><td>${legsCell || this._esc(d.corridor || "—")}</td><td>${this._esc(d.reason || "")}</td></tr>`);
                         }
                         h.push(`</tbody></table>`);
                     }
+                }
+                // §4 — dispatch readiness is separated from the estimate:
+                // a missing driver/ELD proof reads as "dispatch
+                // verification required", NOT as an infeasible move.
+                const dv = card.dispatch_verification || {};
+                if (dv.required && dv.items && dv.items.length) {
+                    h.push(`<div class="o_est_alt_title">🚩 Dispatch verification required before dispatch</div>`);
+                    h.push(this._chips(dv.items, "warn"));
+                }
+                if (card.conditions && card.conditions.length) {
+                    h.push(`<div class="o_est_alt_title">⚠ Conditions — provisional estimate</div>`);
+                    h.push(this._chips(card.conditions, "cond"));
                 }
                 if (card.conditional_reasons && card.conditional_reasons.length) {
                     h.push(`<div class="o_est_alt_title">Verification required</div>`);
@@ -855,7 +975,16 @@ class EstimatorChatPanel extends Component {
                     h.push(this._chips(card.blocking, "block"));
                 }
                 if (card.warnings && card.warnings.length) {
-                    h.push(this._chips(card.warnings, "warn"));
+                    // §7 — repetitive technical warnings collapse to one
+                    // notice with expandable details.
+                    const uniq = [...new Set(card.warnings)];
+                    if (uniq.length === 1) {
+                        h.push(this._chips(uniq, "warn"));
+                    } else {
+                        h.push(`<details class="o_est_details"><summary>⚠ ${this._esc(uniq.length)} notices/warnings — show details</summary>`);
+                        h.push(this._chips(uniq, "warn"));
+                        h.push(`</details>`);
+                    }
                 }
                 if (card.alternatives && card.alternatives.length) {
                     h.push(`<div class="o_est_alt_title">Alternative corridor dates</div>`);
@@ -906,10 +1035,21 @@ class EstimatorChatPanel extends Component {
                         <div class="o_est_modal_body">
                         <table class="o_est_table"><thead><tr><th>Component</th><th>Quantity</th><th>Rate</th><th>Amount</th><th>Basis</th></tr></thead><tbody>`);
                     for (const c of cb.components || []) {
-                        h.push(`<tr><td>${this._esc(c.label)}</td><td>${this._esc(c.qty || "")}</td><td>${this._esc(c.rate || "")}</td><td>${this._money(c.amount)}</td><td class="o_est_sub">${this._esc(c.note || "")}</td></tr>`);
+                        const assumed = (c.note || "").includes("assumed");
+                        h.push(`<tr><td>${this._esc(c.label)}</td><td>${this._esc(c.qty || "")}</td><td>${this._esc(c.rate || "")}</td><td>${this._money(c.amount)}</td><td class="o_est_sub ${assumed ? "o_est_assumed" : ""}" ${assumed ? 'title="Rate not configured — code default in use"' : ""}>${this._esc(c.note || "")}</td></tr>`);
                     }
                     h.push(`</tbody></table>
-                        <div class="o_est_modal_total">Total operating cost <b>${this._money(cb.total)}</b></div>
+                        <div class="o_est_modal_total">Total operating cost <b>${this._money(cb.total)}</b> <span class="o_est_sub">— exactly the COST on the card (same calculation)</span></div>
+                        <div class="o_est_sub o_est_modal_foot">Each row: quantity × rate = amount, and the rows sum to the total. Rates marked “assumed” are code fallbacks because the parameter is not configured — the “configured” ones come from system parameters and the vehicle costing tab. The planned sell price is NOT an operating cost and is never part of this total.</div>
+                        </div></div></div>`);
+                } else if (mc) {
+                    h.push(`<div class="o_est_modal_backdrop"><div class="o_est_modal">
+                        <div class="o_est_modal_head">
+                            <b>Operating cost — ${this._esc(mc.title)}</b>
+                            <button type="button" class="o_est_modal_x" data-close-cost="1" title="Close">✕</button>
+                        </div>
+                        <div class="o_est_modal_body">
+                        <div class="o_est_empty">No itemized breakdown is available for this scenario${(mc.conditional_reasons || []).length ? ":" : "."} ${(mc.conditional_reasons || []).map(r => this._esc(r)).join(" ")}</div>
                         </div></div></div>`);
                 }
             }

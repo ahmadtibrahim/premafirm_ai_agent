@@ -1736,27 +1736,65 @@ class PremafirmRateEstimator(models.Model):
         system_prompt = (
             "You are a Canadian freight dispatch assistant. Extract the "
             "complete work order from the text. Return ONLY a JSON object:\n"
-            '{"equipment": "reefer|dry", "temperature_c": null, '
-            '"requested_pickup_date": "YYYY-MM-DD|tomorrow|Monday|...|null", '
+            '{"equipment": "reefer|dry", "temperature_c": -20.0, '
+            '"requested_pickup_date": "date|null", '
+            '"requested_delivery_date": "date|null", '
             '"requested_pickup_time": "08:00|null", '
+            '"reference": "posting reference|null", '
+            '"posted_equipment": "verbatim equipment/trailer requirement", '
+            '"dimensions": "verbatim pallet/skid size|null", '
+            '"appointments_required": true, '
             '"instructions": "...", "stops": [{"type": "pickup|delivery", '
             '"company_name": "...", "address": "street address", '
             '"city": "...", "province": "ON|QC|...", "postal_code": "...", '
             '"pallets": 0, "cases": 0, "weight_lbs": 0, "liftgate": false, '
-            '"stop_notes": "...", "date": "YYYY-MM-DD|null", '
+            '"stop_notes": "...", "date": "date|null", '
             '"time_window_type": "any|exact|window", "exact_time": "08:00", '
             '"window_start": "09:00", "window_end": "11:00"}]}\n'
             "Rules:\n"
+            "- A 'date' is the date EXACTLY as written (\"September 10, "
+            "2026\", \"2026-09-10\", \"tomorrow\", \"next Tuesday\") or "
+            "null — never reformat or invent one. Echo the pickup line's "
+            "date into requested_pickup_date and each pickup stop's date; "
+            "echo the delivery line's date into requested_delivery_date "
+            "and each delivery stop's date. When the text gives one date "
+            "for the lane, put it in BOTH date fields and on both stops.\n"
             "- Keep stops in the exact order they appear in the text\n"
             "- Every stop keeps its own pallet/case/weight quantity — a "
             "pickup without quantities gets 0 (the deliveries' split "
             "quantities stay on their delivery stops)\n"
             "- Never copy or infer a delivery's quantity onto the pickup "
             "stop — the pickup's pallets/cases/weight stay 0 unless the "
-            "text explicitly gives the pickup itself a quantity\n"
+            "text explicitly gives the pickup itself a quantity. A total "
+            "that describes the WHOLE load (e.g. \"8,000 lb total\") goes "
+            "on the delivery stop only — it is never repeated on the "
+            "pickup\n"
             "- Address components stay separate (address street, city, "
             "province, postal) when the text gives them; leave unknown "
-            "parts null\n"
+            "parts null — never invent a street address that is not "
+            "written\n"
+            "- requested_pickup_time is the pickup appointment/loading "
+            "time in 24h HH:MM, or null\n"
+            "- reference: the posting's reference/load number verbatim "
+            "(letters, digits, dashes — no labels like \"Reference:\"), "
+            "null when absent\n"
+            "- posted_equipment: the posting's OWN unit requirement "
+            "verbatim (e.g. \"Refrigerated 53-foot trailer\"), null when "
+            "the text names no equipment. The equipment field stays "
+            "\"reefer\" when refrigerated/frozen/cold is required, else "
+            "\"dry\"\n"
+            "- dimensions: the pallet/skid dimensions verbatim, null when "
+            "absent\n"
+            "- appointments_required: true when the text requires "
+            "appointments at any stop\n"
+            "- time_window_type: \"exact\" only when a time is given. An "
+            "appointment WITHOUT a time (\"appointment required at both "
+            "stops\") is \"any\", and its stop_notes must contain "
+            "\"Appointment required — time to confirm\" — never invent an "
+            "appointment time\n"
+            "- Ignore formatting clutter: standalone tokens like 'svg', "
+            "bullets, emoji, decorative dashes, and fragments repeated "
+            "more than once carry no information — keep each fact once\n"
             "- 'tomorrow' stays the literal word in requested_pickup_date; "
             "weekday names stay as names\n"
             "- Times as 24h HH:MM strings\n"

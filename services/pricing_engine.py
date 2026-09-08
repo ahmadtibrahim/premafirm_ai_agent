@@ -39,7 +39,22 @@ class PricingEngine:
             "weight_threshold_lbs":     float(ICP.get_param("estimator.weight_threshold_lbs",     "3000")),
             "weight_surcharge_per_cwt": float(ICP.get_param("estimator.weight_surcharge_per_cwt", "5.00")),
             "fuel_load_penalty":        float(ICP.get_param("estimator.fuel_load_penalty",        "0.12")),
+            # §3/§2 — reefer-unit fuel burn and overnight hold fee. The
+            # modal labels each as "configured" or "assumed default" so a
+            # cost line is never silently invented.
+            "reefer_liters_per_hr":     float(ICP.get_param("estimator.reefer_liters_per_hr",     "2.6")),
+            "overnight_cost_per_night": float(ICP.get_param("estimator.overnight_cost_per_night", "45.00")),
         }
+
+    def _param_set(self, key):
+        """True when the config parameter exists in the DB (a real admin
+        configuration) vs. the code-default fallback (an assumption the
+        UI must label)."""
+        try:
+            return bool(self.env["ir.config_parameter"].sudo().search_count(
+                [("key", "=", key)]))
+        except Exception:
+            return False
 
     # ── Previous calendar month km from daily odometer ─────────────────
 
@@ -84,7 +99,8 @@ class PricingEngine:
 
     # ── Full cost calculation ──────────────────────────────────────────
 
-    def calculate(self, vehicle_id, distance_km, duration_hrs, overrides=None, load_weight_lbs=0.0):
+    def calculate(self, vehicle_id, distance_km, duration_hrs, overrides=None,
+                  load_weight_lbs=0.0, reefer_hours=0.0, overnight_nights=0):
         """Return a full cost breakdown dict for a trip of distance_km / duration_hrs.
 
         Fixed costs (insurance, maintenance) resolution:
@@ -96,6 +112,17 @@ class PricingEngine:
           1. vehicle.x_driver_rate_per_hr (Fleet → Costing tab) — preferred
           2. overrides["driver_rate_per_hr"]
           3. estimator.driver_rate_per_hr system config
+
+        reefer_hours — runtime hours of the reefer unit (drive/service
+          plus 24 h per hold night). Costed at the diesel price with
+          estimator.reefer_liters_per_hr (code default 2.6 L/h; the
+          breakdown labels it "assumed" when the parameter is not
+          actually configured). Only applied when the vehicle has a
+          reefer unit (x_reefer).
+        overnight_nights — hold nights at/after a stop. Costed at
+          estimator.overnight_cost_per_night (code default $45/night,
+          labeled "assumed" when not configured). Driver off-duty hours
+          are never billed as driver time.
 
         overrides (optional dict):
           fuel_price_per_l      – $/L (overrides system default)
@@ -178,7 +205,30 @@ class PricingEngine:
             excess_lbs = load_weight - cfg["weight_threshold_lbs"]
             weight_surcharge = (excess_lbs / 100.0) * cfg["weight_surcharge_per_cwt"]
 
-        total = fuel_cost + maintenance_cost + insurance_cost + driver_cost + weight_surcharge
+        # ── Reefer-unit runtime fuel (§3) ────────────────────────────────
+        # Costed on the SAME diesel price as the drive fuel; only applies
+        # to a vehicle that actually carries a reefer unit (x_reefer) —
+        # otherwise the runtime line is absent from the breakdown, never
+        # silently attached to a non-reefer truck.
+        vehicle_has_reefer = bool(vehicle.x_reefer)
+        reefer_fuel_liters = 0.0
+        reefer_fuel_cost = 0.0
+        if vehicle_has_reefer and (reefer_hours or 0.0) > 0:
+            reefer_fuel_liters = float(reefer_hours or 0.0) \
+                * cfg["reefer_liters_per_hr"]
+            reefer_fuel_cost = reefer_fuel_liters * fuel_price
+
+        # ── Overnight hold fee (§2/§3) ───────────────────────────────────
+        # Accommodation line while the truck holds until a later requested
+        # delivery. Driver off-duty hours are never driver-cost hours (the
+        # caller passes only paid drive/service hours in duration_hrs).
+        overnight_cost = 0.0
+        if overnight_nights and overnight_nights > 0:
+            overnight_cost = float(overnight_nights) \
+                * cfg["overnight_cost_per_night"]
+
+        total = (fuel_cost + maintenance_cost + insurance_cost + driver_cost
+                 + weight_surcharge + reefer_fuel_cost + overnight_cost)
         suggested_rate = total * (1 + margin_pct / 100.0)
 
         # For reporting: reconstruct the monthly values shown on costing tab
@@ -209,4 +259,17 @@ class PricingEngine:
             "load_weight_lbs":        round(load_weight, 0),
             # Kept for backward compatibility
             "prev_month_km":          round(vehicle.x_monthly_avg_km or 0, 1),
+            # §2/§3 — reefer runtime + overnight hold lines (itemized in
+            # the COST modal; the dispatch side reads these to build rows
+            # that reconcile exactly with total_cost).
+            "reefer_runtime_hrs":     round(float(reefer_hours or 0.0), 1),
+            "reefer_liters_per_hr":   cfg["reefer_liters_per_hr"],
+            "reefer_fuel_liters":     round(reefer_fuel_liters, 2),
+            "reefer_fuel_cost":       round(reefer_fuel_cost, 2),
+            "reefer_rate_configured": self._param_set("estimator.reefer_liters_per_hr"),
+            "vehicle_has_reefer":     vehicle_has_reefer,
+            "overnight_nights":       int(overnight_nights or 0),
+            "overnight_cost_per_night": cfg["overnight_cost_per_night"],
+            "overnight_cost":         round(overnight_cost, 2),
+            "overnight_rate_configured": self._param_set("estimator.overnight_cost_per_night"),
         }

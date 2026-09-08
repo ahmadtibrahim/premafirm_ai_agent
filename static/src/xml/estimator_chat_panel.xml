@@ -415,6 +415,43 @@
                                  t-out="resultMarkup"/>
                         </div>
 
+                        <!-- §1 manual road-distance override — appears
+                             ONLY when a direct scenario could not be
+                             routed (estimate unavailable): correcting the
+                             stop addresses in the stop list above is the
+                             first option; this is the explicit override
+                             with an approximate road distance. -->
+                        <div class="o_est_field_row o_est_fields_inline o_est_manual_route"
+                             t-if="state.result and state.result.ok and needsManualOverride">
+                            <div class="o_est_manual_hint">
+                                Stops could not be routed between each other
+                                — correct the stop addresses above, or
+                                override with an approximate road distance:
+                            </div>
+                            <div>
+                                <label class="o_est_field_label">Road distance (km) *</label>
+                                <input type="number" class="form-control"
+                                       min="0" step="1"
+                                       placeholder="e.g. 412"
+                                       t-att-value="state.manualKm"
+                                       t-on-change="onManualKmChange"/>
+                            </div>
+                            <div>
+                                <label class="o_est_field_label">Drive time (h) — optional</label>
+                                <input type="number" class="form-control"
+                                       min="0" step="0.5"
+                                       placeholder="auto ≈ km ÷ 70 km/h"
+                                       t-att-value="state.manualHrs"
+                                       t-on-change="onManualHrsChange"/>
+                            </div>
+                            <button type="button"
+                                    class="btn btn-secondary btn-sm"
+                                    title="Re-run the estimate using this road distance"
+                                    t-on-click="applyManualRoute">
+                                Apply manual distance
+                            </button>
+                        </div>
+
                         <!-- Margin control — adjust before choosing a
                              selling price.  Re-prices the scenarios with
                              the entered markup-on-cost (the server is the

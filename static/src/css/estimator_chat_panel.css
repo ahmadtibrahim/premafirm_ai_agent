@@ -460,9 +460,15 @@
 .badge-feasible   { background: #d3f9d8; color: #2b8a3e; }
 .badge-infeasible { background: #ffe3e3; color: #c92a2a; }
 .badge-blocked    { background: #ffe8cc; color: #d9480f; }
+/* §4/§5 — missing-route and date-change statuses: never red "infeasible"
+   styling; amber reads "needs attention/decision" instead. */
+.badge-estimate_unavailable { background: #fff3bf; color: #e67700; }
+.badge-alternative_dates    { background: #ffec99; color: #d9480f; }
 .card-feasible   { border-color: #b2f2bb; }
 .card-infeasible { border-color: #ffc9c9; background: #fffafb; }
 .card-blocked    { border-color: #ffd8a8; }
+.card-estimate_unavailable { border-color: #ffe066; background: #fffdf5; }
+.card-alternative_dates    { border-color: #ffd8a8; background: #fffaf0; }
 .o_est_card_body { padding: 8px 12px; }
 
 .o_est_kv {
@@ -609,6 +615,34 @@
 .o_est_card_selected { outline: 3px solid #4f81bd; border-color: #4f81bd; }
 .o_est_cost_link { cursor: pointer; text-decoration: underline;
     color: #4f81bd; margin-left: 6px; }
+/* §3 — the COST amount itself is the click target (dotted underline
+   hints "more detail", same color family as the breakdown link). */
+.o_est_cost_amt { cursor: pointer; text-decoration: underline dotted #4f81bd;
+    color: #1c2b39; font-weight: 700; }
+.o_est_cost_amt:hover { color: #4f81bd; }
+.o_est_assumed { font-style: italic; }
+.o_est_assumed::after { content: " ⚠"; color: #e67700; }
+.o_est_modal_foot { margin-top: 8px; line-height: 1.5; }
+/* §5 corridor date-change banner + leg chain rows */
+.note-altdate { background: #fff9db; color: #b26a00;
+    border: 1px solid #ffe066; }
+.o_est_leg { font-size: 11.5px; font-family: ui-monospace, SFMono-Regular,
+    Menlo, Consolas, monospace; color: #495057; background: #f8f9fa;
+    border-radius: 6px; padding: 4px 8px; margin: 3px 0; }
+/* §7 — repeated technical warnings collapse into one expandable notice */
+.o_est_details { margin: 6px 0; }
+.o_est_details summary { cursor: pointer; font-size: 11px;
+    color: #d9480f; background: #fff4e6; border: 1px solid #ffd8a8;
+    border-radius: 999px; padding: 2px 10px; display: inline-block;
+    list-style: none; }
+.o_est_details summary::-webkit-details-marker { display: none; }
+.o_est_details[open] summary { border-radius: 12px; }
+/* §1 manual road-distance override row */
+.o_est_manual_route {
+    border: 1px dashed #ffd8a8; background: #fffaf0; border-radius: 8px;
+    padding: 8px 10px; margin: 8px 0; }
+.o_est_manual_hint { flex-basis: 100%; font-size: 11.5px;
+    color: #b26a00; margin-bottom: 4px; }
 .o_est_modal_backdrop { position: fixed; inset: 0; background: rgba(20, 26, 34, .45);
     z-index: 1050; display: flex; align-items: center; justify-content: center; }
 .o_est_modal { background: #fff; border-radius: 10px; width: min(640px, 92vw);

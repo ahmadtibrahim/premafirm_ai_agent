@@ -422,9 +422,15 @@ _DRAFT_RULES = r'''
     continue it: same subject context, no repeated introduction, no
     re-asking questions already answered, no re-introducing PremaFirm to a
     company that already knows it.
-11. When the email must mention someone who is unavailable (e.g. "Anna is out
-    of the office today"), state only the fact the user gave. Do not explain
-    why, do not name a source, do not attribute it.
+11. If the REQUEST states a person is unavailable ("Anna is not in today",
+    "out of the office", "off today", "on leave") and the email is addressed
+    to that person's colleague, you MUST include that fact in the email body
+    — it is the stated reason for writing to them instead of the unavailable
+    person, and omitting it leaves the email inexplicable. Including it is
+    not an embellishment: it is a ground-truth fact from the REQUEST (rule 1).
+    State ONLY the fact the user gave: do not explain why, do not name a
+    source, do not attribute it, do not guess when they return (rule 3 —
+    absence is not contact: never imply you spoke with the person).
 
 === COMPANY CLAIMS ===
 12. Only mention PremaFirm services, lanes, equipment, capacity, rates,

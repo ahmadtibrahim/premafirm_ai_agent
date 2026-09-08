@@ -200,6 +200,24 @@ class TestAskAiDraftFacts(TransactionCase):
         self.assertNotIn('insight', body)
         self.assertNotIn('recommended', body)
 
+    def test_draft_prompt_hard_requires_unavailability_fact(self):
+        """Rule 11 must REQUIRE the unavailability fact in the body, not just
+        constrain its wording: real DeepSeek omitted "Anna is not in today"
+        3/3 under the old phrasing while canned tests passed. Pin the hard
+        requirement in the system prompt the draft request actually gets."""
+        captured, patch_ctx = self._capture_gpt()
+        with patch_ctx:
+            self.lead.sudo().x_ai_chat_input = EXAMPLE_REQUEST
+            self.lead.action_ai_chat_send()
+        system = captured['system']
+        self.assertIn('If the REQUEST states a person is unavailable', system)
+        self.assertIn('you MUST include that fact in the email body', system)
+        self.assertIn('omitting it leaves the email inexplicable', system)
+        # The requirement lives in the code-side draft rules (never only in
+        # the editable role prompt), with rule 1/rule 3 tension resolved.
+        self.assertIn('=== GROUND-TRUTH RULES (MUST FOLLOW) ===', system)
+        self.assertIn('=== CONTINUING THE REAL CONVERSATION ===', system)
+
     def test_honest_say_so_when_history_unavailable(self):
         """User asked to check notes but nothing exists: the reply says so
         after a '---' separator and the composed email stays clean."""

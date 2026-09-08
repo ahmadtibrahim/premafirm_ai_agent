@@ -96,8 +96,11 @@ class EstimatorStructuredStop(models.Model):
     # field ... not found in model _unknown").  The dispatch side pokes
     # these rows (modified(['saved_location_id'])) when a linked location's
     # verification_state changes, which recomputes status then.
+    # lat/lng are local columns of THIS model, so chaining them is safe —
+    # and required: the geocode pass in estimate_scenarios_rpc fills them
+    # for street-less loadboard postings, which makes the row routable.
     @api.depends("saved_location_id", "address", "city", "province",
-                 "postal_code")
+                 "postal_code", "lat", "lng")
     def _compute_status(self):
         for rec in self:
             loc = rec.saved_location_id
@@ -111,6 +114,15 @@ class EstimatorStructuredStop(models.Model):
                     rec.status = "saved_reused"
             elif rec.address and (rec.postal_code or
                                   (rec.city and rec.province)):
+                rec.status = "manual"
+            elif rec.lat and rec.lng:
+                # Routable WITHOUT a street: loadboard postings commonly
+                # publish only "Cobourg, ON K9A 4R5". The geocode pass
+                # resolved this row to a postal area / city centre — the
+                # estimate routes and prices on those coordinates. Status
+                # is about routing readiness, not about saving the row as
+                # a verified facility (street-less rows are never saved as
+                # facilities — see _match_stop_locations).
                 rec.status = "manual"
             elif rec.address:
                 rec.status = "incomplete"

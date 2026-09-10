@@ -70,3 +70,7 @@ access_premafirm_estimator_scenario_request_user,estimator scenario request user
 access_premafirm_estimator_scenario_request_sys,estimator scenario request sys,model_premafirm_estimator_scenario_request,base.group_system,1,1,1,1
 access_premafirm_estimator_structured_stop_user,estimator structured stop user,model_premafirm_estimator_structured_stop,base.group_user,1,1,1,1
 access_premafirm_estimator_structured_stop_sys,estimator structured stop sys,model_premafirm_estimator_structured_stop,base.group_system,1,1,1,1
+access_premafirm_ai_baseline_user,premafirm ai baseline user,model_premafirm_ai_baseline,base.group_user,1,0,0,0
+access_premafirm_ai_baseline_sys,premafirm ai baseline sys,model_premafirm_ai_baseline,base.group_system,1,1,1,1
+access_premafirm_ai_feedback_user,premafirm ai feedback user,model_premafirm_ai_feedback,base.group_user,1,0,0,0
+access_premafirm_ai_feedback_sys,premafirm ai feedback sys,model_premafirm_ai_feedback,base.group_system,1,1,1,1

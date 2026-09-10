@@ -94,6 +94,7 @@
         "views/staff_coaching_views.xml",
         "views/fetchmail_audit_views.xml",
         "views/premafirm_estimate_reply_views.xml",
+        "views/ai_feedback_views.xml",
     ],
     "assets": {
         "web.assets_backend": [

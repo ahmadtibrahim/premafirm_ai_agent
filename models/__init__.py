@@ -137,3 +137,9 @@ from . import crm_recurring_opportunity
 # Imported last: model extends nothing, but keeps the module tail stable.
 from . import estimator_scenario_request
 from . import estimator_structured_stop
+
+# AI Generate feedback memory (SHARED quotation + invoice engine: AI baseline
+# snapshots + learned human corrections). Imported last: its write hooks must
+# wrap every other sale.order / sale.order.line / account.move /
+# account.move.line hook so human-edit detection sees final values.
+from . import ai_feedback

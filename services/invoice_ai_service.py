@@ -20,6 +20,31 @@ _logger = logging.getLogger(__name__)
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"  # kept for reference
 MAX_IMAGE_PARTS = 5  # cap to keep token usage reasonable
 
+# Shared LTL-vs-FTL classification rule (quotation + invoice extraction).
+# Trailer/equipment wording (Refrigerated 53', 53ft, dry van) describes the
+# EQUIPMENT, never the service: a partial-trailer load is an LTL service even
+# on reefer equipment. Only explicit full-truckload wording means FTL.
+_SERVICE_TYPE_RULE = (
+    "- service_type (LTL vs FTL): classify from what the documents SAY, "
+    "never from the trailer/equipment wording. A trailer size or type "
+    "(Refrigerated 53', 53ft, reefer, dry van, trailer) describes the "
+    "EQUIPMENT — it never means a full truckload. Only explicit "
+    "full-truckload wording ('full truckload', 'truckload', 'TL', 'FTL', "
+    "'dedicated truck', 'entire trailer', 'whole truck') means 'ftl' (or "
+    "'dedicated'). With no such wording, a load that occupies part of a "
+    "trailer (under ~16 pallets, or a stated max weight below full trailer "
+    "capacity) is 'ltl'; 'local' = short same-day GTA-type runs under "
+    "~100KM; 'other' = accessorial charges only."
+)
+# Verbatim full-truckload wording found on the documents (or null when none).
+_SERVICE_WORDING_RULE = (
+    "- Record VERBATIM in truckload_wording every explicit full-truckload "
+    "phrase found in the documents ('full truckload', 'truckload', 'TL', "
+    "'FTL', 'dedicated'…), or null when the documents contain none. Quotes "
+    "and rate confirmations often show only lane + pallets + weight — that "
+    "means null."
+)
+
 _PROVINCE_MAP = {
     "ontario": "ON",
     "quebec": "QC",
@@ -78,6 +103,29 @@ class InvoiceAIService:
             except Exception:
                 _logger.exception("Failed to decode attachment datas for %s", attachment.name)
         return b""
+
+    def _get_record_attachments(self, record, include_chatter=False):
+        """Attachments linked to *record* on any chatter model (account.move,
+        sale.order, …).
+
+        Files attached to the record itself are stored with
+        res_model = record._name; files dropped into the chatter are stored
+        on the record's messages (res_model='mail.message'). The shared
+        attachment pipeline used to hardcode 'account.move' — parameterising
+        it here lets the quotation AI flow reuse the exact same parser.
+
+        ``include_chatter=False`` (the default) keeps the historical invoice
+        behaviour byte-identical: direct record attachments only.
+        """
+        domain = ["&", ("res_model", "=", record._name), ("res_id", "=", record.id)]
+        if include_chatter:
+            message_ids = getattr(record, "message_ids", False)
+            if message_ids:
+                domain = ["|"] + domain + [
+                    "&", ("res_model", "=", "mail.message"),
+                    ("res_id", "in", message_ids.ids),
+                ]
+        return self.env["ir.attachment"].search(domain, order="id asc")
 
     def _extract_json_from_text(self, content):
         if not content:
@@ -292,12 +340,9 @@ class InvoiceAIService:
             _logger.exception("Rate confirmation table extraction failed")
         return []
 
-    def _find_rate_conf_bytes(self, invoice):
-        """Return bytes of the rate-confirmation PDF on this invoice, or None."""
-        attachments = self.env["ir.attachment"].search([
-            ("res_model", "=", "account.move"),
-            ("res_id", "=", invoice.id),
-        ])
+    def _find_rate_conf_bytes(self, invoice, include_chatter=False):
+        """Return bytes of the rate-confirmation PDF on this record, or None."""
+        attachments = self._get_record_attachments(invoice, include_chatter=include_chatter)
         for att in attachments:
             if not (att.name or "").lower().endswith(".pdf"):
                 continue
@@ -319,17 +364,14 @@ class InvoiceAIService:
             return f"{m.group(1).strip()}, ON"
         return ""
 
-    def _extract_trip_sheet_routes(self, invoice):
+    def _extract_trip_sheet_routes(self, invoice, include_chatter=False):
         """
         Scan attachments for Driver Trip Sheets and return a mapping of
         weekday name → ordered unique city string extracted from delivery addresses.
 
         Example: {"Tuesday": "Burlington, ON → Milton, ON → Acton, ON"}
         """
-        attachments = self.env["ir.attachment"].search([
-            ("res_model", "=", "account.move"),
-            ("res_id", "=", invoice.id),
-        ])
+        attachments = self._get_record_attachments(invoice, include_chatter=include_chatter)
         city_re = re.compile(r",\s+([A-Z][A-Z ]+?)\s+ON\b", re.I)
         routes = {}
 
@@ -398,17 +440,17 @@ class InvoiceAIService:
             )
         return f"[DOCUMENT: {att_name}]"
 
-    def _build_content_parts(self, invoice):
-        """Build the GPT-4o content array from all invoice attachments.
+    def _build_content_parts(self, record, include_chatter=False):
+        """Build the labeled content array from all attachments on a record.
 
+        Works for any chatter record (account.move, sale.order, …).
         Stops-list / route-sheet files are sorted first and labeled so the AI
         always uses them as the primary source for stop/route information instead
-        of reading addresses from POD photos.
+        of reading addresses from POD photos. ``include_chatter`` also collects
+        files attached to the record's messages — used by the quotation flow,
+        whose documents are often dropped into the chatter.
         """
-        attachments = self.env["ir.attachment"].search([
-            ("res_model", "=", "account.move"),
-            ("res_id", "=", invoice.id),
-        ], order="id asc")
+        attachments = self._get_record_attachments(record, include_chatter=include_chatter)
 
         # Sort: stops-list first (priority 0), then generic docs (1), then POD photos last (2)
         sorted_atts = sorted(attachments, key=lambda a: self._att_priority(a.name))
@@ -477,12 +519,9 @@ class InvoiceAIService:
 
         return content_parts
 
-    def _collect_attachment_text(self, invoice):
+    def _collect_attachment_text(self, record, include_chatter=False):
         """Collect text from readable PDF attachments for low-cost heuristics."""
-        attachments = self.env["ir.attachment"].search([
-            ("res_model", "=", "account.move"),
-            ("res_id", "=", invoice.id),
-        ])
+        attachments = self._get_record_attachments(record, include_chatter=include_chatter)
         text_parts = []
         for att in attachments:
             file_bytes = self._get_attachment_bytes(att)
@@ -958,6 +997,26 @@ class InvoiceAIService:
         result["uom"] = self._detect_uom(text, result.get("service_type") or "")
         return result
 
+    def _feedback_learning_section(self, record):
+        """Learned human corrections for this partner, as prompt context.
+
+        SHARED by analyze_and_generate (invoices) and analyze_quote
+        (quotations): both pull from the same premafirm.ai.feedback engine.
+        Retrieval ranks same-customer corrections first, then repeats, then
+        global rules — and always returns a small set (never the whole table).
+        """
+        try:
+            if not record:
+                return ""
+            feedback = self.env["premafirm.ai.feedback"]
+            return feedback.retrieve_for_prompt(
+                record.partner_id if hasattr(record, "partner_id") else False
+            )
+        except Exception:
+            _logger.exception("AI feedback retrieval failed for %s", record)
+            return ""
+
+
     def save_to_ml(self, invoice, result):
         """
         Save this AI generation result to the ML knowledge base.
@@ -1206,6 +1265,7 @@ class InvoiceAIService:
             "- NEVER start the description or any field with the word 'None'\n\n"
 
             "══ STEP 3 — SELECT SERVICE PRODUCT ══\n"
+            + _SERVICE_TYPE_RULE + "\n"
             "AVAILABLE PRODUCTS (choose product_id from this list, or null if none match):\n"
             + ai_products_text
             + "\n\n══ STEP 4 — EXTRACT AMOUNT ══\n"
@@ -1235,7 +1295,14 @@ class InvoiceAIService:
                     "If route destinations are not explicitly present, use the schedule-based format instead of guessing."
                 ),
             }
-        ] + content_parts
+        ]
+        feedback_text = self._feedback_learning_section(invoice)
+        if feedback_text:
+            user_content.append({"type": "text", "text": feedback_text})
+            _logger.info(
+                "Invoice AI context for %s includes learned user corrections "
+                "(%d chars)", invoice.name, len(feedback_text))
+        user_content += content_parts
 
         payload = {
             "model": self._get_model(),
@@ -1286,4 +1353,286 @@ class InvoiceAIService:
         # Detect tax and UoM from the attachment content
         result["tax_mentioned"] = self._detect_tax_mentioned(attachment_text)
         result["uom"] = self._detect_uom(attachment_text, result.get("service_type") or "")
+        return result
+
+    # ── Quotation (sale.order) AI Generate — mirrors analyze_and_generate ──
+
+    def analyze_quote(self, order, pasted_text=""):
+        """Analyze a draft quotation and EVERY attachment linked to it.
+
+        Attachments (rate confirmation, shipment details, BOLs, pickup /
+        delivery instructions — on the order form or in its chatter) are read
+        through the SAME labeled pipeline as invoice attachments and the model
+        must combine them into ONE load record. A pasted 'Describe the load'
+        text, when present, is merged with the attachments; it is optional
+        when valid attachments exist.
+
+        Returns a structured dict consumed by sale.order
+        action_ai_generate_quote:
+          refs: po_number / bol_number / load_reference / customer_reference
+          locations: shipper, customer, pickup_*/delivery_* (name, address,
+            city, region, postal, date YYYY-MM-DD, appointment text)
+          load: pallets, weight, weight_unit, commodity, temperature,
+            temp_control (frozen/chilled/dry/ambient), equipment
+          money (rate confirmation): freight_amount, accessorial_amount,
+            subtotal_amount, tax_amount, tax_type, tax_rate, total_amount,
+            currency, rate_includes_tax, tax_mentioned
+          product: product_id (catalog id or null), service_type,
+            service_name
+          prose: ai_summary, confidence, conflict_notes
+        """
+        api_key = self._get_api_key()
+        if not api_key:
+            raise ValueError("DeepSeek API key not configured in Settings.")
+
+        content_parts = self._build_content_parts(order, include_chatter=True)
+        pasted = (pasted_text or "").strip()
+        if pasted:
+            content_parts.insert(0, {
+                "type": "text",
+                "text": (
+                    "[CUSTOMER LOAD DESCRIPTION — pasted by staff. Combine it "
+                    "with the attachments into the same load record; on "
+                    "conflict, prefer the most specific/latest rate "
+                    "confirmation or shipment details and note it in "
+                    "conflict_notes.]\n"
+                    + pasted
+                ),
+            })
+        if not content_parts:
+            raise ValueError(
+                "No readable attachments were found on this quotation and no "
+                "load description was pasted. Attach the rate confirmation, "
+                "shipment details, BOL or pickup/delivery instructions — or "
+                "type a description in the 'Describe the load' field — then "
+                "run AI Generate again."
+            )
+
+        attachment_text = self._collect_attachment_text(order, include_chatter=True)
+        ref_hint = self._extract_references_from_text(attachment_text)
+
+        ai_products_text = self._get_ai_products_text() or (
+            "No AI products configured — leave product_id null."
+        )
+
+        system_prompt = (
+            "You are a freight quotation assistant for PremaFirm Inc., a Canadian "
+            "trucking company. Review the quotation's attached documents "
+            "(rate confirmation, shipment details, BOLs, pickup/delivery "
+            "instructions, emails…) TOGETHER and extract ONE structured load "
+            "record — every attachment may contribute different useful pieces.\n\n"
+            f"{_today_context_line()}\n\n"
+
+            "══ ATTACHMENT ROLES ══\n"
+            "- [STOPS LIST / ROUTE DOCUMENT / SHIPMENT DETAILS]: authority for "
+            "pickup/delivery names, addresses, appointment windows, pallet "
+            "counts, weights, commodity, temperature, accessorials.\n"
+            "- Rate confirmation / invoice-style [DOCUMENT]s with money: "
+            "authority for amounts, tax, currency, PO / customer references.\n"
+            "- A document that is only a copy of the quotation/order itself "
+            "(e.g. 'Quotation S00102' / 'Order S00…' PDF) is boilerplate — "
+            "ignore it.\n"
+            "- [POD PHOTO]: proof of delivery only.\n\n"
+
+            "══ AMOUNT RULES (rate confirmation) ══\n"
+            "- freight_amount = base freight/linehaul/unit charge BEFORE tax.\n"
+            "- accessorial_amount = total of separately itemized accessorial "
+            "charges (liftgate, fuel surcharge…) or null.\n"
+            "- subtotal_amount = total of all charge lines before tax.\n"
+            "- tax_amount = the tax line amount; 0 or null if none shown.\n"
+            "- tax_type = tax code shown (HST/GST/PST/QST/VAT…); tax_rate = its "
+            "percent, null if not shown.\n"
+            "- total_amount = grand total including tax.\n"
+            "- currency = ISO code shown (CAD, USD…) or null.\n"
+            "- rate_includes_tax = true ONLY when the document shows a single "
+            "all-in amount and no separate tax line (then put that amount in "
+            "both freight_amount and total_amount).\n\n"
+
+            "══ EXTRACTION RULES ══\n"
+            "- CONFLICTS: when two documents disagree (different date, rate, "
+            "reference…), use the most specific/latest rate confirmation or "
+            "shipment details and describe the disagreement in conflict_notes "
+            "(one short line per conflict) — never silently guess.\n"
+            "- Never invent values or reference numbers. Use null (JSON null, "
+            "never the string 'null') for anything not present in the "
+            "documents.\n"
+            "- Dates → YYYY-MM-DD, resolving bare weekdays/relative dates "
+            "against today. Appointment windows stay as written (e.g. "
+            "'11:00 AM - 12:00 PM').\n"
+            "- shipper = the company loading at the pickup; customer = the "
+            "party the shipment is billed to / that placed it. A 'Pickup "
+            "confirmation #' equal to the quotation number is not a load "
+            "reference.\n"
+            "- temp_control: frozen if below 0°C / ice cream etc.; chilled for "
+            "2-8°C / produce / dairy; dry or ambient otherwise — match the "
+            "documents.\n\n"
+            + _SERVICE_TYPE_RULE + "\n"
+            + _SERVICE_WORDING_RULE + "\n\n"
+
+            "══ SERVICE PRODUCT ══\n"
+            "AVAILABLE PRODUCTS (choose product_id from this list, or null if "
+            "none clearly fit; also set service_type):\n"
+            + ai_products_text
+            + "\nservice_type ∈ 'ftl' | 'ltl' | 'local' | 'dedicated' | 'other'."
+        )
+
+        user_message = (
+            f"Quotation: {order.name} | Customer: {order.partner_id.name or 'Unknown'}"
+            f"\n\nAnalyze ALL documents below TOGETHER and return ONE combined "
+            "load record.\n"
+        )
+        if ref_hint:
+            user_message += (
+                "\nReference numbers already detected in the documents "
+                "(authoritative when they match): " + ref_hint + "\n"
+            )
+        user_message += (
+            "\nReturn ONLY valid JSON:\n"
+            "{\n"
+            '  "service_type": "ftl|ltl|local|dedicated|other",\n'
+            '  "truckload_wording": "<verbatim full-truckload phrase(s) '
+            'found in the documents, or null>",\n'
+            '  "product_id": <integer from the product list or null>,\n'
+            '  "service_name": "<short equipment/temperature descriptor, e.g. '
+            'Reefer 53ft - Frozen, or null>",\n'
+            '  "shipper": "<company loading at pickup or null>",\n'
+            '  "customer": "<billed party shown on the documents or null>",\n'
+            '  "pickup_location_name": "<stop/company name or null>",\n'
+            '  "pickup_address": "<street address or null>",\n'
+            '  "pickup_city": "<city or null>",\n'
+            '  "pickup_region": "<province/state or null>",\n'
+            '  "pickup_postal": "<postal/zip or null>",\n'
+            '  "pickup_date": "YYYY-MM-DD or null",\n'
+            '  "pickup_appointment": "<appointment window text or null>",\n'
+            '  "delivery_location_name": "<stop/company name or null>",\n'
+            '  "delivery_address": "<street address or null>",\n'
+            '  "delivery_city": "<city or null>",\n'
+            '  "delivery_region": "<province/state or null>",\n'
+            '  "delivery_postal": "<postal/zip or null>",\n'
+            '  "delivery_date": "YYYY-MM-DD or null",\n'
+            '  "delivery_appointment": "<appointment window text or null>",\n'
+            '  "po_number": "<PO # or null>",\n'
+            '  "bol_number": "<BOL # or null>",\n'
+            '  "load_reference": "<shipment/load/booking reference — the '
+            'Ref#/reference number shown on the rate confirmation or shipment '
+            'details; it may equal the PO number — never null when any '
+            'reference number is present, or null>",\n'
+            '  "customer_reference": "<customer reference / rate-conf # or '
+            'null>",\n'
+            '  "pallets": <integer or 0>,\n'
+            '  "weight": <number or 0>,\n'
+            '  "weight_unit": "lbs|kg|null",\n'
+            '  "commodity": "<description of the freight or null>",\n'
+            '  "temperature": "<temp spec like -20°C or null>",\n'
+            '  "temp_control": "frozen|chilled|dry|ambient|null",\n'
+            '  "equipment": "<equipment type like Reefer 53\' or null>",\n'
+            '  "freight_amount": <number or null>,\n'
+            '  "accessorial_amount": <number or null>,\n'
+            '  "subtotal_amount": <number or null>,\n'
+            '  "tax_amount": <number or 0>,\n'
+            '  "tax_type": "<HST/GST/PST/QST/VAT or null>",\n'
+            '  "tax_rate": <percent number or null>,\n'
+            '  "total_amount": <number or null>,\n'
+            '  "currency": "<CAD/USD/… or null>",\n'
+            '  "rate_includes_tax": <true|false>,\n'
+            '  "accessorials": "<non-charge accessorial requirements as one '
+            'string, or null>",\n'
+            '  "special_instructions": "<pickup/delivery instructions, '
+            'appointment booking notes, contacts… or null>",\n'
+            '  "ai_summary": "<2-3 sentence internal operational summary: '
+            'route, commodity, equipment/temp, pallets/weight, rate + tax, '
+            'flags>",\n'
+            '  "confidence": "high|medium|low",\n'
+            '  "conflict_notes": "<short note per conflict or empty string>"\n'
+            "}\n"
+            "Field policy: an empty string is not a valid value — use null. "
+            "Do not repeat the quotation's own number as a reference."
+        )
+
+        user_content = [{"type": "text", "text": user_message}]
+        feedback_text = self._feedback_learning_section(order)
+        if feedback_text:
+            user_content.append({"type": "text", "text": feedback_text})
+            _logger.info(
+                "Quote AI context for %s includes learned user corrections "
+                "(%d chars)", order.name, len(feedback_text))
+        user_content += content_parts
+
+        raw_content = deepseek_chat(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            max_tokens=1600,
+            api_key=api_key,
+            model=self._get_model(),
+            timeout=120,
+        )
+
+        _logger.info("Quote AI raw response for %s: %s", order.name, raw_content[:4000])
+        result = self._extract_json_from_text(raw_content)
+
+        # Normalize JSON null-ish strings / empty strings to None
+        str_keys = (
+            "service_name", "shipper", "customer", "pickup_location_name",
+            "pickup_address", "pickup_city", "pickup_region", "pickup_postal",
+            "pickup_date", "pickup_appointment", "delivery_location_name",
+            "delivery_address", "delivery_city", "delivery_region",
+            "delivery_postal", "delivery_date", "delivery_appointment",
+            "po_number", "bol_number", "load_reference", "customer_reference",
+            "weight_unit", "commodity", "temperature", "temp_control",
+            "equipment", "tax_type", "currency", "accessorials",
+            "special_instructions", "ai_summary", "conflict_notes",
+            "service_type", "truckload_wording",
+        )
+        for key in str_keys:
+            val = result.get(key)
+            if val in (None, "", "null", "none", "NULL", "NONE", "None"):
+                result[key] = None
+        # Regions → 2-letter codes where mappable
+        for key in ("pickup_region", "delivery_region"):
+            result[key] = self._normalize_region(result.get(key) or "") or None
+        # Numeric keys
+        for key in ("pallets",):
+            try:
+                result[key] = int(float(result.get(key) or 0))
+            except (TypeError, ValueError):
+                result[key] = 0
+        for key in ("weight", "freight_amount", "accessorial_amount",
+                    "subtotal_amount", "tax_amount", "tax_rate", "total_amount"):
+            val = result.get(key)
+            if val in (None, "", "null"):
+                result[key] = None
+                continue
+            try:
+                result[key] = float(str(val).replace(",", "").replace("$", "").strip())
+            except (TypeError, ValueError):
+                result[key] = None
+        if result.get("weight") and not result.get("weight_unit"):
+            result["weight_unit"] = "lbs"
+        # Load reference: on PremaFirm rate confirmations the load/booking
+        # reference IS the Ref# (it may equal the PO#). If the model left
+        # load_reference out but did extract the customer reference number,
+        # carry that number over rather than leaving the field blank.
+        if not result.get("load_reference") and result.get("customer_reference"):
+            result["load_reference"] = result["customer_reference"]
+        # Confidence default
+        if result.get("confidence") not in ("high", "medium", "low"):
+            result["confidence"] = "unknown"
+        if not isinstance(result.get("rate_includes_tax"), bool):
+            result["rate_includes_tax"] = False
+        # Tax mention: document text says so, or a tax line was extracted
+        combined_text = attachment_text + ("\n" + pasted if pasted else "")
+        result["tax_mentioned"] = (
+            self._detect_tax_mentioned(combined_text)
+            or bool(result.get("tax_amount"))
+            or bool(result.get("tax_type"))
+        )
+        _logger.info(
+            "Quote AI result for %s: service_type=%s product_id=%s "
+            "freight=%s tax=%s total=%s conf=%s",
+            order.name, result.get("service_type"), result.get("product_id"),
+            result.get("freight_amount"), result.get("tax_amount"),
+            result.get("total_amount"), result.get("confidence"),
+        )
         return result

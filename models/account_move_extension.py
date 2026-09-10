@@ -509,6 +509,16 @@ class AccountMove(models.Model):
 
     def action_ai_generate_invoice(self):
         self.ensure_one()
+        if not self.env.context.get("ai_apply_flow"):
+            # The whole AI apply runs under ai_apply_flow so the SHARED
+            # feedback hooks (premafirm.ai.baseline/feedback — same engine as
+            # quotations) never learn from AI Generate itself.
+            return self.with_context(
+                ai_apply_flow=True).action_ai_generate_invoice()
+
+        # Baseline BEFORE this run: what the previous AI run still owned.
+        old_payload = self.env["premafirm.ai.baseline"].get_dict(
+            "account.move", self.id)
 
         from ..services.invoice_ai_service import InvoiceAIService
 
@@ -566,6 +576,14 @@ class AccountMove(models.Model):
         elif existing_product_lines:
             product = existing_product_lines.sorted("sequence")[0].product_id
 
+        # Snapshot the pre-run line state so the baseline knows which lines /
+        # prices THIS run created or filled (vs. amounts the user typed).
+        pre_product_price = {
+            l.id: l.price_unit or 0.0 for l in self.invoice_line_ids
+            if l.display_type == "product" and l.product_id
+        }
+        pre_line_ids = set(self.invoice_line_ids.ids)
+
         if not is_posted and line_items and product:
             self._apply_ai_schedule_lines_draft(product, line_items, tax_vals=tax_vals, uom_id=uom_id)
         elif is_posted:
@@ -578,6 +596,15 @@ class AccountMove(models.Model):
 
         self._generate_ai_summary(result)
 
+        # ── AI baseline snapshot (shared feedback engine — internal) ──────
+        try:
+            self._capture_invoice_ai_baseline(
+                old_payload, reference, description, amount,
+                pre_product_price, pre_line_ids,
+            )
+        except Exception:
+            _logger.exception("Failed to save AI baseline for %s", self.name)
+
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -589,6 +616,67 @@ class AccountMove(models.Model):
                 "next": {"type": "ir.actions.client", "tag": "reload"},
             },
         }
+
+    def _capture_invoice_ai_baseline(
+        self, old_payload, reference, description, amount,
+        pre_product_price, pre_line_ids,
+    ):
+        """Save/refresh the AI baseline snapshot for this invoice.
+
+        Same SHARED engine as quotations (premafirm.ai.baseline — one model,
+        one feedback engine). The snapshot lists exactly what AI still owns
+        after the run:
+        * ref — written this run, or still the unchanged AI value from a
+          previous run (a user-corrected ref stays out of the baseline);
+        * the AI description note line(s) — first line 'Freight / Delivery
+          Service': created/updated this run, or carried while the user left
+          them as AI wrote them;
+        * product-line price_unit where THIS run created the line or filled
+          an empty price.
+        Internal metadata only — nothing is shown in the invoice UI.
+        """
+        from .ai_feedback import _values_equal
+        payload = {}
+        if reference:
+            payload["ref"] = self.ref or reference
+        elif "ref" in old_payload and (self.ref or "") == (old_payload["ref"] or ""):
+            payload["ref"] = self.ref or ""
+        for note in self.invoice_line_ids.filtered(
+            lambda l: l.display_type == "line_note"
+            and (l.name or "").startswith("Freight / Delivery Service")
+        ):
+            key = f"line:{note.id}:name"
+            if key in old_payload and old_payload[key] != (note.name or "") \
+                    and (description or "") != (note.name or ""):
+                continue  # user-corrected note — AI never re-claims it
+            if (note.name or "").strip():
+                payload[key] = (note.name or "").strip()
+        for line in self.invoice_line_ids.filtered(
+            lambda l: l.display_type == "product" and l.product_id
+        ):
+            key = f"line:{line.id}:price_unit"
+            price = line.price_unit or 0.0
+            if key in old_payload:
+                owned = _values_equal(old_payload[key], price)
+            elif line.id not in pre_line_ids:
+                owned = bool(price)  # line created by this run
+            else:
+                owned = not pre_product_price.get(line.id) and bool(price)
+            if owned and price:
+                payload[key] = price
+        if not payload and not self.env["premafirm.ai.baseline"].get_for(
+                "account.move", self.id):
+            return
+        payload["generated_at"] = fields.Datetime.now().isoformat()
+        att_ids = self.env["ir.attachment"].sudo().search([
+            ("res_model", "=", "account.move"),
+            ("res_id", "=", self.id),
+            ("type", "=", "binary"),
+        ]).ids
+        self.env["premafirm.ai.baseline"].set_for(
+            "account.move", self.id, payload, partner=self.partner_id,
+            created_by=self.env.user, attachment_ids=att_ids,
+        )
 
     def action_generate_from_whatsapp(self):
         """Generate invoice reference + description from a pasted WhatsApp/text message."""
